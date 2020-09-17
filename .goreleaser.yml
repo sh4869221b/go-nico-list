@@ -1,4 +1,4 @@
-project_name: beego-app
+project_name: go-nico-list
 env:
   - GO111MODULE=on
 before:
@@ -6,7 +6,7 @@ before:
     - go mod tidy
 builds:
   - main: .
-    binary: beego-app
+    binary: go-nico-list
     ldflags:
       - -s -w
       - -X main.Version={{.Version}}

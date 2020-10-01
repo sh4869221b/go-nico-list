@@ -26,12 +26,12 @@ func GetVideoList(userID string) string {
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer res.Body.Close()
 		if res.StatusCode != 200 {
 			break
 		}
 
 		body, err := ioutil.ReadAll(res.Body)
+		res.Body.Close()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -47,7 +47,6 @@ func GetVideoList(userID string) string {
 			resStr += s.ID + "\n"
 		}
 	}
-
 	return resStr
 }
 

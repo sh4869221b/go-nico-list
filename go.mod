@@ -4,5 +4,5 @@ go 1.14
 
 require (
 	github.com/mattn/go-colorable v0.1.8
-	github.com/urfave/cli/v2 v2.2.0
+	github.com/urfave/cli/v2 v2.3.0
 )

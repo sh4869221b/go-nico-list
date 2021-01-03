@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	app := &cli.App{
+	var app = &cli.App{
 		Name:  "go-nico-list",
 		Usage: "niconico {user}/video url get video list",
 		Action: func(c *cli.Context) error {
@@ -21,7 +21,6 @@ func main() {
 			return nil
 		},
 	}
-
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)

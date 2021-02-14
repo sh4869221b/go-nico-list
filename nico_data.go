@@ -1,52 +1,9 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	log "log"
-	"net/http"
-	"os"
 	"time"
 )
 
-// GetVideoList is aaa
-func GetVideoList(userID string) string {
-
-	var resStr string
-	var req *http.Request
-
-	for i := 0; i < 100; i++ {
-		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v1/users/%s/videos?sortKey=registeredAt&pageSize=100&page=%d", userID, i+1)
-		req, _ = http.NewRequest("GET", url, nil)
-		req.Header.Set("X-Frontend-Id", "6")
-		var client = new(http.Client)
-		var res, err = client.Do(req)
-		if nil != err {
-			log.Fatal(err)
-		}
-		if res.StatusCode != 200 {
-			break
-		}
-		body, err := ioutil.ReadAll(res.Body)
-		_ = res.Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		var nicoData nicoData
-		if err := json.Unmarshal(body, &nicoData); err != nil {
-			os.Exit(0)
-		}
-		if len(nicoData.Data.Items) == 0 {
-			break
-		}
-		for _, s := range nicoData.Data.Items {
-			resStr += s.ID + "\n"
-		}
-	}
-	return resStr
-}
 
 type nicoData struct {
 	Meta meta `json:"meta"`

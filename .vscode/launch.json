@@ -11,7 +11,7 @@
       "mode": "auto",
       "program": "${fileDirname}",
       "env": {},
-      "args": ["https://www.nicovideo.jp/user/6383112/video"]
+      "args": ["https://www.nicovideo.jp/user/6383112/video", "-c","1000"]
     }
   ]
 }

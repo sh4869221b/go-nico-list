@@ -26,7 +26,6 @@ func main() {
 		},
 		Action: func(c *cli.Context) error {
 			// https://www.nicovideo.jp/user/18906466/video
-			fmt.Println(c.Int("comment"))
 			userID := strings.Trim(c.Args().First(), "https://www.nicovideo.jp/user/")
 			userID = strings.Trim(userID, "/video")
 			fmt.Println(getVideoList(userID, c.Int("comment")))

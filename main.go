@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mattn/natural"
 	"github.com/urfave/cli/v2"
 )
 
@@ -25,10 +26,15 @@ func main() {
 			},
 		},
 		Action: func(c *cli.Context) error {
+			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
-			userID := strings.Trim(c.Args().First(), "https://www.nicovideo.jp/user/")
-			userID = strings.Trim(userID, "/video")
-			fmt.Println(getVideoList(userID, c.Int("comment")))
+			for _, s := range c.Args().Slice() {
+				userID := strings.Trim(s, "https://www.nicovideo.jp/user/")
+				userID = strings.Trim(userID, "/video")
+				idList = append(idList, getVideoList(userID, c.Int("comment"))...)
+			}
+			natural.Sort(idList)
+			fmt.Println(strings.Join(idList[:], "\n"))
 			return nil
 		},
 	}
@@ -39,9 +45,9 @@ func main() {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int) string {
+func getVideoList(userID string, commentCount int) []string {
 
-	var resStr string
+	var resStr []string
 	var req *http.Request
 
 	for i := 0; i < 100; i++ {
@@ -73,7 +79,7 @@ func getVideoList(userID string, commentCount int) string {
 			if s.Count.Comment <= commentCount {
 				continue
 			}
-			resStr += s.ID + "\n"
+			resStr = append(resStr, s.ID)
 		}
 	}
 	return resStr

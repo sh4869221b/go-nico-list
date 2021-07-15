@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mattn/natural"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,6 +23,11 @@ func main() {
 				Aliases: []string{"c"},
 				Usage:   "lower comment limit `number`",
 			},
+			&cli.BoolFlag{
+				Name:    "tab",
+				Aliases: []string{"t"},
+				Usage:   "id tab Separated flag",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			var idList []string
@@ -31,9 +35,10 @@ func main() {
 			for _, s := range c.Args().Slice() {
 				userID := strings.Trim(s, "https://www.nicovideo.jp/user/")
 				userID = strings.Trim(userID, "/video")
-				idList = append(idList, getVideoList(userID, c.Int("comment"))...)
+				idList = append(idList, getVideoList(userID, c.Int("comment"), c.Bool("tab"))...)
 			}
-			natural.Sort(idList)
+			// natural.Sort(idList)
+			NiconicoSort(idList, c.Bool("tab"))
 			fmt.Println(strings.Join(idList[:], "\n"))
 			return nil
 		},
@@ -45,13 +50,17 @@ func main() {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int) []string {
+func getVideoList(userID string, commentCount int, tab bool) []string {
 
 	var resStr []string
 	var req *http.Request
+	var tabStr = ""
+	if tab {
+		tabStr = "\t\t\t\t\t\t\t\t\t"
+	}
 
 	for i := 0; i < 100; i++ {
-		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v1/users/%s/videos?sortKey=registeredAt&pageSize=100&page=%d", userID, i+1)
+		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v1/users/%s/videos?pageSize=100&page=%d", userID, i+1)
 		req, _ = http.NewRequest("GET", url, nil)
 		req.Header.Set("X-Frontend-Id", "6")
 		var client = new(http.Client)
@@ -79,7 +88,7 @@ func getVideoList(userID string, commentCount int) []string {
 			if s.Count.Comment <= commentCount {
 				continue
 			}
-			resStr = append(resStr, s.ID)
+			resStr = append(resStr, tabStr+s.ID)
 		}
 	}
 	return resStr

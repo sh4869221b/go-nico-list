@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/urfave/cli/v2"
@@ -32,9 +33,16 @@ func main() {
 		Action: func(c *cli.Context) error {
 			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
+			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 			for _, s := range c.Args().Slice() {
-				userID := strings.Trim(s, "https://www.nicovideo.jp/user/")
-				userID = strings.Trim(userID, "/video")
+				match := r.FindStringSubmatch(s)
+				result := make(map[string]string)
+				for i, name := range r.SubexpNames() {
+					if i != 0 && name != "" {
+						result[name] = match[i]
+					}
+				}
+				userID := result["userID"]
 				idList = append(idList, getVideoList(userID, c.Int("comment"), c.Bool("tab"))...)
 			}
 			// natural.Sort(idList)

@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-
 type nicoData struct {
 	Meta meta `json:"meta"`
 	Data data `json:"data"`

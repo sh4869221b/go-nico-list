@@ -3,17 +3,20 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/urfave/cli/v2"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strings"
-	"time"
+
+	"github.com/urfave/cli/v2"
 )
 
-const timeout = time.Duration(5 * time.Second)
+var (
+	Version = "unset"
+)
 
 func main() {
 	var app = &cli.App{
@@ -31,8 +34,23 @@ func main() {
 				Aliases: []string{"t"},
 				Usage:   "id tab Separated flag",
 			},
+			&cli.BoolFlag{
+				Name:    "version",
+				Aliases: []string{"v"},
+				Usage:   "print the version",
+			},
 		},
 		Action: func(c *cli.Context) error {
+			if c.Bool("version") {
+				if Version == "unset" {
+					info, ok := debug.ReadBuildInfo()
+					if ok {
+						Version = info.Main.Version
+					}
+				}
+				fmt.Printf("version: %s\n", Version)
+				return nil
+			}
 			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
@@ -89,7 +107,7 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 		var (
 			err     error
 			res     *http.Response
-			retries int = 100
+			retries = 100
 		)
 		for retries > 0 {
 			res, err = client.Do(req)

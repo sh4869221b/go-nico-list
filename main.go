@@ -3,15 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
-
-	"github.com/urfave/cli/v2"
+	"time"
 )
+
+const timeout = time.Duration(5 * time.Second)
 
 func main() {
 	var app = &cli.App{
@@ -34,6 +36,7 @@ func main() {
 			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
+			idListChan := make(chan []string, c.Args().Len())
 			for _, s := range c.Args().Slice() {
 				match := r.FindStringSubmatch(s)
 				result := make(map[string]string)
@@ -43,8 +46,19 @@ func main() {
 					}
 				}
 				userID := result["userID"]
-				idList = append(idList, getVideoList(userID, c.Int("comment"), c.Bool("tab"))...)
+				go getVideoList(userID, c.Int("comment"), c.Bool("tab"), idListChan)
 			}
+
+			count := 0
+			for che := range idListChan {
+				count++
+				idList = append(idList, che...)
+				if count == c.Args().Len() {
+					break
+				}
+			}
+
+			close(idListChan)
 			// natural.Sort(idList)
 			NiconicoSort(idList, c.Bool("tab"))
 			fmt.Println(strings.Join(idList[:], "\n"))
@@ -58,7 +72,7 @@ func main() {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int, tab bool) []string {
+func getVideoList(userID string, commentCount int, tab bool, idListChan chan []string) {
 
 	var resStr []string
 	var req *http.Request
@@ -72,34 +86,45 @@ func getVideoList(userID string, commentCount int, tab bool) []string {
 		req, _ = http.NewRequest("GET", url, nil)
 		req.Header.Set("X-Frontend-Id", "6")
 		var client = new(http.Client)
-		var res, err = client.Do(req)
-		if nil != err {
-			log.Fatal(err)
-		}
-		if res.StatusCode != 200 {
-			break
-		}
-		body, err := ioutil.ReadAll(res.Body)
-		_ = res.Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		var nicoData nicoData
-		if err := json.Unmarshal(body, &nicoData); err != nil {
-			os.Exit(0)
-		}
-		if len(nicoData.Data.Items) == 0 {
-			break
-		}
-		for _, s := range nicoData.Data.Items {
-			if s.Count.Comment <= commentCount {
-				continue
+		var (
+			err     error
+			res     *http.Response
+			retries int = 100
+		)
+		for retries > 0 {
+			res, err = client.Do(req)
+			if err != nil {
+				retries -= 1
+			} else {
+				break
 			}
-			resStr = append(resStr, tabStr+s.ID)
+		}
+		if retries == 0 {
+			log.Fatal(err)
+		}
+		if res != nil {
+			body, err := ioutil.ReadAll(res.Body)
+			_ = res.Body.Close()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			var nicoData nicoData
+			if err := json.Unmarshal(body, &nicoData); err != nil {
+				os.Exit(0)
+			}
+			if len(nicoData.Data.Items) == 0 {
+				break
+			}
+			for _, s := range nicoData.Data.Items {
+				if s.Count.Comment <= commentCount {
+					continue
+				}
+				resStr = append(resStr, tabStr+s.ID)
+			}
 		}
 	}
-	return resStr
+	idListChan <- resStr
 }
 
 // X-Frontend-Id: 6

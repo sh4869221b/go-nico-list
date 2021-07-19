@@ -51,16 +51,16 @@ func main() {
 				fmt.Printf("version: %s\n", Version)
 				return nil
 			}
-			idList := make([]string, c.Args().Len())
+			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 			idListChan := make(chan []string, c.Args().Len())
-			for _, s := range c.Args().Slice() {
-				match := r.FindStringSubmatch(s)
+			for i := range c.Args().Slice() {
+				match := r.FindStringSubmatch(c.Args().Get(i))
 				result := make(map[string]string)
-				for i, name := range r.SubexpNames() {
-					if i != 0 && name != "" {
-						result[name] = match[i]
+				for j, name := range r.SubexpNames() {
+					if j != 0 && name != "" {
+						result[name] = match[j]
 					}
 				}
 				userID := result["userID"]

@@ -9,7 +9,7 @@ builds:
     binary: go-nico-list
     ldflags:
       - -s -w
-      - -X main.Version={{.Version}}
+      - -X main.Version=v{{.Version}}
       - -X main.Revision={{.ShortCommit}}
     goos: # default では linux と darwin だけだけど windows 用のバイナリも作るようにしてみる
       - linux

@@ -51,7 +51,7 @@ func main() {
 				fmt.Printf("version: %s\n", Version)
 				return nil
 			}
-			var idList []string
+			idList := make([]string, c.Args().Len())
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 			idListChan := make(chan []string, c.Args().Len())
@@ -93,7 +93,7 @@ func main() {
 func getVideoList(userID string, commentCount int, tab bool, idListChan chan []string) {
 
 	var resStr []string
-	var req *http.Request
+
 	var tabStr = ""
 	if tab {
 		tabStr = "\t\t\t\t\t\t\t\t\t"
@@ -101,25 +101,7 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 
 	for i := 0; i < 100; i++ {
 		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v1/users/%s/videos?pageSize=100&page=%d", userID, i+1)
-		req, _ = http.NewRequest("GET", url, nil)
-		req.Header.Set("X-Frontend-Id", "6")
-		var client = new(http.Client)
-		var (
-			err     error
-			res     *http.Response
-			retries = 100
-		)
-		for retries > 0 {
-			res, err = client.Do(req)
-			if err != nil {
-				retries -= 1
-			} else {
-				break
-			}
-		}
-		if retries == 0 {
-			log.Fatal(err)
-		}
+		res := retriesRequest(url)
 		if res != nil {
 			body, err := ioutil.ReadAll(res.Body)
 			_ = res.Body.Close()
@@ -143,6 +125,31 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 		}
 	}
 	idListChan <- resStr
+}
+
+func retriesRequest(url string) *http.Response {
+	var req *http.Request
+	req, _ = http.NewRequest("GET", url, nil)
+	req.Header.Set("X-Frontend-Id", "6")
+	var client = new(http.Client)
+	var (
+		err     error
+		res     *http.Response
+		retries = 100
+	)
+	for retries > 0 {
+		res, err = client.Do(req)
+		if err != nil {
+			retries -= 1
+		} else {
+			break
+		}
+	}
+	if retries == 0 {
+		log.Fatal(err)
+	}
+
+	return res
 }
 
 // X-Frontend-Id: 6

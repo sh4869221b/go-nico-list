@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -10,8 +11,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
-
-	"github.com/urfave/cli/v2"
+	"sync"
 )
 
 var (
@@ -55,7 +55,10 @@ func main() {
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 			idListChan := make(chan []string, c.Args().Len())
+			var wg sync.WaitGroup
+
 			for i := range c.Args().Slice() {
+				wg.Add(1)
 				match := r.FindStringSubmatch(c.Args().Get(i))
 				result := make(map[string]string)
 				for j, name := range r.SubexpNames() {
@@ -64,18 +67,13 @@ func main() {
 					}
 				}
 				userID := result["userID"]
-				go getVideoList(userID, c.Int("comment"), c.Bool("tab"), idListChan)
+				go func() {
+					defer wg.Done()
+					getVideoList(userID, c.Int("comment"), c.Bool("tab"), idListChan)
+					idList = append(idList, <-idListChan...)
+				}()
 			}
-
-			count := 0
-			for che := range idListChan {
-				count++
-				idList = append(idList, che...)
-				if count == c.Args().Len() {
-					break
-				}
-			}
-
+			wg.Wait()
 			close(idListChan)
 			// natural.Sort(idList)
 			NiconicoSort(idList, c.Bool("tab"))

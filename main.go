@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/urfave/cli/v2"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -12,6 +11,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+
+	"github.com/urfave/cli/v2"
 )
 
 var (

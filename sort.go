@@ -11,5 +11,7 @@ func NiconicoSort(slice []string, tab bool) {
 	if tab {
 		num = 11
 	}
-	sort.Slice(slice, func(i, j int) bool { return fmt.Sprintf("%08s", slice[i][num:]) < fmt.Sprintf("%08s", slice[j][num:]) })
+	str := "%08s"
+
+	sort.Slice(slice, func(i, j int) bool { return fmt.Sprintf(str, slice[i][num:]) < fmt.Sprintf(str, slice[j][num:]) })
 }

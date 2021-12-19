@@ -76,7 +76,7 @@ func main() {
 			}
 			wg.Wait()
 			close(idListChan)
-			// natural.Sort(idList)
+			// natural.Sort(idList
 			NiconicoSort(idList, c.Bool("tab"))
 			fmt.Println(strings.Join(idList[:], "\n"))
 			return nil
@@ -119,7 +119,7 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 				if s.Count.Comment <= commentCount {
 					continue
 				}
-				resStr = append(resStr, tabStr+s.ID)
+				resStr = append(resStr, fmt.Sprintf("%s%s", tabStr, s.ID))
 			}
 		}
 	}

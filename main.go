@@ -99,7 +99,7 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 	}
 
 	for i := 0; i < 100; i++ {
-		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v1/users/%s/videos?pageSize=100&page=%d", userID, i+1)
+		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
 		res := retriesRequest(url)
 		if res != nil {
 			body, err := ioutil.ReadAll(res.Body)
@@ -116,10 +116,10 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 				break
 			}
 			for _, s := range nicoData.Data.Items {
-				if s.Count.Comment <= commentCount {
+				if s.Essential.Count.Comment <= commentCount {
 					continue
 				}
-				resStr = append(resStr, fmt.Sprintf("%s%s", tabStr, s.ID))
+				resStr = append(resStr, fmt.Sprintf("%s%s", tabStr, s.Essential.ID))
 			}
 		}
 	}
@@ -130,6 +130,7 @@ func retriesRequest(url string) *http.Response {
 	var req *http.Request
 	req, _ = http.NewRequest("GET", url, nil)
 	req.Header.Set("X-Frontend-Id", "6")
+	req.Header.Set("Accept", "*/*")
 	var client = new(http.Client)
 	var (
 		err     error
@@ -138,7 +139,7 @@ func retriesRequest(url string) *http.Response {
 	)
 	for retries > 0 {
 		res, err = client.Do(req)
-		if err != nil {
+		if err != nil || res.StatusCode != 200 {
 			retries -= 1
 		} else {
 			break

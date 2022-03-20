@@ -56,9 +56,11 @@ func main() {
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 			idListChan := make(chan []string, c.Args().Len())
+			sem := make(chan struct{}, 60) // concurrency数のバッファ
 			var wg sync.WaitGroup
 
 			for i := range c.Args().Slice() {
+				sem <- struct{}{}
 				wg.Add(1)
 				match := r.FindStringSubmatch(c.Args().Get(i))
 				result := make(map[string]string)
@@ -70,6 +72,7 @@ func main() {
 				userID := result["userID"]
 				go func() {
 					defer wg.Done()
+					defer func() { <-sem }() // 処理が終わったらチャネルを解放
 					getVideoList(userID, c.Int("comment"), c.Bool("tab"), idListChan)
 					idList = append(idList, <-idListChan...)
 				}()

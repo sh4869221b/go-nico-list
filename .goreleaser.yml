@@ -13,7 +13,6 @@ builds:
       - -X main.Revision={{.ShortCommit}}
     goos: # default では linux と darwin だけだけど windows 用のバイナリも作るようにしてみる
       - linux
-      - darwin
       - windows
     env:
       - CGO_ENABLED=0

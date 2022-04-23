@@ -52,11 +52,15 @@ func main() {
 				fmt.Printf("version: %s\n", Version)
 				return nil
 			}
+			if c.Args().Len() == 0 {
+				fmt.Println("Please input userID")
+				return nil
+			}
 			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 			idListChan := make(chan []string, c.Args().Len())
-			sem := make(chan struct{}, 60) // concurrency数のバッファ
+			sem := make(chan struct{}, 30) // concurrency数のバッファ
 			var wg sync.WaitGroup
 
 			for i := range c.Args().Slice() {

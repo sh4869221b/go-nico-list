@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/urfave/cli/v2"
 )
@@ -29,6 +30,12 @@ func main() {
 				Value:   10,
 				Aliases: []string{"c"},
 				Usage:   "lower comment limit `number`",
+			},
+			&cli.StringFlag{
+				Name:    "date",
+				Value:   "10000101",
+				Aliases: []string{"d"},
+				Usage:   "date `YYYYMMDD`",
 			},
 			&cli.BoolFlag{
 				Name:    "tab",
@@ -56,6 +63,15 @@ func main() {
 				fmt.Println("Please input userID")
 				return nil
 			}
+
+			var dateFormt = "20060102"
+
+			var t, err = time.Parse(dateFormt, c.String("date"))
+			if err != nil {
+				t, _ = time.Parse(dateFormt, "")
+			}
+
+			var beforeDate = t
 			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
@@ -77,7 +93,7 @@ func main() {
 				go func() {
 					defer wg.Done()
 					defer func() { <-sem }() // 処理が終わったらチャネルを解放
-					getVideoList(userID, c.Int("comment"), c.Bool("tab"), idListChan)
+					getVideoList(userID, c.Int("comment"), beforeDate, c.Bool("tab"), idListChan)
 					idList = append(idList, <-idListChan...)
 				}()
 			}
@@ -96,7 +112,7 @@ func main() {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int, tab bool, idListChan chan []string) {
+func getVideoList(userID string, commentCount int, beforeDate time.Time, tab bool, idListChan chan []string) {
 
 	var resStr []string
 
@@ -124,6 +140,9 @@ func getVideoList(userID string, commentCount int, tab bool, idListChan chan []s
 			}
 			for _, s := range nicoData.Data.Items {
 				if s.Essential.Count.Comment <= commentCount {
+					continue
+				}
+				if s.Essential.RegisteredAt.Before(beforeDate) {
 					continue
 				}
 				resStr = append(resStr, fmt.Sprintf("%s%s", tabStr, s.Essential.ID))

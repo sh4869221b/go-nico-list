@@ -21,9 +21,16 @@ var (
 )
 
 func main() {
+	if Version == "unset" {
+		info, ok := debug.ReadBuildInfo()
+		if ok {
+			Version = info.Main.Version
+		}
+	}
 	var app = &cli.App{
-		Name:  "go-nico-list",
-		Usage: "niconico {user}/video url get video list",
+		Name:    "go-nico-list",
+		Usage:   "niconico {user}/video url get video list",
+		Version: fmt.Sprintf("%s", Version),
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:    "comment",
@@ -42,23 +49,8 @@ func main() {
 				Aliases: []string{"t"},
 				Usage:   "id tab Separated flag",
 			},
-			&cli.BoolFlag{
-				Name:    "version",
-				Aliases: []string{"v"},
-				Usage:   "print the version",
-			},
 		},
 		Action: func(c *cli.Context) error {
-			if c.Bool("version") {
-				if Version == "unset" {
-					info, ok := debug.ReadBuildInfo()
-					if ok {
-						Version = info.Main.Version
-					}
-				}
-				fmt.Printf("version: %s\n", Version)
-				return nil
-			}
 			if c.Args().Len() == 0 {
 				fmt.Println("Please input userID")
 				return nil

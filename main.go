@@ -30,7 +30,7 @@ func main() {
 	var app = &cli.App{
 		Name:    "go-nico-list",
 		Usage:   "niconico {user}/video url get video list",
-		Version: fmt.Sprintf("%s", Version),
+		Version: Version,
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:    "comment",

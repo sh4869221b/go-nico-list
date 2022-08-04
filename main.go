@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -117,14 +117,16 @@ func getVideoList(userID string, commentCount int, beforeDate time.Time, tab boo
 		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
 		res := retriesRequest(url)
 		if res != nil {
-			body, err := ioutil.ReadAll(res.Body)
+			body, err := io.ReadAll(res.Body)
 			_ = res.Body.Close()
 			if err != nil {
 				log.Fatal(err)
+				os.Exit(0)
 			}
 
 			var nicoData nicoData
 			if err := json.Unmarshal(body, &nicoData); err != nil {
+				log.Fatal(err)
 				os.Exit(0)
 			}
 			if len(nicoData.Data.Items) == 0 {
@@ -165,6 +167,7 @@ func retriesRequest(url string) *http.Response {
 	}
 	if retries == 0 {
 		log.Fatal(err)
+		os.Exit(0)
 	}
 
 	return res

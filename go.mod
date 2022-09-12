@@ -2,7 +2,7 @@ module github.com/sh4869221b/go-nico-list
 
 go 1.18
 
-require github.com/urfave/cli/v2 v2.15.0
+require github.com/urfave/cli/v2 v2.16.3
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect

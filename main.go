@@ -55,6 +55,11 @@ func main() {
 				Aliases: []string{"t"},
 				Usage:   "id tab Separated flag",
 			},
+			&cli.BoolFlag{
+				Name:    "url",
+				Aliases: []string{"u"},
+				Usage:   "output id add url",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			if c.Args().Len() == 0 {
@@ -99,7 +104,7 @@ func main() {
 				go func() {
 					defer wg.Done()
 					defer func() { <-sem }() // 処理が終わったらチャネルを解放
-					getVideoList(userID, c.Int("comment"), afterDate, beforeDate, c.Bool("tab"), idListChan)
+					getVideoList(userID, c.Int("comment"), afterDate, beforeDate, c.Bool("tab"), c.Bool("url"), idListChan)
 					idList = append(idList, <-idListChan...)
 				}()
 			}
@@ -118,13 +123,17 @@ func main() {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, idListChan chan []string) {
+func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, idListChan chan []string) {
 
 	var resStr []string
 
 	var tabStr = ""
 	if tab {
 		tabStr = "\t\t\t\t\t\t\t\t\t"
+	}
+	var urlStr = ""
+	if url {
+		urlStr = "https://www.nicovideo.jp/watch/"
 	}
 
 	for i := 0; i < 100; i++ {
@@ -156,7 +165,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 				if s.Essential.RegisteredAt.After(beforeDate.AddDate(0, 0, 1)) {
 					continue
 				}
-				resStr = append(resStr, fmt.Sprintf("%s%s", tabStr, s.Essential.ID))
+				resStr = append(resStr, fmt.Sprintf("%s%s%s", tabStr, urlStr, s.Essential.ID))
 			}
 		}
 	}

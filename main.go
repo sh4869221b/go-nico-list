@@ -34,15 +34,21 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:    "comment",
-				Value:   10,
+				Value:   0,
 				Aliases: []string{"c"},
 				Usage:   "lower comment limit `number`",
 			},
 			&cli.StringFlag{
-				Name:    "date",
+				Name:    "dateafter",
 				Value:   "10000101",
-				Aliases: []string{"d"},
-				Usage:   "date `YYYYMMDD`",
+				Aliases: []string{"a"},
+				Usage:   "date `YYYYMMDD` after",
+			},
+			&cli.StringFlag{
+				Name:    "datebefore",
+				Value:   "99991231",
+				Aliases: []string{"b"},
+				Usage:   "date `YYYYMMDD` before",
 			},
 			&cli.BoolFlag{
 				Name:    "tab",
@@ -58,12 +64,20 @@ func main() {
 
 			var dateFormt = "20060102"
 
-			var t, err = time.Parse(dateFormt, c.String("date"))
+			var t, err = time.Parse(dateFormt, c.String("dateafter"))
+			if err != nil {
+				t, _ = time.Parse(dateFormt, "")
+			}
+
+			var afterDate = t
+
+			t, err = time.Parse(dateFormt, c.String("datebefore"))
 			if err != nil {
 				t, _ = time.Parse(dateFormt, "")
 			}
 
 			var beforeDate = t
+
 			var idList []string
 			// https://www.nicovideo.jp/user/18906466/video
 			r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
@@ -85,7 +99,7 @@ func main() {
 				go func() {
 					defer wg.Done()
 					defer func() { <-sem }() // 処理が終わったらチャネルを解放
-					getVideoList(userID, c.Int("comment"), beforeDate, c.Bool("tab"), idListChan)
+					getVideoList(userID, c.Int("comment"), afterDate, beforeDate, c.Bool("tab"), idListChan)
 					idList = append(idList, <-idListChan...)
 				}()
 			}
@@ -104,7 +118,7 @@ func main() {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int, beforeDate time.Time, tab bool, idListChan chan []string) {
+func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, idListChan chan []string) {
 
 	var resStr []string
 
@@ -136,7 +150,10 @@ func getVideoList(userID string, commentCount int, beforeDate time.Time, tab boo
 				if s.Essential.Count.Comment <= commentCount {
 					continue
 				}
-				if s.Essential.RegisteredAt.Before(beforeDate) {
+				if s.Essential.RegisteredAt.Before(afterDate) {
+					continue
+				}
+				if s.Essential.RegisteredAt.After(beforeDate.AddDate(0, 0, 1)) {
 					continue
 				}
 				resStr = append(resStr, fmt.Sprintf("%s%s", tabStr, s.Essential.ID))

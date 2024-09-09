@@ -1,19 +1,19 @@
 # go-nico-list
+
 Command line tool to get video list from niconico userID
 
-``` 
-NAME:
-   go-nico-list - niconico {user}/video url get video list
+```
+niconico {user}/video url get video list
 
-USAGE:
-   go-nico-list [global options] command [command options] [arguments...]
+Usage:
+  go-nico-list [flags]
 
-COMMANDS:
-   help, h  Shows a list of commands or help for one command
-
-GLOBAL OPTIONS:
-   --comment number, -c number  lower comment limit number (default: 10)
-   --tab, -t                    id tab Separated flag (default: false)
-   --version, -v                print the version (default: false)
-   --help, -h                   show help (default: false)
-``` 
+Flags:
+  -c, --comment number        lower comment limit number
+  -a, --dateafter YYYYMMDD    date YYYYMMDD after (default "10000101")
+  -b, --datebefore YYYYMMDD   date YYYYMMDD before (default "99991231")
+  -h, --help                  help for go-nico-list
+  -t, --tab                   id tab Separated flag
+  -u, --url                   output id add url
+  -v, --version               version for go-nico-list
+```

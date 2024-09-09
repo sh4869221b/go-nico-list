@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
+
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +27,6 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "go-nico-list",
 	Short: "niconico {user}/video url get video list",
-	Long:  `niconico {user}/video url get video list`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("please input userID")
@@ -34,18 +35,24 @@ var rootCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 
-		var dateFormt = "20060102"
+		const dateFormat = "20060102"
 
-		var t, err = time.Parse(dateFormt, dateafter)
+		comment, _ := cmd.Flags().GetInt("comment")
+		dateafter, _ := cmd.Flags().GetString("dateafter")
+		datebefore, _ := cmd.Flags().GetString("datebefore")
+		tab, _ := cmd.Flags().GetBool("tab")
+		url, _ := cmd.Flags().GetBool("url")
+
+		var t, err = time.Parse(dateFormat, dateafter)
 		if err != nil {
-			t, _ = time.Parse(dateFormt, "")
+			t, _ = time.Parse(dateFormat, "10000101")
 		}
 
 		var afterDate = t
 
-		t, err = time.Parse(dateFormt, datebefore)
+		t, err = time.Parse(dateFormat, datebefore)
 		if err != nil {
-			t, _ = time.Parse(dateFormt, "")
+			t, _ = time.Parse(dateFormat, "99991231")
 		}
 
 		var beforeDate = t
@@ -53,6 +60,8 @@ var rootCmd = &cobra.Command{
 		var idList []string
 		// https://www.nicovideo.jp/user/18906466/video
 		r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
+		bar := progressbar.Default(int64(len(args)))
+
 		idListChan := make(chan []string, len(args))
 		sem := make(chan struct{}, 30) // concurrency数のバッファ
 		var wg sync.WaitGroup
@@ -74,9 +83,10 @@ var rootCmd = &cobra.Command{
 				getVideoList(userID, comment, afterDate, beforeDate, tab, url, idListChan)
 				idList = append(idList, <-idListChan...)
 			}()
+			bar.Add(1)
 		}
 		wg.Wait()
-		close(idListChan)
+		defer close(idListChan)
 		// natural.Sort(idList
 		NiconicoSort(idList, tab, url)
 		fmt.Println(strings.Join(idList[:], "\n"))
@@ -85,20 +95,6 @@ var rootCmd = &cobra.Command{
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
 }
-var (
-	// comment represents the number of comments.
-	comment int
-	// dateafter specifies the date after which certain operations or filters should be applied.
-	// It is expected to be in a valid date format.
-	dateafter string
-	// datebefore is a string that represents a date before a specified point in time.
-	// It is used to filter or compare dates in the application.
-	datebefore string
-	// tab indicates whether tab completion is enabled.
-	tab bool
-	// url indicates whether the URL flag is set.
-	url bool
-)
 
 const (
 	tabStr = "\t\t\t\t\t\t\t\t\t"
@@ -123,11 +119,11 @@ func init() {
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	rootCmd.Flags().IntVarP(&comment, "comment", "c", 0, "lower comment limit `number`")
-	rootCmd.Flags().StringVarP(&dateafter, "dateafter", "a", "10000101", "date `YYYYMMDD` after")
-	rootCmd.Flags().StringVarP(&datebefore, "datebefore", "b", "99991231", "date `YYYYMMDD` before")
-	rootCmd.Flags().BoolVarP(&tab, "tab", "t", false, "id tab Separated flag")
-	rootCmd.Flags().BoolVarP(&url, "url", "u", false, "output id add url")
+	rootCmd.Flags().IntP("comment", "c", 0, "lower comment limit `number`")
+	rootCmd.Flags().StringP("dateafter", "a", "10000101", "date `YYYYMMDD` after")
+	rootCmd.Flags().StringP("datebefore", "b", "99991231", "date `YYYYMMDD` before")
+	rootCmd.Flags().BoolP("tab", "t", false, "id tab Separated flag")
+	rootCmd.Flags().BoolP("url", "u", false, "output id add url")
 	info, ok := debug.ReadBuildInfo()
 	if ok {
 		rootCmd.Version = info.Main.Version

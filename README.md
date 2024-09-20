@@ -2,7 +2,7 @@
 
 Command line tool to get video list from niconico userID
 
-```
+```text
 niconico {user}/video url get video list
 
 Usage:

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
@@ -33,7 +34,7 @@ var rootCmd = &cobra.Command{
 		}
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 
 		const dateFormat = "20060102"
 
@@ -45,17 +46,21 @@ var rootCmd = &cobra.Command{
 
 		var t, err = time.Parse(dateFormat, dateafter)
 		if err != nil {
-			t, _ = time.Parse(dateFormat, "10000101")
+			return errors.New("dateafter format error")
 		}
 
 		var afterDate = t
 
 		t, err = time.Parse(dateFormat, datebefore)
 		if err != nil {
-			t, _ = time.Parse(dateFormat, "99991231")
+			return errors.New("datebefore format error")
 		}
 
 		var beforeDate = t
+
+		logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+		// logger := base.With("dry-run", dryRun, "concurrency", concurrency, "wait-time", waitTime, "target-at", targetAt)
+		slog.SetDefault(logger)
 
 		var idList []string
 		// https://www.nicovideo.jp/user/18906466/video
@@ -87,9 +92,11 @@ var rootCmd = &cobra.Command{
 		}
 		wg.Wait()
 		defer close(idListChan)
+		logger.Info("video list", "count", len(idList))
 		// natural.Sort(idList
 		NiconicoSort(idList, tab, url)
 		fmt.Println(strings.Join(idList[:], "\n"))
+		return nil
 	},
 	// Uncomment the following line if your bare application
 	// has an action associated with it:

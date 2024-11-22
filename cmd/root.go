@@ -92,6 +92,7 @@ var rootCmd = &cobra.Command{
 		}
 		wg.Wait()
 		defer close(idListChan)
+		defer close(sem)
 		logger.Info("video list", "count", len(idList))
 		// natural.Sort(idList
 		NiconicoSort(idList, tab, url)

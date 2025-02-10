@@ -93,7 +93,7 @@ var rootCmd = &cobra.Command{
 			bar.Add(1)
 		}
 		wg.Wait()
-
+		defer close(sem)
 		logger.Info("video list", "count", len(idList))
 		NiconicoSort(idList, tab, url)
 		fmt.Println(strings.Join(idList[:], "\n"))

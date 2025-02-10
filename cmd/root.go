@@ -67,7 +67,7 @@ var rootCmd = &cobra.Command{
 		r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 		bar := progressbar.Default(int64(len(args)))
 
-		idListChan := make(chan []string, len(args))
+		var mu sync.Mutex              // idListの排他制御用mutex
 		sem := make(chan struct{}, 30) // concurrency数のバッファ
 		var wg sync.WaitGroup
 
@@ -84,16 +84,17 @@ var rootCmd = &cobra.Command{
 			userID := result["userID"]
 			go func() {
 				defer wg.Done()
-				defer func() { <-sem }() // 処理が終わったらチャネルを解放
-				getVideoList(userID, comment, afterDate, beforeDate, tab, url, idListChan)
-				idList = append(idList, <-idListChan...)
+				defer func() { <-sem }()
+				results := getVideoList(userID, comment, afterDate, beforeDate, tab, url)
+				mu.Lock()
+				idList = append(idList, results...)
+				mu.Unlock()
 			}()
 			bar.Add(1)
 		}
 		wg.Wait()
-		defer close(idListChan)
+
 		logger.Info("video list", "count", len(idList))
-		// natural.Sort(idList
 		NiconicoSort(idList, tab, url)
 		fmt.Println(strings.Join(idList[:], "\n"))
 		return nil
@@ -151,7 +152,7 @@ func NiconicoSort(slice []string, tab bool, url bool) {
 }
 
 // GetVideoList is aaa
-func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, idListChan chan []string) {
+func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool) []string {
 
 	var resStr []string
 
@@ -196,7 +197,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 			}
 		}
 	}
-	idListChan <- resStr
+	return resStr
 }
 
 func retriesRequest(url string) *http.Response {
@@ -213,6 +214,7 @@ func retriesRequest(url string) *http.Response {
 	for retries > 0 {
 		res, err = client.Do(req)
 		if err != nil || res.StatusCode != 200 {
+			log.Fatal(err)
 			retries -= 1
 		} else {
 			break

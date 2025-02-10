@@ -63,6 +63,8 @@ var rootCmd = &cobra.Command{
 		slog.SetDefault(logger)
 
 		var idList []string
+		var mu sync.Mutex // mutexを追加
+
 		// https://www.nicovideo.jp/user/18906466/video
 		r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 		bar := progressbar.Default(int64(len(args)))
@@ -86,7 +88,10 @@ var rootCmd = &cobra.Command{
 				defer wg.Done()
 				defer func() { <-sem }() // 処理が終わったらチャネルを解放
 				getVideoList(userID, comment, afterDate, beforeDate, tab, url, idListChan)
-				idList = append(idList, <-idListChan...)
+				newList := <-idListChan
+				mu.Lock() // mutexでロック
+				idList = append(idList, newList...)
+				mu.Unlock() // mutexでアンロック
 			}()
 			bar.Add(1)
 		}

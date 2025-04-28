@@ -24,89 +24,77 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	comment    int
+	dateafter  string
+	datebefore string
+	tab        bool
+	url        bool
+)
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "go-nico-list",
 	Short: "niconico {user}/video url get video list",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("please input userID")
-		}
-		return nil
-	},
-	RunE: func(cmd *cobra.Command, args []string) error {
+	Args:  cobra.MinimumNArgs(1), // ここを変更
+	RunE:  runRootCmd,
+}
 
-		const dateFormat = "20060102"
+func runRootCmd(cmd *cobra.Command, args []string) error {
+	const dateFormat = "20060102"
 
-		comment, _ := cmd.Flags().GetInt("comment")
-		dateafter, _ := cmd.Flags().GetString("dateafter")
-		datebefore, _ := cmd.Flags().GetString("datebefore")
-		tab, _ := cmd.Flags().GetBool("tab")
-		url, _ := cmd.Flags().GetBool("url")
+	t, err := time.Parse(dateFormat, dateafter)
+	if err != nil {
+		return errors.New("dateafter format error")
+	}
+	afterDate := t
+	t, err = time.Parse(dateFormat, datebefore)
+	if err != nil {
+		return errors.New("datebefore format error")
+	}
+	beforeDate := t
 
-		var t, err = time.Parse(dateFormat, dateafter)
-		if err != nil {
-			return errors.New("dateafter format error")
-		}
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+	slog.SetDefault(logger)
 
-		var afterDate = t
+	var idList []string
+	var mu sync.Mutex
 
-		t, err = time.Parse(dateFormat, datebefore)
-		if err != nil {
-			return errors.New("datebefore format error")
-		}
+	r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
+	bar := progressbar.Default(int64(len(args)))
 
-		var beforeDate = t
+	idListChan := make(chan []string, len(args))
+	sem := make(chan struct{}, 30)
+	var wg sync.WaitGroup
 
-		logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
-		// logger := base.With("dry-run", dryRun, "concurrency", concurrency, "wait-time", waitTime, "target-at", targetAt)
-		slog.SetDefault(logger)
-
-		var idList []string
-		var mu sync.Mutex // mutexを追加
-
-		// https://www.nicovideo.jp/user/18906466/video
-		r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
-		bar := progressbar.Default(int64(len(args)))
-
-		idListChan := make(chan []string, len(args))
-		sem := make(chan struct{}, 30) // concurrency数のバッファ
-		var wg sync.WaitGroup
-
-		for i := range args {
-			sem <- struct{}{}
-			wg.Add(1)
-			match := r.FindStringSubmatch(args[i])
-			result := make(map[string]string)
-			for j, name := range r.SubexpNames() {
-				if j != 0 && name != "" {
-					result[name] = match[j]
-				}
+	for i := range args {
+		sem <- struct{}{}
+		wg.Add(1)
+		match := r.FindStringSubmatch(args[i])
+		result := make(map[string]string)
+		for j, name := range r.SubexpNames() {
+			if j != 0 && name != "" {
+				result[name] = match[j]
 			}
-			userID := result["userID"]
-			go func() {
-				defer wg.Done()
-				defer func() { <-sem }() // 処理が終わったらチャネルを解放
-				getVideoList(userID, comment, afterDate, beforeDate, tab, url, idListChan)
-				newList := <-idListChan
-				mu.Lock() // mutexでロック
-				idList = append(idList, newList...)
-				mu.Unlock() // mutexでアンロック
-			}()
-			bar.Add(1)
 		}
-		wg.Wait()
-		defer close(idListChan)
-		defer close(sem)
-		logger.Info("video list", "count", len(idList))
-		// natural.Sort(idList
-		NiconicoSort(idList, tab, url)
-		fmt.Println(strings.Join(idList[:], "\n"))
-		return nil
-	},
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+		userID := result["userID"]
+		go func(userID string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer bar.Add(1)
+			getVideoList(userID, comment, afterDate, beforeDate, tab, url, idListChan)
+			newList := <-idListChan
+			mu.Lock()
+			idList = append(idList, newList...)
+			mu.Unlock()
+		}(userID)
+	}
+	wg.Wait()
+	close(sem)
+	logger.Info("video list", "count", len(idList))
+	NiconicoSort(idList, tab, url)
+	fmt.Println(strings.Join(idList[:], "\n"))
+	return nil
 }
 
 const (
@@ -132,11 +120,11 @@ func init() {
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	rootCmd.Flags().IntP("comment", "c", 0, "lower comment limit `number`")
-	rootCmd.Flags().StringP("dateafter", "a", "10000101", "date `YYYYMMDD` after")
-	rootCmd.Flags().StringP("datebefore", "b", "99991231", "date `YYYYMMDD` before")
-	rootCmd.Flags().BoolP("tab", "t", false, "id tab Separated flag")
-	rootCmd.Flags().BoolP("url", "u", false, "output id add url")
+	rootCmd.Flags().IntVarP(&comment, "comment", "c", 0, "lower comment limit `number`")
+	rootCmd.Flags().StringVarP(&dateafter, "dateafter", "a", "10000101", "date `YYYYMMDD` after")
+	rootCmd.Flags().StringVarP(&datebefore, "datebefore", "b", "99991231", "date `YYYYMMDD` before")
+	rootCmd.Flags().BoolVarP(&tab, "tab", "t", false, "id tab Separated flag")
+	rootCmd.Flags().BoolVarP(&url, "url", "u", false, "output id add url")
 	info, ok := debug.ReadBuildInfo()
 	if ok {
 		rootCmd.Version = info.Main.Version

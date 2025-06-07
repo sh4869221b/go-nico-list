@@ -4,6 +4,7 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,7 +163,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 
 	for i := 0; i < pageLimit; i++ {
 		requestURL := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
-		res, err := retriesRequest(requestURL)
+		res, err := retriesRequest(context.Background(), requestURL)
 		if err != nil {
 			break
 		}
@@ -202,8 +203,8 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 	return resStr
 }
 
-func retriesRequest(url string) (*http.Response, error) {
-	req, _ := http.NewRequest("GET", url, nil)
+func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("X-Frontend-Id", "6")
 	req.Header.Set("Accept", "*/*")
 	client := new(http.Client)
@@ -222,6 +223,8 @@ func retriesRequest(url string) (*http.Response, error) {
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 				break
 			}
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
 		}
 		retries--
 		wait := baseDelay * time.Duration(maxRetries-retries)

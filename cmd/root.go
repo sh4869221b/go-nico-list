@@ -29,6 +29,7 @@ var (
 	datebefore string
 	tab        bool
 	url        bool
+	pageLimit  int
 	logger     *slog.Logger
 )
 
@@ -96,8 +97,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 }
 
 const (
-	tabStr = "\t\t\t\t\t\t\t\t\t"
-	urlStr = "https://www.nicovideo.jp/watch/"
+	tabStr           = "\t\t\t\t\t\t\t\t\t"
+	urlStr           = "https://www.nicovideo.jp/watch/"
+	defaultPageLimit = 100
 )
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -123,6 +125,9 @@ func init() {
 	rootCmd.Flags().StringVarP(&datebefore, "datebefore", "b", "99991231", "date `YYYYMMDD` before")
 	rootCmd.Flags().BoolVarP(&tab, "tab", "t", false, "id tab Separated flag")
 	rootCmd.Flags().BoolVarP(&url, "url", "u", false, "output id add url")
+
+	pageLimitDefault := defaultPageLimit
+	rootCmd.Flags().IntVarP(&pageLimit, "pages", "p", pageLimitDefault, "maximum number of pages to fetch")
 	info, ok := debug.ReadBuildInfo()
 	if ok {
 		rootCmd.Version = info.Main.Version
@@ -155,7 +160,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 		beforeStr += urlStr
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < pageLimit; i++ {
 		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
 		res, err := retriesRequest(url)
 		if err != nil {

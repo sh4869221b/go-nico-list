@@ -38,7 +38,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "go-nico-list",
 	Short: "niconico {user}/video url get video list",
-	Args:  cobra.MinimumNArgs(1), // ここを変更
+	Args:  cobra.MinimumNArgs(1),
 	RunE:  runRootCmd,
 }
 
@@ -165,9 +165,9 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 	}
 
 	for i := 0; i < pageLimit; i++ {
-		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
+		requestURL := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-		res, err := retriesRequest(ctx, url)
+		res, err := retriesRequest(ctx, requestURL)
 		cancel()
 		if err != nil {
 			break

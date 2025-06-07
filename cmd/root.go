@@ -63,7 +63,6 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 	bar := progressbar.Default(int64(len(args)))
 
-	idListChan := make(chan []string, len(args))
 	sem := make(chan struct{}, 30)
 	var wg sync.WaitGroup
 
@@ -82,8 +81,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer bar.Add(1)
-			getVideoList(userID, comment, afterDate, beforeDate, tab, url, idListChan)
-			newList := <-idListChan
+			newList := getVideoList(userID, comment, afterDate, beforeDate, tab, url)
 			mu.Lock()
 			idList = append(idList, newList...)
 			mu.Unlock()
@@ -144,8 +142,8 @@ func NiconicoSort(slice []string, tab bool, url bool) {
 	sort.Slice(slice, func(i, j int) bool { return fmt.Sprintf(str, slice[i][num:]) < fmt.Sprintf(str, slice[j][num:]) })
 }
 
-// GetVideoList is aaa
-func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, idListChan chan []string) {
+// GetVideoList retrieves video IDs for a user
+func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool) []string {
 
 	var resStr []string
 
@@ -196,7 +194,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 			}
 		}
 	}
-	idListChan <- resStr
+	return resStr
 }
 
 func retriesRequest(url string) (*http.Response, error) {

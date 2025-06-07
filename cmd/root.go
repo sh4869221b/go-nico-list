@@ -210,6 +210,8 @@ func retriesRequest(url string) (*http.Response, error) {
 		err     error
 		retries = 100
 	)
+	const baseDelay = 50 * time.Millisecond
+	maxRetries := retries
 
 	for retries > 0 {
 		res, err = client.Do(req)
@@ -219,6 +221,8 @@ func retriesRequest(url string) (*http.Response, error) {
 			}
 		}
 		retries--
+		wait := baseDelay * time.Duration(maxRetries-retries)
+		time.Sleep(wait)
 	}
 
 	if err != nil {

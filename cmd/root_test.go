@@ -38,6 +38,20 @@ func TestNiconicoSort(t *testing.T) {
 			url:      true,
 			expected: []string{tabStr + urlStr + "sm1", tabStr + urlStr + "sm2", tabStr + urlStr + "sm10"},
 		},
+		{
+			name:     "shortString",
+			input:    []string{"sm12", "s", "sm3"},
+			tab:      false,
+			url:      false,
+			expected: []string{"sm3", "s", "sm12"},
+		},
+		{
+			name:     "shortStringTabURL",
+			input:    []string{tabStr + urlStr + "sm2", tabStr + urlStr + "s", tabStr + urlStr + "sm10"},
+			tab:      true,
+			url:      true,
+			expected: []string{tabStr + urlStr + "s", tabStr + urlStr + "sm2", tabStr + urlStr + "sm10"},
+		},
 	}
 
 	for _, tt := range tests {

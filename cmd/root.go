@@ -145,7 +145,20 @@ func NiconicoSort(slice []string, tab bool, url bool) {
 	}
 	str := "%08s"
 
-	sort.Slice(slice, func(i, j int) bool { return fmt.Sprintf(str, slice[i][num:]) < fmt.Sprintf(str, slice[j][num:]) })
+	sort.Slice(slice, func(i, j int) bool {
+		var s1, s2 string
+		if len(slice[i]) >= num {
+			s1 = slice[i][num:]
+		} else {
+			s1 = slice[i]
+		}
+		if len(slice[j]) >= num {
+			s2 = slice[j][num:]
+		} else {
+			s2 = slice[j]
+		}
+		return fmt.Sprintf(str, s1) < fmt.Sprintf(str, s2)
+	})
 }
 
 // GetVideoList retrieves video IDs for a user

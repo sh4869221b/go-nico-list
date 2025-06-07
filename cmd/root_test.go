@@ -39,11 +39,14 @@ func TestNiconicoSort(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		slice := append([]string(nil), tt.input...)
-		NiconicoSort(slice, tt.tab, tt.url)
-		if !reflect.DeepEqual(slice, tt.expected) {
-			t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, slice)
-		}
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			slice := append([]string(nil), tt.input...)
+			NiconicoSort(slice, tt.tab, tt.url)
+			if !reflect.DeepEqual(slice, tt.expected) {
+				t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, slice)
+			}
+		})
 	}
 }
 

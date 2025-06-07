@@ -37,7 +37,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "go-nico-list",
 	Short: "niconico {user}/video url get video list",
-	Args:  cobra.MinimumNArgs(1), // ここを変更
+	Args:  cobra.MinimumNArgs(1),
 	RunE:  runRootCmd,
 }
 

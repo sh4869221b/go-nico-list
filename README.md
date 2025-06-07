@@ -15,6 +15,7 @@ Flags:
   -h, --help                  help for go-nico-list
   -t, --tab                   id tab Separated flag
   -u, --url                   output id add url
+  -p, --pages number          maximum number of pages to fetch
   -v, --version               version for go-nico-list
 ```
 

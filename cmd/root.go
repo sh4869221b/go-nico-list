@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,6 +29,7 @@ var (
 	datebefore string
 	tab        bool
 	url        bool
+	logger     *slog.Logger
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -54,7 +54,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	beforeDate := t
 
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+	logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
 
 	var idList []string
@@ -168,13 +168,13 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 			body, err := io.ReadAll(res.Body)
 			_ = res.Body.Close()
 			if err != nil {
-				log.Fatal(err)
+				logger.Error("failed to read response body", "error", err)
 				os.Exit(0)
 			}
 
 			var nicoData nicoData
 			if err := json.Unmarshal(body, &nicoData); err != nil {
-				log.Fatal(err)
+				logger.Error("failed to unmarshal response body", "error", err)
 				os.Exit(0)
 			}
 			if len(nicoData.Data.Items) == 0 {

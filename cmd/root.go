@@ -159,8 +159,14 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 
 	for i := 0; i < 100; i++ {
 		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
-		res := retriesRequest(url)
+		res, err := retriesRequest(url)
+		if err != nil {
+			break
+		}
 		if res != nil {
+			if res.StatusCode == http.StatusNotFound {
+				break
+			}
 			body, err := io.ReadAll(res.Body)
 			_ = res.Body.Close()
 			if err != nil {
@@ -193,31 +199,33 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 	idListChan <- resStr
 }
 
-func retriesRequest(url string) *http.Response {
-	var req *http.Request
-	req, _ = http.NewRequest("GET", url, nil)
+func retriesRequest(url string) (*http.Response, error) {
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-Frontend-Id", "6")
 	req.Header.Set("Accept", "*/*")
-	var client = new(http.Client)
+	client := new(http.Client)
+
 	var (
-		err     error
 		res     *http.Response
+		err     error
 		retries = 100
 	)
+
 	for retries > 0 {
 		res, err = client.Do(req)
-		if err != nil || res.StatusCode != 200 {
-			retries -= 1
-		} else {
-			break
+		if err == nil {
+			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
+				break
+			}
 		}
-	}
-	if retries == 0 {
-		log.Fatal(err)
-		os.Exit(0)
+		retries--
 	}
 
-	return res
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // X-Frontend-Id: 6

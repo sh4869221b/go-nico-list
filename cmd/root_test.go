@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestNiconicoSort(t *testing.T) {
@@ -62,7 +64,9 @@ func TestRetriesRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	res, err := retriesRequest(server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	res, err := retriesRequest(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

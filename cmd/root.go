@@ -4,6 +4,7 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,6 +101,9 @@ const (
 	tabStr           = "\t\t\t\t\t\t\t\t\t"
 	urlStr           = "https://www.nicovideo.jp/watch/"
 	defaultPageLimit = 100
+	maxRetryCount    = 100
+	retryBaseDelay   = 50 * time.Millisecond
+	requestTimeout   = 10 * time.Second
 )
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -162,7 +166,9 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 
 	for i := 0; i < pageLimit; i++ {
 		requestURL := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
-		res, err := retriesRequest(requestURL)
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+		res, err := retriesRequest(ctx, requestURL)
+		cancel()
 		if err != nil {
 			break
 		}
@@ -202,29 +208,27 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 	return resStr
 }
 
-func retriesRequest(url string) (*http.Response, error) {
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("X-Frontend-Id", "6")
-	req.Header.Set("Accept", "*/*")
+func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 	client := new(http.Client)
 
 	var (
-		res     *http.Response
-		err     error
-		retries = 100
+		res   *http.Response
+		err   error
+		retry = maxRetryCount
 	)
-	const baseDelay = 50 * time.Millisecond
-	maxRetries := retries
 
-	for retries > 0 {
+	for retry > 0 {
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req.Header.Set("X-Frontend-Id", "6")
+		req.Header.Set("Accept", "*/*")
 		res, err = client.Do(req)
 		if err == nil {
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 				break
 			}
 		}
-		retries--
-		wait := baseDelay * time.Duration(maxRetries-retries)
+		retry--
+		wait := retryBaseDelay * time.Duration(maxRetryCount-retry)
 		time.Sleep(wait)
 	}
 

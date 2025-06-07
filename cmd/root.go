@@ -161,8 +161,8 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 	}
 
 	for i := 0; i < pageLimit; i++ {
-		url := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
-		res, err := retriesRequest(url)
+		requestURL := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
+		res, err := retriesRequest(requestURL)
 		if err != nil {
 			break
 		}

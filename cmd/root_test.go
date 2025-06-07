@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -62,7 +64,7 @@ func TestRetriesRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	res, err := retriesRequest(server.URL)
+	res, err := retriesRequest(context.Background(), server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,5 +73,17 @@ func TestRetriesRequest(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("expected 3 attempts, got %d", count)
+	}
+}
+
+func TestRetriesRequestContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	res, err := retriesRequest(ctx, "http://example.com")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if res != nil {
+		t.Errorf("expected nil response, got %v", res)
 	}
 }

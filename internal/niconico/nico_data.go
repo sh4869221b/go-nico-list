@@ -1,10 +1,10 @@
-package cmd
+package niconico
 
 import (
 	"time"
 )
 
-type nicoData struct {
+type NicoData struct {
 	Meta struct {
 		Status int `json:"status"`
 	} `json:"meta"`

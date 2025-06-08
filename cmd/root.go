@@ -35,6 +35,7 @@ var (
 	pageLimit         int
 	httpClientTimeout time.Duration = defaultHTTPTimeout
 	logger            *slog.Logger
+	progressBarNew    func(int64, ...string) *progressbar.ProgressBar = progressbar.Default
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -66,7 +67,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	var mu sync.Mutex
 
 	r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
-	bar := progressbar.Default(int64(len(args)))
+	bar := progressBarNew(int64(len(args)))
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -76,6 +77,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		match := r.FindStringSubmatch(args[i])
 		if len(match) == 0 {
 			logger.Warn("invalid user ID", "input", args[i])
+			bar.Add(1)
 			<-sem
 			continue
 		}

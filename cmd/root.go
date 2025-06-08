@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -241,7 +242,7 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 			return nil, err
 		}
 		retries--
-		wait := baseDelay * time.Duration(maxRetries-retries)
+		wait := time.Duration(math.Min(math.Pow(2, float64(maxRetries-retries))*float64(baseDelay), float64(30*time.Second)))
 		time.Sleep(wait)
 	}
 

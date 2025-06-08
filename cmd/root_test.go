@@ -170,35 +170,59 @@ func TestRetriesRequestTimeout(t *testing.T) {
 }
 
 func TestGetVideoList(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		page := r.URL.Query().Get("page")
-		var resp string
-		switch page {
-		case "1":
-			resp = `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-15T00:00:00Z","count":{"comment":3}}}]}}`
-		case "2":
-			resp = `{"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-02-10T00:00:00Z","count":{"comment":20}}},{"essential":{"id":"sm4","registeredAt":"2024-05-02T00:00:00Z","count":{"comment":30}}}]}}`
-		default:
-			resp = `{"data":{"items":[]}}`
+	t.Run("success", func(t *testing.T) {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			page := r.URL.Query().Get("page")
+			var resp string
+			switch page {
+			case "1":
+				resp = `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-15T00:00:00Z","count":{"comment":3}}}]}}`
+			case "2":
+				resp = `{"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-02-10T00:00:00Z","count":{"comment":20}}},{"essential":{"id":"sm4","registeredAt":"2024-05-02T00:00:00Z","count":{"comment":30}}}]}}`
+			default:
+				resp = `{"data":{"items":[]}}`
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(resp))
+		})
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		oldLimit := pageLimit
+		pageLimit = 3
+		defer func() { pageLimit = oldLimit }()
+
+		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+		got, err := getVideoList("12345", 5, after, before, false, false, server.URL)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(resp))
+		expected := []string{"sm1", "sm3"}
+		if !reflect.DeepEqual(got, expected) {
+			t.Errorf("expected %v, got %v", expected, got)
+		}
 	})
-	server := httptest.NewServer(handler)
-	defer server.Close()
 
-	oldLimit := pageLimit
-	pageLimit = 3
-	defer func() { pageLimit = oldLimit }()
+	t.Run("invalid json", func(t *testing.T) {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, "invalid")
+		})
+		server := httptest.NewServer(handler)
+		defer server.Close()
 
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got := getVideoList("12345", 5, after, before, false, false, server.URL)
-	expected := []string{"sm1", "sm3"}
-	if !reflect.DeepEqual(got, expected) {
-		t.Errorf("expected %v, got %v", expected, got)
-	}
+		_, err := getVideoList("12345", 5, after, before, false, false, server.URL)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
 }
 
 func TestRunRootCmdInvalidInput(t *testing.T) {

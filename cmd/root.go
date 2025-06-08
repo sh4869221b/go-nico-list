@@ -223,7 +223,10 @@ func getVideoList(ctx context.Context, userID string, commentCount int, afterDat
 		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, i+1)
 		res, err := retriesRequest(ctx, requestURL)
 		if err != nil {
-			break
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, nil
+			}
+			return nil, err
 		}
 		if res != nil {
 			if res.StatusCode == http.StatusNotFound {

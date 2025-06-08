@@ -264,14 +264,16 @@ func getVideoList(ctx context.Context, userID string, commentCount int, afterDat
 }
 
 func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("X-Frontend-Id", "6")
 	req.Header.Set("Accept", "*/*")
 	client := &http.Client{Timeout: httpClientTimeout}
 
 	var (
 		res *http.Response
-		err error
 	)
 	const baseDelay = 50 * time.Millisecond
 	maxRetries := retries

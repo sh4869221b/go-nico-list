@@ -1,4 +1,4 @@
-﻿### visualstudiocode
+### visualstudiocode
 
 .vscode/*
 !.vscode/settings.json
@@ -63,4 +63,3 @@ $RECYCLE.BIN/
 
 dist/
 
-.jj/

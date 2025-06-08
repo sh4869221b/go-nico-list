@@ -63,6 +63,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var idList []string
 	var mu sync.Mutex
 
@@ -94,7 +97,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer bar.Add(1)
-			newList, err := getVideoList(userID, comment, afterDate, beforeDate, tab, url, defaultBaseURL)
+			newList, err := getVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, defaultBaseURL)
 			if err != nil {
 				errCh <- err
 				return
@@ -191,7 +194,7 @@ func NiconicoSort(slice []string, tab bool, url bool) {
 }
 
 // GetVideoList retrieves video IDs for a user
-func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, baseURL string) ([]string, error) {
+func getVideoList(ctx context.Context, userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, baseURL string) ([]string, error) {
 
 	var resStr []string
 
@@ -205,7 +208,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 
 	for i := 0; i < pageLimit; i++ {
 		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, i+1)
-		res, err := retriesRequest(context.Background(), requestURL)
+		res, err := retriesRequest(ctx, requestURL)
 		if err != nil {
 			break
 		}

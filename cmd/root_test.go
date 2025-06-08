@@ -93,6 +93,7 @@ func TestRetriesRequest(t *testing.T) {
 	if count != 3 {
 		t.Errorf("expected 3 attempts, got %d", count)
 	}
+	res.Body.Close()
 }
 
 func TestRetriesRequestBackoff(t *testing.T) {
@@ -127,6 +128,7 @@ func TestRetriesRequestBackoff(t *testing.T) {
 	if diff2 < 200*time.Millisecond {
 		t.Errorf("second backoff too short: %v", diff2)
 	}
+	res.Body.Close()
 }
 
 func TestRetriesRequestContextCanceled(t *testing.T) {

@@ -251,8 +251,11 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 				break
 			}
+			res.Body.Close()
 		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
+		} else if res != nil {
+			res.Body.Close()
 		}
 		retries--
 		wait := time.Duration(math.Min(math.Pow(2, float64(maxRetries-retries))*float64(baseDelay), float64(30*time.Second)))

@@ -51,6 +51,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if concurrency < 1 {
 		return errors.New("concurrency must be at least 1")
 	}
+	if retries < 1 {
+		return errors.New("retries must be at least 1")
+	}
 
 	const dateFormat = "20060102"
 

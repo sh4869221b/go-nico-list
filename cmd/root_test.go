@@ -196,7 +196,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := getVideoList("12345", 5, after, before, false, false, server.URL)
+		got, err := getVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -218,7 +218,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		_, err := getVideoList("12345", 5, after, before, false, false, server.URL)
+		_, err := getVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -243,5 +243,29 @@ func TestRunRootCmdInvalidInput(t *testing.T) {
 	}
 	if bar == nil || !bar.IsFinished() {
 		t.Errorf("progress bar not finished")
+	}
+}
+
+func TestGetVideoListContextCanceled(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := getVideoList(ctx, "12345", 0, after, before, false, false, server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty result, got %v", got)
 	}
 }

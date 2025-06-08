@@ -71,6 +71,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
+	errCh := make(chan error, len(args))
 
 	for i := range args {
 		sem <- struct{}{}
@@ -93,18 +94,31 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer bar.Add(1)
-			newList := getVideoList(userID, comment, afterDate, beforeDate, tab, url, defaultBaseURL)
+			newList, err := getVideoList(userID, comment, afterDate, beforeDate, tab, url, defaultBaseURL)
+			if err != nil {
+				errCh <- err
+				return
+			}
 			mu.Lock()
 			idList = append(idList, newList...)
 			mu.Unlock()
+			errCh <- nil
 		}(userID)
 	}
 	wg.Wait()
+	close(errCh)
+	var retErr error
+	for e := range errCh {
+		if e != nil && retErr == nil {
+			logger.Error("failed to get video list", "error", e)
+			retErr = e
+		}
+	}
 	close(sem)
 	logger.Info("video list", "count", len(idList))
 	NiconicoSort(idList, tab, url)
 	fmt.Println(strings.Join(idList, "\n"))
-	return nil
+	return retErr
 }
 
 const (
@@ -177,7 +191,7 @@ func NiconicoSort(slice []string, tab bool, url bool) {
 }
 
 // GetVideoList retrieves video IDs for a user
-func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, baseURL string) []string {
+func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, baseURL string) ([]string, error) {
 
 	var resStr []string
 
@@ -203,13 +217,13 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 			_ = res.Body.Close()
 			if err != nil {
 				logger.Error("failed to read response body", "error", err)
-				os.Exit(0)
+				return nil, err
 			}
 
 			var nicoData nicoData
 			if err := json.Unmarshal(body, &nicoData); err != nil {
 				logger.Error("failed to unmarshal response body", "error", err)
-				os.Exit(0)
+				return nil, err
 			}
 			if len(nicoData.Data.Items) == 0 {
 				break
@@ -228,7 +242,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 			}
 		}
 	}
-	return resStr
+	return resStr, nil
 }
 
 func retriesRequest(ctx context.Context, url string) (*http.Response, error) {

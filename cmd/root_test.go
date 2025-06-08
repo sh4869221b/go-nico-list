@@ -330,3 +330,15 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 		t.Errorf("expected 2 attempts, got %d", count)
 	}
 }
+
+func TestConcurrencyValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	concurrency = 0
+	defer func() { concurrency = 30 }()
+
+	rootCmd.SetArgs([]string{"12345"})
+	err := rootCmd.Execute()
+	if err == nil || err.Error() != "concurrency must be at least 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

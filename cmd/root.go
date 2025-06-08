@@ -48,6 +48,10 @@ var rootCmd = &cobra.Command{
 }
 
 func runRootCmd(cmd *cobra.Command, args []string) error {
+	if concurrency < 1 {
+		return errors.New("concurrency must be at least 1")
+	}
+
 	const dateFormat = "20060102"
 
 	t, err := time.Parse(dateFormat, dateafter)

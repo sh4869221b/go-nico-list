@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/schollz/progressbar/v3"
+	"github.com/sh4869221b/go-nico-list/internal/niconico"
 
 	"github.com/spf13/cobra"
 )
@@ -238,7 +239,7 @@ func getVideoList(ctx context.Context, userID string, commentCount int, afterDat
 				return nil, err
 			}
 
-			var nicoData nicoData
+			var nicoData niconico.NicoData
 			if err := json.Unmarshal(body, &nicoData); err != nil {
 				logger.Error("failed to unmarshal response body", "error", err)
 				return nil, err

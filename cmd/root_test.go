@@ -91,6 +91,40 @@ func TestRetriesRequest(t *testing.T) {
 	}
 }
 
+func TestRetriesRequestBackoff(t *testing.T) {
+	var calls []time.Time
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, time.Now())
+		count++
+		if count < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	res, err := retriesRequest(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", res.StatusCode)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(calls))
+	}
+	diff1 := calls[1].Sub(calls[0])
+	diff2 := calls[2].Sub(calls[1])
+	if diff1 < 100*time.Millisecond {
+		t.Errorf("first backoff too short: %v", diff1)
+	}
+	if diff2 < 200*time.Millisecond {
+		t.Errorf("second backoff too short: %v", diff2)
+	}
+}
+
 func TestRetriesRequestContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

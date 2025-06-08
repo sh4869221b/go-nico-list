@@ -269,3 +269,64 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 		t.Errorf("expected empty result, got %v", got)
 	}
 }
+
+func TestGetVideoListHandleNotFound(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var count int
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	oldLimit := pageLimit
+	pageLimit = 2
+	defer func() { pageLimit = oldLimit }()
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := getVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty result, got %v", got)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 attempt, got %d", count)
+	}
+}
+
+func TestGetVideoListHandleServerError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var count int
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	oldRetries := retries
+	retries = 2
+	defer func() { retries = oldRetries }()
+
+	oldLimit := pageLimit
+	pageLimit = 1
+	defer func() { pageLimit = oldLimit }()
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	_, err := getVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if count != 2 {
+		t.Errorf("expected 2 attempts, got %d", count)
+	}
+}

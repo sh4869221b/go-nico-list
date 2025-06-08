@@ -83,7 +83,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer bar.Add(1)
-			newList := getVideoList(userID, comment, afterDate, beforeDate, tab, url)
+			newList := getVideoList(userID, comment, afterDate, beforeDate, tab, url, defaultBaseURL)
 			mu.Lock()
 			idList = append(idList, newList...)
 			mu.Unlock()
@@ -101,6 +101,7 @@ const (
 	tabStr           = "\t\t\t\t\t\t\t\t\t"
 	urlStr           = "https://www.nicovideo.jp/watch/"
 	defaultPageLimit = 100
+	defaultBaseURL   = "https://nvapi.nicovideo.jp/v3"
 )
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -162,7 +163,7 @@ func NiconicoSort(slice []string, tab bool, url bool) {
 }
 
 // GetVideoList retrieves video IDs for a user
-func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool) []string {
+func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, baseURL string) []string {
 
 	var resStr []string
 
@@ -175,7 +176,7 @@ func getVideoList(userID string, commentCount int, afterDate time.Time, beforeDa
 	}
 
 	for i := 0; i < pageLimit; i++ {
-		requestURL := fmt.Sprintf("https://nvapi.nicovideo.jp/v3/users/%s/videos?pageSize=100&page=%d", userID, i+1)
+		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, i+1)
 		res, err := retriesRequest(context.Background(), requestURL)
 		if err != nil {
 			break

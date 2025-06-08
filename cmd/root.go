@@ -35,6 +35,7 @@ var (
 	retries           int = defaultRetries
 	pageLimit         int
 	httpClientTimeout time.Duration = defaultHTTPTimeout
+	httpClient                      = &http.Client{Timeout: defaultHTTPTimeout}
 	logger            *slog.Logger
 	progressBarNew    func(int64, ...string) *progressbar.ProgressBar = progressbar.Default
 )
@@ -264,7 +265,7 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("X-Frontend-Id", "6")
 	req.Header.Set("Accept", "*/*")
-	client := &http.Client{Timeout: httpClientTimeout}
+	httpClient.Timeout = httpClientTimeout
 
 	var (
 		res *http.Response
@@ -275,7 +276,7 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 	attempts := retries
 
 	for attempts > 0 {
-		res, err = client.Do(req)
+		res, err = httpClient.Do(req)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				if res != nil {

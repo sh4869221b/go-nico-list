@@ -137,6 +137,32 @@ func TestRetriesRequestContextCanceled(t *testing.T) {
 	}
 }
 
+func TestRetriesRequestTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = 50 * time.Millisecond
+	defer func() { httpClientTimeout = oldTimeout }()
+
+	start := time.Now()
+	res, err := retriesRequest(context.Background(), server.URL)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+	if res != nil {
+		t.Errorf("expected nil response, got %v", res)
+	}
+	if elapsed < httpClientTimeout {
+		t.Errorf("timeout returned too quickly: %v", elapsed)
+	}
+}
+
 func TestGetVideoList(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page := r.URL.Query().Get("page")

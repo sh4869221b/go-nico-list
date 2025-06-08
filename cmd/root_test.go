@@ -3,11 +3,15 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 func TestNiconicoSort(t *testing.T) {
@@ -192,5 +196,26 @@ func TestGetVideoList(t *testing.T) {
 	expected := []string{"sm1", "sm3"}
 	if !reflect.DeepEqual(got, expected) {
 		t.Errorf("expected %v, got %v", expected, got)
+	}
+}
+
+func TestRunRootCmdInvalidInput(t *testing.T) {
+	// prepare custom progress bar to capture completion state
+	var bar *progressbar.ProgressBar
+	progressBarNew = func(max int64, description ...string) *progressbar.ProgressBar {
+		bar = progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard))
+		return bar
+	}
+	defer func() { progressBarNew = progressbar.Default }()
+
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	if err := runRootCmd(nil, []string{"invalid"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bar == nil || !bar.IsFinished() {
+		t.Errorf("progress bar not finished")
 	}
 }

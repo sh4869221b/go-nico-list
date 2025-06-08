@@ -261,14 +261,20 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 
 	for retries > 0 {
 		res, err = client.Do(req)
-		if err == nil {
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				if res != nil {
+					res.Body.Close()
+				}
+				return nil, err
+			}
+			if res != nil {
+				res.Body.Close()
+			}
+		} else {
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 				break
 			}
-			res.Body.Close()
-		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
-		} else if res != nil {
 			res.Body.Close()
 		}
 		retries--

@@ -147,6 +147,7 @@ func init() {
 	}
 }
 
+// NiconicoSort sorts video IDs by their numeric part in ascending order, ignoring any preceding tab or URL strings.
 func NiconicoSort(slice []string, tab bool, url bool) {
 	var num = 2
 	if tab {

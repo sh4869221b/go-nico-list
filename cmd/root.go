@@ -26,13 +26,14 @@ import (
 )
 
 var (
-	comment    int
-	dateafter  string
-	datebefore string
-	tab        bool
-	url        bool
-	pageLimit  int
-	logger     *slog.Logger
+	comment           int
+	dateafter         string
+	datebefore        string
+	tab               bool
+	url               bool
+	pageLimit         int
+	httpClientTimeout time.Duration = defaultHTTPTimeout
+	logger            *slog.Logger
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -99,10 +100,11 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 }
 
 const (
-	tabStr           = "\t\t\t\t\t\t\t\t\t"
-	urlStr           = "https://www.nicovideo.jp/watch/"
-	defaultPageLimit = 100
-	defaultBaseURL   = "https://nvapi.nicovideo.jp/v3"
+	tabStr             = "\t\t\t\t\t\t\t\t\t"
+	urlStr             = "https://www.nicovideo.jp/watch/"
+	defaultPageLimit   = 100
+	defaultBaseURL     = "https://nvapi.nicovideo.jp/v3"
+	defaultHTTPTimeout = 10 * time.Second
 )
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -222,7 +224,7 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("X-Frontend-Id", "6")
 	req.Header.Set("Accept", "*/*")
-	client := new(http.Client)
+	client := &http.Client{Timeout: httpClientTimeout}
 
 	var (
 		res     *http.Response

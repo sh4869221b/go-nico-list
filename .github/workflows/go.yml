@@ -16,11 +16,17 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: ">=1.18"
+        go-version: "1.24"
         check-latest: true
 
     - name: Build
       run: go build -v ./...
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Format Check
+      run: gofmt -l .
 
     - name: Test
       run: go test ./...

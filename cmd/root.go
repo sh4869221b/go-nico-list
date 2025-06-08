@@ -101,7 +101,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	close(sem)
 	logger.Info("video list", "count", len(idList))
 	NiconicoSort(idList, tab, url)
-	fmt.Println(strings.Join(idList[:], "\n"))
+	fmt.Println(strings.Join(idList, "\n"))
 	return nil
 }
 

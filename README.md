@@ -17,5 +17,7 @@ Flags:
   -u, --url                   output id add url
   -p, --pages number          maximum number of pages to fetch
   -n, --concurrency number    number of concurrent requests (default 30)
+      --timeout duration      HTTP client timeout (default "10s")
+      --retries number        number of retries for requests (default 100)
   -v, --version               version for go-nico-list
 ```

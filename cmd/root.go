@@ -32,6 +32,7 @@ var (
 	tab               bool
 	url               bool
 	concurrency       int = 30
+	retries           int = defaultRetries
 	pageLimit         int
 	httpClientTimeout time.Duration = defaultHTTPTimeout
 	logger            *slog.Logger
@@ -130,6 +131,7 @@ const (
 	defaultPageLimit   = 100
 	defaultBaseURL     = "https://nvapi.nicovideo.jp/v3"
 	defaultHTTPTimeout = 10 * time.Second
+	defaultRetries     = 100
 )
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -157,6 +159,9 @@ func init() {
 	rootCmd.Flags().BoolVarP(&url, "url", "u", false, "output id add url")
 
 	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "n", 30, "number of concurrent requests")
+
+	rootCmd.Flags().DurationVar(&httpClientTimeout, "timeout", defaultHTTPTimeout, "HTTP client timeout")
+	rootCmd.Flags().IntVar(&retries, "retries", defaultRetries, "number of retries for requests")
 
 	pageLimitDefault := defaultPageLimit
 	rootCmd.Flags().IntVarP(&pageLimit, "pages", "p", pageLimitDefault, "maximum number of pages to fetch")
@@ -255,14 +260,14 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 	client := &http.Client{Timeout: httpClientTimeout}
 
 	var (
-		res     *http.Response
-		err     error
-		retries = 100
+		res *http.Response
+		err error
 	)
 	const baseDelay = 50 * time.Millisecond
 	maxRetries := retries
+	attempts := retries
 
-	for retries > 0 {
+	for attempts > 0 {
 		res, err = client.Do(req)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -280,8 +285,8 @@ func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
 			}
 			res.Body.Close()
 		}
-		retries--
-		wait := time.Duration(math.Min(math.Pow(2, float64(maxRetries-retries))*float64(baseDelay), float64(30*time.Second)))
+		attempts--
+		wait := time.Duration(math.Min(math.Pow(2, float64(maxRetries-attempts))*float64(baseDelay), float64(30*time.Second)))
 		time.Sleep(wait)
 	}
 

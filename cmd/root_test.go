@@ -143,6 +143,18 @@ func TestRetriesRequestContextCanceled(t *testing.T) {
 	}
 }
 
+func TestRetriesValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	retries = 0
+	defer func() { retries = defaultRetries }()
+
+	rootCmd.SetArgs([]string{"12345"})
+	err := rootCmd.Execute()
+	if err == nil || err.Error() != "retries must be at least 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRetriesRequestTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)

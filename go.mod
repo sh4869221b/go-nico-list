@@ -1,6 +1,6 @@
 module github.com/sh4869221b/go-nico-list
 
-go 1.23.1
+go 1.24.3
 
 require github.com/spf13/cobra v1.9.1
 

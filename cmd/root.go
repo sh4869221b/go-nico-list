@@ -72,8 +72,13 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	for i := range args {
 		sem <- struct{}{}
-		wg.Add(1)
 		match := r.FindStringSubmatch(args[i])
+		if len(match) == 0 {
+			logger.Warn("invalid user ID", "input", args[i])
+			<-sem
+			continue
+		}
+		wg.Add(1)
 		result := make(map[string]string)
 		for j, name := range r.SubexpNames() {
 			if j != 0 && name != "" {

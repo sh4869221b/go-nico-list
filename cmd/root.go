@@ -31,6 +31,7 @@ var (
 	datebefore        string
 	tab               bool
 	url               bool
+	concurrency       int = 30
 	pageLimit         int
 	httpClientTimeout time.Duration = defaultHTTPTimeout
 	logger            *slog.Logger
@@ -67,7 +68,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
 	bar := progressbar.Default(int64(len(args)))
 
-	sem := make(chan struct{}, 30)
+	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
 	for i := range args {
@@ -135,6 +136,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&datebefore, "datebefore", "b", "99991231", "date `YYYYMMDD` before")
 	rootCmd.Flags().BoolVarP(&tab, "tab", "t", false, "id tab Separated flag")
 	rootCmd.Flags().BoolVarP(&url, "url", "u", false, "output id add url")
+
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "n", 30, "number of concurrent requests")
 
 	pageLimitDefault := defaultPageLimit
 	rootCmd.Flags().IntVarP(&pageLimit, "pages", "p", pageLimitDefault, "maximum number of pages to fetch")

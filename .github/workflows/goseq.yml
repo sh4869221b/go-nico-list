@@ -1,26 +1,37 @@
 name: Run Gosec
+
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
-    branches:
-      - master
+    branches: [master]
+
 jobs:
-  tests:
+  gosec:
+    name: Gosec Security Scan
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-    runs-on: ubuntu-latest
-    env:
-      GO111MODULE: on
+      security-events: write  # SARIFをCode Scanningにアップロードするために必要
+
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v4
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.24.3'
-    - name: Run Gosec Security Scanner
-      uses: securego/gosec@v2.22.4
-      with:
-        args: ./...
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.3'
+
+      - name: Install Gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run Gosec
+        run: |
+          mkdir -p reports
+          $(go env GOPATH)/bin/gosec -fmt sarif -out reports/gosec.sarif ./...
+
+      - name: Upload Gosec SARIF Report
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/gosec.sarif

@@ -24,5 +24,4 @@ Flags:
   -v, --version               version for go-nico-list
 ```
 
-Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
-The recommended values are `30` for `concurrency` and `100` for `retries`, so avoid using values that are too small.
+The recommended values are `30` for `concurrency` and `100` for `retries`. Setting these to a value less than 1 will result in an error.

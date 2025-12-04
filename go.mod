@@ -2,7 +2,7 @@ module github.com/sh4869221b/go-nico-list
 
 go 1.24.3
 
-require github.com/spf13/cobra v1.10.1
+require github.com/spf13/cobra v1.10.2
 
 require (
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect

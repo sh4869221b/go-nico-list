@@ -38,8 +38,9 @@ Keep `DESIGN.md` focused on the current, agreed-upon behavior.
 Keep `IMPROVEMENTS.md` in English.
 
 ## Work Log
-Use `WORKLOG.md` to record interrupted work, session status, and next steps.
+Use `WORKLOG.md` (git-ignored) to record interrupted work, session status, and next steps.
 Move short-lived coordination notes or deferred tasks from `IMPROVEMENTS.md` into `WORKLOG.md` when they are about ongoing execution rather than long-term backlog.
+Do not commit `WORKLOG.md`; keep it local-only.
 Keep `WORKLOG.md` in English.
 
 ## Dependencies

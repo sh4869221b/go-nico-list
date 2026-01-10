@@ -52,6 +52,7 @@ Requires bash and network access to fetch module license metadata.
 
 If the user-facing behavior changes, update `README.md` and `DESIGN.md`.
 If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN.md`.
+Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 ## Pull requests
 

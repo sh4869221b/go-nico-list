@@ -65,3 +65,6 @@ dist/
 
 .cache/
 
+# Local work log (keep untracked)
+WORKLOG.md
+

@@ -68,6 +68,7 @@ Notes:
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
+- A run summary is printed to stderr after processing (even when the exit code is non-zero).
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

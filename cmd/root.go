@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/schollz/progressbar/v3"
@@ -97,9 +98,19 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	var errWriter io.Writer = os.Stderr
+	if cmd != nil {
+		errWriter = cmd.ErrOrStderr()
+	}
+
 	var idList []string
 	var mu sync.Mutex
 	stream := streamInputs(cmd, args)
+	var totalInputs int64
+	var validInputs int64
+	var invalidInputs int64
+	var fetchOKCount int64
+	var fetchErrCount int64
 
 	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
 	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
@@ -138,6 +149,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	var inputErr error
 	for input := range stream.inputs {
+		atomic.AddInt64(&totalInputs, 1)
 		if inputErr == nil {
 			select {
 			case err := <-inputErrCh:
@@ -147,17 +159,19 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			default:
 			}
 		}
+		match := r.FindStringSubmatch(input)
+		if len(match) == 0 {
+			atomic.AddInt64(&invalidInputs, 1)
+			logger.Warn("invalid user ID", "input", input)
+			bar.Add(1)
+			continue
+		}
+		atomic.AddInt64(&validInputs, 1)
 		if inputErr != nil {
+			bar.Add(1)
 			continue
 		}
 		sem <- struct{}{}
-		match := r.FindStringSubmatch(input)
-		if len(match) == 0 {
-			logger.Warn("invalid user ID", "input", input)
-			bar.Add(1)
-			<-sem
-			continue
-		}
 		wg.Add(1)
 		result := make(map[string]string)
 		for j, name := range r.SubexpNames() {
@@ -175,13 +189,16 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			idList = append(idList, newList...)
 			mu.Unlock()
 			if err != nil {
+				atomic.AddInt64(&fetchErrCount, 1)
 				errCh <- err
+				return
 			}
+			atomic.AddInt64(&fetchOKCount, 1)
 		}(userID)
 	}
 	wg.Wait()
 	close(errCh)
-	fetchErr := <-fetchErrCh
+	fetchErrRet := <-fetchErrCh
 	if inputErr == nil {
 		for err := range inputErrCh {
 			if err != nil {
@@ -192,7 +209,8 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	close(sem)
 	logger.Info("video list", "count", len(idList))
-	if len(idList) > 0 {
+	outputCount := len(idList)
+	if outputCount > 0 {
 		var out io.Writer = os.Stdout
 		if cmd != nil {
 			out = cmd.OutOrStdout()
@@ -200,10 +218,23 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		niconico.NiconicoSort(idList, tab, url)
 		fmt.Fprintln(out, strings.Join(idList, "\n"))
 	}
+	if shouldShowProgress(errWriter) {
+		fmt.Fprintln(errWriter)
+	}
+	fmt.Fprintf(
+		errWriter,
+		"summary inputs=%d valid=%d invalid=%d fetch_ok=%d fetch_err=%d output_count=%d\n",
+		atomic.LoadInt64(&totalInputs),
+		atomic.LoadInt64(&validInputs),
+		atomic.LoadInt64(&invalidInputs),
+		atomic.LoadInt64(&fetchOKCount),
+		atomic.LoadInt64(&fetchErrCount),
+		outputCount,
+	)
 	if inputErr != nil {
 		return inputErr
 	}
-	return fetchErr
+	return fetchErrRet
 }
 
 const (

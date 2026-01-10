@@ -195,6 +195,60 @@ func TestNoProgressOverridesForceProgress(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdEmitsSummary(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "invalid"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := errOut.String()
+	want := "summary inputs=2 valid=1 invalid=1 fetch_ok=1 fetch_err=0 output_count=0"
+	if !strings.Contains(got, want) {
+		t.Fatalf("expected summary %q, got %q", want, got)
+	}
+}
+
 func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

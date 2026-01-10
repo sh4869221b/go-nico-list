@@ -1,0 +1,80 @@
+# Contributing
+
+Thanks for taking the time to contribute!
+
+## Prerequisites
+
+- Go (see `go.mod` for the required version)
+
+## Setup
+
+```bash
+go mod download
+```
+
+## Quick check
+
+```bash
+go run ./... --help
+```
+
+## Local development
+
+Run these before opening a PR:
+
+```bash
+gofmt -w .
+go vet ./...
+go test ./...
+```
+
+## Third-party notices
+
+If your change updates dependencies (changes `go.mod` / `go.sum`), run:
+
+```bash
+go mod tidy
+```
+
+If your change updates dependencies (changes `go.mod` / `go.sum`), also update:
+
+```bash
+bash scripts/gen-third-party-notices.sh
+```
+
+Requires bash and network access to fetch module license metadata.
+
+## Project structure
+
+- `main.go`: bootstrap (version, cancelable context)
+- `cmd/`: CLI (flags, IO, validation, concurrency, exit codes)
+- `internal/niconico/`: domain logic (fetch, retry, sorting, types)
+
+If the user-facing behavior changes, update `README.md` and `DESIGN.md`.
+If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN.md`.
+
+## Pull requests
+
+- Keep diffs small and focused.
+- Avoid adding new runtime dependencies without prior discussion.
+- Releases are performed by the maintainer.
+- CI runs gofmt, go vet, go test, and go test -race on all branches.
+
+## Review criteria
+
+- CI must be green (gofmt, go vet, go test, go test -race).
+- If behavior changes, add or update tests; otherwise explain why in the PR.
+- If user-facing behavior changes, update README.md and DESIGN.md.
+- If dependencies change, run `go mod tidy` and update `THIRD_PARTY_NOTICES.md`.
+- Breaking changes must be called out in the PR and docs.
+
+## Reporting issues
+
+Please use the issue templates and include:
+
+- your OS / shell
+- tool version (`go-nico-list --version`)
+- the exact command you ran
+- whether the issue is reproducible
+- expected vs actual behavior
+- any relevant logs (stderr or `--logfile` output)

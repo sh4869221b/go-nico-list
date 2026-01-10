@@ -11,6 +11,13 @@ Baseline rules for changes in this repository.
 - After addressing review feedback, re-request review and ask Codex for a re-review in chat.
 - PRs must include an auto-close keyword for related issues (e.g. `Closes #123`).
 - When creating PRs with `gh`, use `--fill` or `--body-file` (avoid `-b` with literal `\n`).
+- When editing PR bodies with `gh`, use `-F <file>` and rewrite the full body (no `--add-body` flag exists).
+
+## Workflow Notes
+- Keep tests deterministic; avoid time-based ordering and use controllable IO (e.g. pipes) when sequencing matters.
+- When mocking the niconico API, ensure pagination terminates (e.g. return empty items or 404 for page > 1).
+- Avoid interactive editors in automated merges (use `git merge -m` or set `GIT_EDITOR` to a non-interactive command).
+- Before merging, wait for all CI checks to complete (use `gh pr checks --watch`) unless explicitly told to skip.
 
 ## Design
 Refer to `DESIGN.md` for the design overview and responsibility boundaries.

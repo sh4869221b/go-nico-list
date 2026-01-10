@@ -7,6 +7,7 @@ Baseline rules for changes in this repository.
 - After changes, run `go vet ./...` and confirm there are no errors.
 - After changes, run `go test ./...` and confirm there are no errors.
 - Use short-lived branches (e.g. `feature/*`) and merge via PR; do not commit directly to `master` unless explicitly requested.
+- Use the `branch-helper` skill for tasks that modify the repository unless the user requests otherwise.
 
 ## Design
 Refer to `DESIGN.md` for the design overview and responsibility boundaries.

@@ -76,6 +76,22 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 - If dependencies change, run `go mod tidy` and update `THIRD_PARTY_NOTICES.md`.
 - Breaking changes must be called out in the PR and docs.
 
+## Commit messages
+
+- Use `type: summary` (Conventional Commits style), e.g. `fix: handle empty output`.
+- Allowed types: `feat`, `fix`, `docs`, `ci`, `chore`, `refactor`, `test`, `build`.
+- Keep the summary on the first line.
+- For complex changes (multiple files or behavior changes), add a blank line, then details from line 3 onward.
+
+Example:
+
+```
+refactor: split client package
+
+- move fetch/retry/sort into internal/niconico
+- update tests to match new entry points
+```
+
 ## Reporting issues
 
 Please use the issue templates and include:

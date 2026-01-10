@@ -18,6 +18,7 @@ import (
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
+	"golang.org/x/term"
 
 	"github.com/spf13/cobra"
 )
@@ -34,10 +35,19 @@ var (
 	inputFilePath     string
 	readStdin         bool
 	logFilePath       string
+	forceProgress     bool
+	noProgress        bool
 	Version           = "unset"
 	logger            *slog.Logger
-	progressBarNew    func(int64, ...string) *progressbar.ProgressBar = progressbar.Default
-	openInputFile     func(string) (io.ReadCloser, error)             = func(path string) (io.ReadCloser, error) { return os.Open(path) }
+	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
+		return progressbar.NewOptions64(
+			max,
+			progressbar.OptionSetWriter(writer),
+			progressbar.OptionSetVisibility(visible),
+		)
+	}
+	openInputFile func(string) (io.ReadCloser, error) = func(path string) (io.ReadCloser, error) { return os.Open(path) }
+	isTerminal    func(io.Writer) bool                = defaultIsTerminal
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -239,6 +249,8 @@ func init() {
 	rootCmd.Flags().StringVar(&inputFilePath, "input-file", "", "read inputs from file (newline-separated)")
 	rootCmd.Flags().BoolVar(&readStdin, "stdin", false, "read inputs from stdin (newline-separated)")
 	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")
+	rootCmd.Flags().BoolVar(&forceProgress, "progress", false, "force enable progress output")
+	rootCmd.Flags().BoolVar(&noProgress, "no-progress", false, "disable progress output")
 
 }
 
@@ -253,10 +265,34 @@ func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressb
 	if !totalKnown {
 		total = -1
 	}
+	var errWriter io.Writer = os.Stderr
 	if cmd != nil {
-		return progressbar.NewOptions64(total, progressbar.OptionSetWriter(cmd.ErrOrStderr()))
+		errWriter = cmd.ErrOrStderr()
 	}
-	return progressBarNew(total)
+	visible := shouldShowProgress(errWriter)
+	writer := errWriter
+	if !visible {
+		writer = io.Discard
+	}
+	return progressBarNew(total, writer, visible)
+}
+
+func shouldShowProgress(errWriter io.Writer) bool {
+	visible := isTerminal(errWriter)
+	if forceProgress {
+		visible = true
+	}
+	if noProgress {
+		visible = false
+	}
+	return visible
+}
+
+func defaultIsTerminal(w io.Writer) bool {
+	if file, ok := w.(*os.File); ok {
+		return term.IsTerminal(int(file.Fd()))
+	}
+	return false
 }
 
 func streamInputs(cmd *cobra.Command, args []string) inputStream {

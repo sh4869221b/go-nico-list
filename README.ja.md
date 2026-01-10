@@ -57,12 +57,15 @@ cat users.txt | go-nico-list --stdin
 | `--input-file` | read inputs from file (newline-separated) | `""` |
 | `--stdin` | read inputs from stdin (newline-separated) | `false` |
 | `--logfile` | log output file path | `""` |
+| `--progress` | force enable progress output | `false` |
+| `--no-progress` | disable progress output | `false` |
 
 Notes:
 - 入力は引数、`--input-file`、`--stdin` で指定できます（改行区切り）。
 - 各入力は `nicovideo.jp/user/<id>` を含む必要があります（スキームは任意）。数字のみや `user/<id>` だけの入力は無効としてスキップされます。
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `concurrency` または `retries` を 1 未満にすると実行時エラーになります。
+- stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

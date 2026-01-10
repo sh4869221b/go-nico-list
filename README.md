@@ -59,12 +59,15 @@ cat users.txt | go-nico-list --stdin
 | `--input-file` | read inputs from file (newline-separated) | `""` |
 | `--stdin` | read inputs from stdin (newline-separated) | `false` |
 | `--logfile` | log output file path | `""` |
+| `--progress` | force enable progress output | `false` |
+| `--no-progress` | disable progress output | `false` |
 
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
 - Each input must contain `nicovideo.jp/user/<id>` (scheme optional). Plain digits or `user/<id>` without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
+- Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

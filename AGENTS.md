@@ -24,6 +24,7 @@ Baseline rules for changes in this repository.
 - When mocking the niconico API, ensure pagination terminates (e.g. return empty items or 404 for page > 1).
 - Avoid interactive editors in automated merges (use `git merge -m` or set `GIT_EDITOR` to a non-interactive command).
 - Before merging, wait for all CI checks to complete (use `gh pr checks --watch`) unless explicitly told to skip.
+- When a versioned milestone is completed, release using the same version number; after the release workflow succeeds, close the milestone.
 
 ## Design
 Refer to `DESIGN.md` for the design overview and responsibility boundaries.

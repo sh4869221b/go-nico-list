@@ -62,6 +62,7 @@ cat users.txt | go-nico-list --stdin
 | `--progress` | force enable progress output | `false` |
 | `--no-progress` | disable progress output | `false` |
 | `--strict` | return non-zero if any input is invalid | `false` |
+| `--best-effort` | always exit 0 while logging fetch errors | `false` |
 
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
@@ -71,6 +72,7 @@ Notes:
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
+- `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

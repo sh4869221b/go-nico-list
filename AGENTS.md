@@ -12,6 +12,9 @@ Baseline rules for changes in this repository.
 - PRs must include an auto-close keyword for related issues (e.g. `Closes #123`).
 - When creating PRs with `gh`, use `--fill` or `--body-file` (avoid `-b` with literal `\n`).
 - When editing PR bodies with `gh`, use `-F <file>` and rewrite the full body (no `--add-body` flag exists).
+- For implementation work, always follow this flow: Implement → Test → Review.
+  - If the review has findings, ask numbered questions for any confirmations needed.
+  - Once confirmations are resolved, apply fixes and repeat Fix → Test → Review until there are no findings.
 
 ## Workflow Notes
 - Keep tests deterministic; avoid time-based ordering and use controllable IO (e.g. pipes) when sequencing matters.

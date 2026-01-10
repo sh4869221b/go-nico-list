@@ -88,6 +88,7 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 - Allowed types: `feat`, `fix`, `docs`, `ci`, `chore`, `refactor`, `test`, `build`.
 - Keep the summary on the first line.
 - For complex changes (multiple files or behavior changes), add a blank line, then details from line 3 onward.
+- When Codex is used, add the trailer line: `Co-authored-by: Codex <codex@openai.com>`.
 
 Example:
 

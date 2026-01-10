@@ -60,6 +60,14 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 - Releases are performed by the maintainer.
 - CI runs gofmt, go vet, go test, and go test -race on all branches.
 
+## Release process
+
+1. Ensure main is green and up to date.
+2. Create and push a version tag: `vX.Y.Z`.
+3. GitHub Actions runs the release workflow, including gofmt/go vet/go test/go test -race.
+4. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.
+5. GoReleaser publishes the GitHub Release and uploads artifacts.
+
 ## Review criteria
 
 - CI must be green (gofmt, go vet, go test, go test -race).

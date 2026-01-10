@@ -119,6 +119,12 @@ main.go
 - CLI tests: `cmd/root_test.go` (validation, output, progress, logfile).
 - Domain tests: `internal/niconico/client_test.go` (fetch/retry/sort).
 
+## Release process (CI)
+- Release is triggered by pushing a `vX.Y.Z` tag to GitHub.
+- The release workflow runs quality gates (gofmt, go vet, go test, go test -race).
+- `THIRD_PARTY_NOTICES.md` is kept in sync via `scripts/gen-third-party-notices.sh` and verified in CI.
+- GoReleaser builds and publishes artifacts for supported OSes.
+
 ## Change Guidelines
 - Do not mix CLI and domain logic.
 - Keep `cmd` limited to IO and parameter handling.

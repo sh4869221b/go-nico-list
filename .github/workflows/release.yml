@@ -19,6 +19,22 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Download deps
+        run: go mod download
+      - name: Check gofmt
+        run: |
+          gofmt -w .
+          git diff --exit-code
+      - name: Go vet
+        run: go vet ./...
+      - name: Go test
+        run: go test -count=1 ./...
+      - name: Go test (race)
+        run: go test -race -count=1 ./...
+      - name: Verify third-party notices
+        run: |
+          bash scripts/gen-third-party-notices.sh
+          git diff --exit-code -- THIRD_PARTY_NOTICES.md
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

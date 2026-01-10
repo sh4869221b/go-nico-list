@@ -38,6 +38,7 @@ var (
 	logFilePath       string
 	forceProgress     bool
 	noProgress        bool
+	strictInput       bool
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
@@ -234,6 +235,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if inputErr != nil {
 		return inputErr
 	}
+	if strictInput && atomic.LoadInt64(&invalidInputs) > 0 {
+		return errors.New("invalid input detected")
+	}
 	return fetchErrRet
 }
 
@@ -282,6 +286,7 @@ func init() {
 	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")
 	rootCmd.Flags().BoolVar(&forceProgress, "progress", false, "force enable progress output")
 	rootCmd.Flags().BoolVar(&noProgress, "no-progress", false, "disable progress output")
+	rootCmd.Flags().BoolVar(&strictInput, "strict", false, "return non-zero if any input is invalid")
 
 }
 

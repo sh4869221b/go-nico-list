@@ -249,6 +249,97 @@ func TestRunRootCmdEmitsSummary(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdStrictInvalidInputReturnsError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	origStrict := strictInput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	strictInput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		strictInput = origStrict
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"invalid"}); err == nil || err.Error() != "invalid input detected" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no stdout output, got %q", out.String())
+	}
+}
+
+func TestRunRootCmdStrictInvalidStillOutputsValidResults(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	origStrict := strictInput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	strictInput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		strictInput = origStrict
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "invalid"}); err == nil || err.Error() != "invalid input detected" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := out.String(); got != "sm1\n" {
+		t.Errorf("unexpected stdout output: %q", got)
+	}
+}
+
 func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

@@ -301,13 +301,14 @@ func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
 	httpClientTimeout = 5 * time.Second
 	t.Cleanup(func() { httpClientTimeout = oldTimeout })
 
-	tmpDir := t.TempDir()
-	inputPath := filepath.Join(tmpDir, "inputs.txt")
 	longLine := strings.Repeat("a", 1024*1024+1)
-	if err := os.WriteFile(inputPath, []byte(longLine+"\n"), 0o644); err != nil {
-		t.Fatalf("failed to write inputs: %v", err)
+	pr, pw := io.Pipe()
+	oldOpenInputFile := openInputFile
+	openInputFile = func(string) (io.ReadCloser, error) {
+		return pr, nil
 	}
-	inputFilePath = inputPath
+	t.Cleanup(func() { openInputFile = oldOpenInputFile })
+	inputFilePath = "dummy"
 	readStdin = false
 	t.Cleanup(func() {
 		inputFilePath = ""
@@ -331,6 +332,11 @@ func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected request to start")
 	}
+
+	go func() {
+		_, _ = pw.Write([]byte(longLine + "\n"))
+		_ = pw.Close()
+	}()
 
 	select {
 	case err := <-errCh:

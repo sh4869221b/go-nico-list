@@ -10,7 +10,8 @@ Baseline rules for changes in this repository.
 - Use the `branch-helper` skill for tasks that modify the repository unless the user requests otherwise.
 - After addressing review feedback, re-request review and ask Codex for a re-review in chat.
 - PRs must include an auto-close keyword for related issues (e.g. `Closes #123`).
-- When creating PRs with `gh`, use `--fill` or `--body-file` (avoid `-b` with literal `\n`).
+- PR bodies must be based on `.github/PULL_REQUEST_TEMPLATE.md` and keep all sections.
+- When creating PRs with `gh`, always use `--body-file` from the template (avoid `--fill` alone).
 - When editing PR bodies with `gh`, use `-F <file>` and rewrite the full body (no `--add-body` flag exists).
 - For implementation work, always follow this flow: Implement → Test → Review.
   - If the review has findings, ask numbered questions for any confirmations needed.

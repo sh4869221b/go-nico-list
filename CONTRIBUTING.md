@@ -60,15 +60,15 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 - Releases are performed by the maintainer.
 - CI runs gofmt, go vet, go test, and go test -race on all branches.
 - Include an auto-close keyword for related issues (e.g. `Closes #123`) in the PR body.
-- After addressing review feedback, re-request review.
-- When using `gh pr create`, prefer `--fill` or `--body-file` to avoid literal `\n` in the description.
+- After addressing review feedback, request a Codex re-review in chat.
+- When using `gh pr create`, always use `--body-file` with `.github/PULL_REQUEST_TEMPLATE.md` to avoid literal `\n` in the description.
 
 ## Release process
 
 1. Ensure master is green and up to date.
 2. If a versioned milestone is complete, release using the same version number.
 3. Create and push a version tag: `vX.Y.Z`.
-4. GitHub Actions runs the release workflow, including gofmt/go vet/go test/go test -race.
+4. GitHub Actions runs the release workflow, verifying generated files (`go mod tidy`, `go generate ./...`) and running gofmt/go vet/go test/go test -race.
 5. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.
 6. GoReleaser publishes the GitHub Release and uploads artifacts.
 7. After the release workflow succeeds, close the milestone.

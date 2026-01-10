@@ -106,9 +106,9 @@ Releases are published by tagging a version and pushing it to GitHub.
 
 1. Create a tag like `vX.Y.Z`.
 2. Push the tag to GitHub.
-3. GitHub Actions runs the release workflow (gofmt/go vet/go test/go test -race + third-party notices check).
+3. GitHub Actions runs the release workflow (verifies `go mod tidy`/`go generate ./...`, runs gofmt/go vet/go test/go test -race, and checks third-party notices).
 4. GoReleaser publishes the GitHub Release and uploads artifacts.
+5. Close the milestone after the release workflow succeeds.
 
 Notes:
 - When a versioned milestone is complete, release using the same version number.
-- Close the milestone after the release workflow succeeds.

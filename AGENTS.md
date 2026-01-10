@@ -8,7 +8,7 @@ Baseline rules for changes in this repository.
 - After changes, run `go test ./...` and confirm there are no errors.
 - Use short-lived branches (e.g. `feature/*`) and merge via PR; do not commit directly to `master` unless explicitly requested.
 - Use the `branch-helper` skill for tasks that modify the repository unless the user requests otherwise.
-- After addressing review feedback, re-request review and ask Codex for a re-review in chat.
+- After addressing review feedback, ask Codex for a re-review in chat.
 - PRs must include an auto-close keyword for related issues (e.g. `Closes #123`).
 - PR bodies must be based on `.github/PULL_REQUEST_TEMPLATE.md` and keep all sections.
 - When creating PRs with `gh`, always use `--body-file` from the template (avoid `--fill` alone).

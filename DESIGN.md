@@ -147,6 +147,7 @@ main.go
 
 ## Release process (CI)
 - Release is triggered by pushing a `vX.Y.Z` tag to GitHub.
+- The release workflow verifies generated files (`go mod tidy`, `go generate ./...`).
 - The release workflow runs quality gates (gofmt, go vet, go test, go test -race).
 - `THIRD_PARTY_NOTICES.md` is kept in sync via `scripts/gen-third-party-notices.sh` and verified in CI.
 - GoReleaser builds and publishes artifacts for supported OSes.

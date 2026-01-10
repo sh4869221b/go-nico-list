@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -163,6 +166,185 @@ func TestRunRootCmdStdinNoArgs(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("expected no stdout output, got %q", out.String())
+	}
+}
+
+type blockingErrorReader struct {
+	wait <-chan struct{}
+	err  error
+}
+
+func (r blockingErrorReader) Read(p []byte) (int, error) {
+	<-r.wait
+	return 0, r.err
+}
+
+func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	var startedOnce sync.Once
+	var canceledOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() { close(started) })
+		select {
+		case <-r.Context().Done():
+			canceledOnce.Do(func() { close(canceled) })
+			return
+		case <-time.After(2 * time.Second):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = 5 * time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	inputFilePath = ""
+	readStdin = true
+	t.Cleanup(func() {
+		inputFilePath = ""
+		readStdin = false
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	wait := make(chan struct{})
+	cmd.SetIn(blockingErrorReader{wait: wait, err: errors.New("stdin read error")})
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected request to start")
+	}
+
+	close(wait)
+
+	select {
+	case err := <-errCh:
+		if err == nil || err.Error() != "stdin read error" {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected command to finish after input error")
+	}
+
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected request to be canceled")
+	}
+}
+
+func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	var startedOnce sync.Once
+	var canceledOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() { close(started) })
+		select {
+		case <-r.Context().Done():
+			canceledOnce.Do(func() { close(canceled) })
+			return
+		case <-time.After(2 * time.Second):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = 5 * time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "inputs.txt")
+	longLine := strings.Repeat("a", 1024*1024+1)
+	if err := os.WriteFile(inputPath, []byte(longLine+"\n"), 0o644); err != nil {
+		t.Fatalf("failed to write inputs: %v", err)
+	}
+	inputFilePath = inputPath
+	readStdin = false
+	t.Cleanup(func() {
+		inputFilePath = ""
+		readStdin = false
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected request to start")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !errors.Is(err, bufio.ErrTooLong) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected command to finish after input error")
+	}
+
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected request to be canceled")
 	}
 }
 

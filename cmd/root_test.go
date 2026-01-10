@@ -35,11 +35,21 @@ func TestRetriesValidation(t *testing.T) {
 func TestRunRootCmdInvalidInput(t *testing.T) {
 	// prepare custom progress bar to capture completion state
 	var bar *progressbar.ProgressBar
-	progressBarNew = func(max int64, description ...string) *progressbar.ProgressBar {
-		bar = progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard))
+	origProgressBarNew := progressBarNew
+	origIsTerminal := isTerminal
+	progressBarNew = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
+		bar = progressbar.NewOptions64(
+			max,
+			progressbar.OptionSetWriter(writer),
+			progressbar.OptionSetVisibility(visible),
+		)
 		return bar
 	}
-	t.Cleanup(func() { progressBarNew = progressbar.Default })
+	isTerminal = func(io.Writer) bool { return true }
+	t.Cleanup(func() {
+		progressBarNew = origProgressBarNew
+		isTerminal = origIsTerminal
+	})
 
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
@@ -50,6 +60,138 @@ func TestRunRootCmdInvalidInput(t *testing.T) {
 	}
 	if bar == nil || !bar.IsFinished() {
 		t.Errorf("progress bar not finished")
+	}
+}
+
+func TestProgressAutoDisabledOnNonTTY(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	origProgressBarNew := progressBarNew
+	origIsTerminal := isTerminal
+	origForceProgress := forceProgress
+	origNoProgress := noProgress
+	t.Cleanup(func() {
+		progressBarNew = origProgressBarNew
+		isTerminal = origIsTerminal
+		forceProgress = origForceProgress
+		noProgress = origNoProgress
+	})
+
+	var visible bool
+	progressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+		visible = show
+		return progressbar.NewOptions64(
+			max,
+			progressbar.OptionSetWriter(io.Discard),
+			progressbar.OptionSetVisibility(show),
+		)
+	}
+	isTerminal = func(io.Writer) bool { return false }
+	forceProgress = false
+	noProgress = false
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"invalid"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if visible {
+		t.Errorf("expected progress to be hidden on non-TTY stderr")
+	}
+}
+
+func TestProgressForcedOn(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	origProgressBarNew := progressBarNew
+	origIsTerminal := isTerminal
+	origForceProgress := forceProgress
+	origNoProgress := noProgress
+	t.Cleanup(func() {
+		progressBarNew = origProgressBarNew
+		isTerminal = origIsTerminal
+		forceProgress = origForceProgress
+		noProgress = origNoProgress
+	})
+
+	var visible bool
+	progressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+		visible = show
+		return progressbar.NewOptions64(
+			max,
+			progressbar.OptionSetWriter(io.Discard),
+			progressbar.OptionSetVisibility(show),
+		)
+	}
+	isTerminal = func(io.Writer) bool { return false }
+	forceProgress = true
+	noProgress = false
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"invalid"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !visible {
+		t.Errorf("expected progress to be visible when forced")
+	}
+}
+
+func TestNoProgressOverridesForceProgress(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	origProgressBarNew := progressBarNew
+	origIsTerminal := isTerminal
+	origForceProgress := forceProgress
+	origNoProgress := noProgress
+	t.Cleanup(func() {
+		progressBarNew = origProgressBarNew
+		isTerminal = origIsTerminal
+		forceProgress = origForceProgress
+		noProgress = origNoProgress
+	})
+
+	var visible bool
+	progressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+		visible = show
+		return progressbar.NewOptions64(
+			max,
+			progressbar.OptionSetWriter(io.Discard),
+			progressbar.OptionSetVisibility(show),
+		)
+	}
+	isTerminal = func(io.Writer) bool { return true }
+	forceProgress = true
+	noProgress = true
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"invalid"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if visible {
+		t.Errorf("expected progress to be hidden when no-progress is set")
 	}
 }
 

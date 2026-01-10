@@ -70,7 +70,9 @@ main.go
   - Run summary is emitted to stderr; its `output_count` uses the **deduped** count.
   - `--json` emits a minimal schema (initial fields: `inputs`, `invalid`, `users`, `errors`, `output_count`, `items`).
 - Progress:
-  - Progress output is auto-disabled on non-TTY stderr (with `--no-progress` / `--progress` overrides).
+  - Progress output is auto-disabled on non-TTY stderr.
+  - `--progress` forces progress on even when stderr is not a TTY.
+  - `--no-progress` always disables progress output and takes precedence when both flags are set.
 
 ## Flow
 1. `cmd/root.go` extracts userIDs using the regex.

@@ -28,7 +28,13 @@ jobs:
       run: go vet ./...
 
     - name: Format Check
-      run: gofmt -l .
+      run: |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "gofmt is required for:"
+          echo "$unformatted"
+          exit 1
+        fi
 
     - name: Test
       run: go test ./...

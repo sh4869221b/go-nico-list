@@ -61,6 +61,7 @@ cat users.txt | go-nico-list --stdin
 | `--logfile` | log output file path | `""` |
 | `--progress` | force enable progress output | `false` |
 | `--no-progress` | disable progress output | `false` |
+| `--strict` | return non-zero if any input is invalid | `false` |
 
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
@@ -69,6 +70,7 @@ Notes:
 - Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
+- `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

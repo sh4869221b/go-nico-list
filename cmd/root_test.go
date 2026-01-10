@@ -340,6 +340,89 @@ func TestRunRootCmdStrictInvalidStillOutputsValidResults(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdBestEffortReturnsNilOnFetchError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "invalid")
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origBestEffort := bestEffort
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	bestEffort = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		bestEffort = origBestEffort
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRootCmdStrictOverridesBestEffort(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	origBestEffort := bestEffort
+	origStrict := strictInput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	bestEffort = true
+	strictInput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		bestEffort = origBestEffort
+		strictInput = origStrict
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"invalid"}); err == nil || err.Error() != "invalid input detected" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

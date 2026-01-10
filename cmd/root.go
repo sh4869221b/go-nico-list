@@ -39,6 +39,7 @@ var (
 	forceProgress     bool
 	noProgress        bool
 	strictInput       bool
+	bestEffort        bool
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
@@ -238,6 +239,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if strictInput && atomic.LoadInt64(&invalidInputs) > 0 {
 		return errors.New("invalid input detected")
 	}
+	if bestEffort {
+		return nil
+	}
 	return fetchErrRet
 }
 
@@ -287,6 +291,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&forceProgress, "progress", false, "force enable progress output")
 	rootCmd.Flags().BoolVar(&noProgress, "no-progress", false, "disable progress output")
 	rootCmd.Flags().BoolVar(&strictInput, "strict", false, "return non-zero if any input is invalid")
+	rootCmd.Flags().BoolVar(&bestEffort, "best-effort", false, "always exit 0 while logging fetch errors")
 
 }
 

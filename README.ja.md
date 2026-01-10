@@ -60,6 +60,7 @@ cat users.txt | go-nico-list --stdin
 | `--progress` | force enable progress output | `false` |
 | `--no-progress` | disable progress output | `false` |
 | `--strict` | return non-zero if any input is invalid | `false` |
+| `--best-effort` | always exit 0 while logging fetch errors | `false` |
 
 Notes:
 - 入力は引数、`--input-file`、`--stdin` で指定できます（改行区切り）。
@@ -69,6 +70,7 @@ Notes:
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
 - 処理後に実行サマリを stderr に出力します（非0終了時も含む）。
 - `--strict` を指定すると、無効な入力がある場合に非0で終了します（有効な結果は出力されます）。
+- `--best-effort` を指定すると取得エラーがあっても終了コードは 0 になります（エラーはログに残ります）。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

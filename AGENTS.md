@@ -12,6 +12,8 @@ Baseline rules for changes in this repository.
 - PRs must include an auto-close keyword for related issues (e.g. `Closes #123`).
 - PR bodies must be based on `.github/PULL_REQUEST_TEMPLATE.md` and keep all sections.
 - When creating PRs with `gh`, always use `--body-file` from the template (avoid `--fill` alone).
+- Create the PR right after the initial implementation commit so fix logs can be tracked in the PR body.
+- Maintain a running fix log in the PR body after each correction pass.
 - When editing PR bodies with `gh`, use `-F <file>` and rewrite the full body (no `--add-body` flag exists).
 - For implementation work, always follow this flow: Implement → Test → Review.
   - If the review has findings, ask numbered questions for any confirmations needed.

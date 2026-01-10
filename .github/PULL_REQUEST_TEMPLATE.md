@@ -18,6 +18,10 @@
 # go test ./...
 ```
 
+## Fix log
+
+<!-- Append a short log after each correction pass (e.g. "2026-01-10: fix X, update tests"). -->
+
 ## Breaking change
 
 - [ ] Yes

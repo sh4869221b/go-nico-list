@@ -63,6 +63,7 @@ cat users.txt | go-nico-list --stdin
 | `--no-progress` | disable progress output | `false` |
 | `--strict` | return non-zero if any input is invalid | `false` |
 | `--best-effort` | always exit 0 while logging fetch errors | `false` |
+| `--dedupe` | remove duplicate output IDs before sorting | `false` |
 
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
@@ -73,6 +74,7 @@ Notes:
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
 - `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
+- `--dedupe` removes duplicate video IDs before sorting/output.
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

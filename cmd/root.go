@@ -40,6 +40,7 @@ var (
 	noProgress        bool
 	strictInput       bool
 	bestEffort        bool
+	dedupeOutput      bool
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
@@ -211,14 +212,27 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	close(sem)
 	logger.Info("video list", "count", len(idList))
-	outputCount := len(idList)
+	outputIDs := idList
+	if dedupeOutput && len(outputIDs) > 0 {
+		seen := make(map[string]struct{}, len(outputIDs))
+		unique := make([]string, 0, len(outputIDs))
+		for _, id := range outputIDs {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			unique = append(unique, id)
+		}
+		outputIDs = unique
+	}
+	outputCount := len(outputIDs)
 	if outputCount > 0 {
 		var out io.Writer = os.Stdout
 		if cmd != nil {
 			out = cmd.OutOrStdout()
 		}
-		niconico.NiconicoSort(idList, tab, url)
-		fmt.Fprintln(out, strings.Join(idList, "\n"))
+		niconico.NiconicoSort(outputIDs, tab, url)
+		fmt.Fprintln(out, strings.Join(outputIDs, "\n"))
 	}
 	if shouldShowProgress(errWriter) {
 		fmt.Fprintln(errWriter)
@@ -292,6 +306,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&noProgress, "no-progress", false, "disable progress output")
 	rootCmd.Flags().BoolVar(&strictInput, "strict", false, "return non-zero if any input is invalid")
 	rootCmd.Flags().BoolVar(&bestEffort, "best-effort", false, "always exit 0 while logging fetch errors")
+	rootCmd.Flags().BoolVar(&dedupeOutput, "dedupe", false, "remove duplicate output IDs before sorting")
 
 }
 

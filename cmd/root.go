@@ -37,6 +37,7 @@ var (
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, ...string) *progressbar.ProgressBar = progressbar.Default
+	openInputFile     func(string) (io.ReadCloser, error)             = func(path string) (io.ReadCloser, error) { return os.Open(path) }
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -310,7 +311,7 @@ func streamInputs(cmd *cobra.Command, args []string) inputStream {
 }
 
 func streamLinesFromFile(path string, out chan<- string) (int, error) {
-	file, err := os.Open(path)
+	file, err := openInputFile(path)
 	if err != nil {
 		return 0, err
 	}

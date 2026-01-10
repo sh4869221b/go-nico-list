@@ -5,17 +5,12 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
-	"net/http"
 	"os"
 	"regexp"
-	"runtime/debug"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -32,10 +27,11 @@ var (
 	datebefore        string
 	tab               bool
 	url               bool
-	concurrency       int = 30
-	retries           int = defaultRetries
-	pageLimit         int
+	concurrency       int           = 3
+	retries           int           = defaultRetries
 	httpClientTimeout time.Duration = defaultHTTPTimeout
+	logFilePath       string
+	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, ...string) *progressbar.ProgressBar = progressbar.Default
 )
@@ -70,16 +66,31 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	beforeDate := t
 
 	logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+	if logFilePath != "" {
+		logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		defer logFile.Close()
+		logger = slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{}))
+	}
 	slog.SetDefault(logger)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
+	if cmd != nil {
+		ctx = cmd.Context()
+	}
 
 	var idList []string
 	var mu sync.Mutex
 
-	r := regexp.MustCompile(`(((http(s)?://)?www\.)?nicovideo.jp/)?user/(?P<userID>\d{1,9})(/video)?`)
-	bar := progressBarNew(int64(len(args)))
+	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
+	var bar *progressbar.ProgressBar
+	if cmd != nil {
+		bar = progressbar.NewOptions64(int64(len(args)), progressbar.OptionSetWriter(cmd.ErrOrStderr()))
+	} else {
+		bar = progressBarNew(int64(len(args)))
+	}
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -106,14 +117,14 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer bar.Add(1)
-			newList, err := getVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, defaultBaseURL)
+			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, logger)
+			mu.Lock()
+			idList = append(idList, newList...)
+			mu.Unlock()
 			if err != nil {
 				errCh <- err
 				return
 			}
-			mu.Lock()
-			idList = append(idList, newList...)
-			mu.Unlock()
 			errCh <- nil
 		}(userID)
 	}
@@ -121,37 +132,49 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	close(errCh)
 	var retErr error
 	for e := range errCh {
-		if e != nil && retErr == nil {
-			logger.Error("failed to get video list", "error", e)
+		if e == nil {
+			continue
+		}
+		logger.Error("failed to get video list", "error", e)
+		if retErr == nil {
 			retErr = e
 		}
 	}
 	close(sem)
 	logger.Info("video list", "count", len(idList))
-	NiconicoSort(idList, tab, url)
-	fmt.Println(strings.Join(idList, "\n"))
+	if len(idList) > 0 {
+		var out io.Writer = os.Stdout
+		if cmd != nil {
+			out = cmd.OutOrStdout()
+		}
+		niconico.NiconicoSort(idList, tab, url)
+		fmt.Fprintln(out, strings.Join(idList, "\n"))
+	}
 	return retErr
 }
 
 const (
-	tabStr             = "\t\t\t\t\t\t\t\t\t"
-	urlStr             = "https://www.nicovideo.jp/watch/"
-	defaultPageLimit   = 100
 	defaultBaseURL     = "https://nvapi.nicovideo.jp/v3"
 	defaultHTTPTimeout = 10 * time.Second
-	defaultRetries     = 100
+	defaultRetries     = 10
 )
+
+var baseURL = defaultBaseURL
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
-	}
+	ExecuteContext(context.Background())
+}
+
+func ExecuteContext(ctx context.Context) {
+	rootCmd.Version = Version
+	cobra.CheckErr(rootCmd.ExecuteContext(ctx))
 }
 
 func init() {
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
@@ -166,149 +189,10 @@ func init() {
 	rootCmd.Flags().BoolVarP(&tab, "tab", "t", false, "id tab Separated flag")
 	rootCmd.Flags().BoolVarP(&url, "url", "u", false, "output id add url")
 
-	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "n", 30, "number of concurrent requests")
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "n", 3, "number of concurrent requests")
 
 	rootCmd.Flags().DurationVar(&httpClientTimeout, "timeout", defaultHTTPTimeout, "HTTP client timeout")
 	rootCmd.Flags().IntVar(&retries, "retries", defaultRetries, "number of retries for requests")
+	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")
 
-	pageLimitDefault := defaultPageLimit
-	rootCmd.Flags().IntVarP(&pageLimit, "pages", "p", pageLimitDefault, "maximum number of pages to fetch")
-	info, ok := debug.ReadBuildInfo()
-	if ok {
-		rootCmd.Version = info.Main.Version
-	}
 }
-
-// NiconicoSort sorts video IDs by their numeric part in ascending order, ignoring any preceding tab or URL strings.
-func NiconicoSort(slice []string, tab bool, url bool) {
-	var num = 2
-	if tab {
-		num += len(tabStr)
-	}
-	if url {
-		num += len(urlStr)
-	}
-	str := "%08s"
-
-	sort.Slice(slice, func(i, j int) bool {
-		var s1, s2 string
-		if len(slice[i]) >= num {
-			s1 = slice[i][num:]
-		} else {
-			s1 = slice[i]
-		}
-		if len(slice[j]) >= num {
-			s2 = slice[j][num:]
-		} else {
-			s2 = slice[j]
-		}
-		return fmt.Sprintf(str, s1) < fmt.Sprintf(str, s2)
-	})
-}
-
-// GetVideoList retrieves video IDs for a user
-func getVideoList(ctx context.Context, userID string, commentCount int, afterDate time.Time, beforeDate time.Time, tab bool, url bool, baseURL string) ([]string, error) {
-
-	var resStr []string
-
-	var beforeStr = ""
-	if tab {
-		beforeStr += tabStr
-	}
-	if url {
-		beforeStr += urlStr
-	}
-
-	for i := 0; i < pageLimit; i++ {
-		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, i+1)
-		res, err := retriesRequest(ctx, requestURL)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		if res != nil {
-			if res.StatusCode == http.StatusNotFound {
-				break
-			}
-			body, err := io.ReadAll(res.Body)
-			_ = res.Body.Close()
-			if err != nil {
-				logger.Error("failed to read response body", "error", err)
-				return nil, err
-			}
-
-			var nicoData niconico.NicoData
-			if err := json.Unmarshal(body, &nicoData); err != nil {
-				logger.Error("failed to unmarshal response body", "error", err)
-				return nil, err
-			}
-			if len(nicoData.Data.Items) == 0 {
-				break
-			}
-			for _, s := range nicoData.Data.Items {
-				if s.Essential.Count.Comment <= commentCount {
-					continue
-				}
-				if s.Essential.RegisteredAt.Before(afterDate) {
-					continue
-				}
-				if s.Essential.RegisteredAt.After(beforeDate.AddDate(0, 0, 1)) {
-					continue
-				}
-				resStr = append(resStr, fmt.Sprintf("%s%s", beforeStr, s.Essential.ID))
-			}
-		}
-	}
-	return resStr, nil
-}
-
-func retriesRequest(ctx context.Context, url string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("X-Frontend-Id", "6")
-	req.Header.Set("Accept", "*/*")
-	client := &http.Client{Timeout: httpClientTimeout}
-
-	var (
-		res *http.Response
-	)
-	const baseDelay = 50 * time.Millisecond
-	maxRetries := retries
-	attempts := retries
-
-	for attempts > 0 {
-		res, err = client.Do(req)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				if res != nil {
-					res.Body.Close()
-				}
-				return nil, err
-			}
-			if res != nil {
-				res.Body.Close()
-			}
-		} else {
-			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
-				break
-			}
-			res.Body.Close()
-		}
-		attempts--
-		wait := time.Duration(math.Min(math.Pow(2, float64(maxRetries-attempts))*float64(baseDelay), float64(30*time.Second)))
-		time.Sleep(wait)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
-}
-
-// X-Frontend-Id: 6
-// X-Frontend-Version: 0

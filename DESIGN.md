@@ -1,0 +1,125 @@
+# Design: go-nico-list
+
+This document summarizes the behavior required for a coding agent to reproduce the same program.
+
+## Purpose and Scope
+- Purpose: Provide a CLI that fetches video IDs from a niconico userID, filters them, and outputs the list.
+- In scope: fetching, filtering, sorting, output, error handling, tests.
+- Out of scope: UI, persistence, auth, config files, i18n.
+
+## Architecture
+
+```
+main.go
+  └─ cmd.ExecuteContext(ctx)
+        └─ cmd/root.go (CLI: flags/IO/validation)
+              └─ internal/niconico (domain: fetch/retry/sort)
+```
+
+### Responsibilities
+- `main.go`:
+  - Resolve version (build info / ldflags).
+  - Create a cancelable context and pass it to `cmd.ExecuteContext`.
+- `cmd/`:
+  - Cobra commands/flags.
+  - Input validation (`concurrency`, `retries`, dates).
+  - Progress to stderr, results to stdout.
+  - Call into `internal/niconico` and aggregate results.
+- `internal/niconico/`:
+  - API response types (`nico_data.go`).
+  - Domain logic for fetch/retry/sort (`client.go`).
+
+## Input and Output
+
+### Input
+- Arguments: `nicovideo.jp/user/<id>` URL (scheme optional).
+  - Regex: `((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`
+  - `userID` is **1–9 digits**.
+  - Regex is **partial match** (valid if the input contains a match).
+  - If multiple matches exist, use the **first `nicovideo.jp/user/<id>`**.
+  - `user/<id>` without the domain and plain digits are treated as invalid inputs.
+- Flags:
+  - `--comment` (default `0`): minimum comment count.
+  - `--dateafter` (default `10000101`) / `--datebefore` (default `99991231`): `YYYYMMDD`.
+    - Parsed by `time.Parse("20060102", ...)` (UTC).
+  - `--tab` (default `false`), `--url` (default `false`): output formatting.
+  - `--concurrency` (default `3`): concurrent requests.
+  - `--timeout` (default `10s`): HTTP client timeout.
+  - `--retries` (default `10`): retry count.
+  - `--logfile` (default `""`): log file path (empty = stderr, set = file output).
+
+### Output
+- stdout: list of video IDs (with prefixes based on `tab`/`url`).
+  - `tabStr` is **9 tabs**, `urlStr` is `https://www.nicovideo.jp/watch/`.
+  - Prefix order is **tab → url**.
+  - Lines are joined by `"\n"` and printed with a trailing newline (`fmt.Fprintln`).
+  - If no IDs are retrieved, stdout prints **nothing**.
+  - Duplicate IDs are **not deduplicated**.
+- stderr: progress bar (log output switches to file when `--logfile` is set).
+- Invalid userIDs only produce a warning and do not fail; valid IDs (if present) still output results.
+
+## Flow
+1. `cmd/root.go` extracts userIDs using the regex.
+2. For each userID, a goroutine calls `internal/niconico.GetVideoList`.
+3. Aggregate and sort IDs, then print to stdout.
+
+## Errors and Exit Codes
+- Validation errors (`concurrency`/`retries`/date format): **non-zero exit**.
+  - Print **only the error message** to stderr; no usage output.
+- If any fetch errors occur: **log all errors** to the log destination and still output any retrieved IDs, exit **non-zero**.
+  - Errors include HTTP/IO/JSON failures from fetch operations.
+  - Log order is **nondeterministic** due to concurrency.
+  - The command returns **one** fetch error (the first observed); which error is returned is **nondeterministic** due to concurrency.
+  - Cobra prints that error message to stderr even when `--logfile` is set.
+- If all fetches succeed: output results to stdout (exit 0).
+  - `context.Canceled/DeadlineExceeded` during fetch is treated as a successful empty result; the command may exit 0 with partial or no output.
+
+## Core Logic
+
+### Fetch (`internal/niconico.GetVideoList`)
+- Endpoint:
+  - `https://nvapi.nicovideo.jp/v3/users/<userID>/videos?pageSize=100&page=<n>`
+- Request headers:
+  - `X-Frontend-Id: 6`
+  - `Accept: */*`
+- Pagination: fetch until API page end.
+- Filters:
+  - `comment > commentCount`
+  - `registeredAt` >= `dateafter`
+  - `registeredAt` <= `datebefore` (inclusive via an exclusive upper bound: `registeredAt < beforeDate.AddDate(0,0,1)`)
+- `StatusNotFound` stops fetching.
+- `context.Canceled/DeadlineExceeded` returns empty result without error.
+- On errors during fetch, return partial results plus error (caller logs and continues).
+
+### Retry (`internal/niconico.retriesRequest`)
+- Retry on anything other than HTTP 200/404.
+- Exponential backoff starting at `100ms`, max `30s`.
+- Cancel/timeout ends HTTP requests immediately; the backoff sleep is not interrupted.
+
+### Sort (`internal/niconico.NiconicoSort`)
+- Remove a fixed prefix length (`sm` + optional tab/url) and compare with `"%08s"` padding.
+- `tab`/`url` prefixes are ignored using `tabStr`/`urlStr` lengths.
+
+## Concurrency
+- `concurrency` limits goroutines via a semaphore.
+- Aggregated `[]string` is guarded by a mutex.
+
+## Logging
+- JSON logger via `slog`.
+- Log all fetch errors; duplicates are **allowed**.
+- With `--logfile`, switch logging destination to file:
+  - `os.OpenFile` with `O_APPEND|O_CREATE|O_WRONLY`, permissions `0644`.
+  - Failure to open the file is a non-zero error; the error is printed to stderr by Cobra (no logger output).
+
+## Version
+- `main.go` resolves `Version` and passes it to `cmd.Version`.
+- `ExecuteContext` sets `rootCmd.Version` before execution.
+
+## Tests
+- CLI tests: `cmd/root_test.go` (validation, output, progress, logfile).
+- Domain tests: `internal/niconico/client_test.go` (fetch/retry/sort).
+
+## Change Guidelines
+- Do not mix CLI and domain logic.
+- Keep `cmd` limited to IO and parameter handling.
+- Keep tests aligned with external API behavior changes.

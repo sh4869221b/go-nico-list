@@ -1,240 +1,32 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/schollz/progressbar/v3"
+	"github.com/spf13/cobra"
 )
-
-func TestNiconicoSort(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		tab      bool
-		url      bool
-		expected []string
-	}{
-		{
-			name:     "simple",
-			input:    []string{"sm12", "sm3", "sm1"},
-			tab:      false,
-			url:      false,
-			expected: []string{"sm1", "sm3", "sm12"},
-		},
-		{
-			name:     "withTab",
-			input:    []string{tabStr + "sm12", tabStr + "sm3", tabStr + "sm1"},
-			tab:      true,
-			url:      false,
-			expected: []string{tabStr + "sm1", tabStr + "sm3", tabStr + "sm12"},
-		},
-		{
-			name:     "withTabAndURL",
-			input:    []string{tabStr + urlStr + "sm2", tabStr + urlStr + "sm10", tabStr + urlStr + "sm1"},
-			tab:      true,
-			url:      true,
-			expected: []string{tabStr + urlStr + "sm1", tabStr + urlStr + "sm2", tabStr + urlStr + "sm10"},
-		},
-		{
-			name:     "shortString",
-			input:    []string{"sm12", "s", "sm3"},
-			tab:      false,
-			url:      false,
-			expected: []string{"sm3", "s", "sm12"},
-		},
-		{
-			name:     "shortStringTabURL",
-			input:    []string{tabStr + urlStr + "sm2", tabStr + urlStr + "s", tabStr + urlStr + "sm10"},
-			tab:      true,
-			url:      true,
-			expected: []string{tabStr + urlStr + "s", tabStr + urlStr + "sm2", tabStr + urlStr + "sm10"},
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			slice := append([]string(nil), tt.input...)
-			NiconicoSort(slice, tt.tab, tt.url)
-			if !reflect.DeepEqual(slice, tt.expected) {
-				t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, slice)
-			}
-		})
-	}
-}
-
-func TestRetriesRequest(t *testing.T) {
-	count := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count++
-		if count < 3 {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	}))
-	defer server.Close()
-
-	res, err := retriesRequest(context.Background(), server.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", res.StatusCode)
-	}
-	if count != 3 {
-		t.Errorf("expected 3 attempts, got %d", count)
-	}
-	res.Body.Close()
-}
-
-func TestRetriesRequestBackoff(t *testing.T) {
-	var calls []time.Time
-	count := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls = append(calls, time.Now())
-		count++
-		if count < 3 {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	}))
-	defer server.Close()
-
-	res, err := retriesRequest(context.Background(), server.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", res.StatusCode)
-	}
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 calls, got %d", len(calls))
-	}
-	diff1 := calls[1].Sub(calls[0])
-	diff2 := calls[2].Sub(calls[1])
-	if diff1 < 100*time.Millisecond {
-		t.Errorf("first backoff too short: %v", diff1)
-	}
-	if diff2 < 200*time.Millisecond {
-		t.Errorf("second backoff too short: %v", diff2)
-	}
-	res.Body.Close()
-}
-
-func TestRetriesRequestContextCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	res, err := retriesRequest(ctx, "http://example.com")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if res != nil {
-		t.Errorf("expected nil response, got %v", res)
-	}
-}
 
 func TestRetriesValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	retries = 0
-	defer func() { retries = defaultRetries }()
+	t.Cleanup(func() { retries = defaultRetries })
 
 	rootCmd.SetArgs([]string{"12345"})
 	err := rootCmd.Execute()
 	if err == nil || err.Error() != "retries must be at least 1" {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestRetriesRequestTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	oldTimeout := httpClientTimeout
-	httpClientTimeout = 50 * time.Millisecond
-	defer func() { httpClientTimeout = oldTimeout }()
-
-	start := time.Now()
-	res, err := retriesRequest(context.Background(), server.URL)
-	elapsed := time.Since(start)
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected context deadline exceeded, got %v", err)
-	}
-	if res != nil {
-		t.Errorf("expected nil response, got %v", res)
-	}
-	if elapsed < httpClientTimeout {
-		t.Errorf("timeout returned too quickly: %v", elapsed)
-	}
-}
-
-func TestGetVideoList(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			page := r.URL.Query().Get("page")
-			var resp string
-			switch page {
-			case "1":
-				resp = `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-15T00:00:00Z","count":{"comment":3}}}]}}`
-			case "2":
-				resp = `{"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-02-10T00:00:00Z","count":{"comment":20}}},{"essential":{"id":"sm4","registeredAt":"2024-05-02T00:00:00Z","count":{"comment":30}}}]}}`
-			default:
-				resp = `{"data":{"items":[]}}`
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(resp))
-		})
-		server := httptest.NewServer(handler)
-		defer server.Close()
-
-		oldLimit := pageLimit
-		pageLimit = 3
-		defer func() { pageLimit = oldLimit }()
-
-		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-		got, err := getVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		expected := []string{"sm1", "sm3"}
-		if !reflect.DeepEqual(got, expected) {
-			t.Errorf("expected %v, got %v", expected, got)
-		}
-	})
-
-	t.Run("invalid json", func(t *testing.T) {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, "invalid")
-		})
-		server := httptest.NewServer(handler)
-		defer server.Close()
-
-		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-		_, err := getVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL)
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-	})
 }
 
 func TestRunRootCmdInvalidInput(t *testing.T) {
@@ -244,7 +36,7 @@ func TestRunRootCmdInvalidInput(t *testing.T) {
 		bar = progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard))
 		return bar
 	}
-	defer func() { progressBarNew = progressbar.Default }()
+	t.Cleanup(func() { progressBarNew = progressbar.Default })
 
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
@@ -258,95 +50,188 @@ func TestRunRootCmdInvalidInput(t *testing.T) {
 	}
 }
 
-func TestGetVideoListContextCanceled(t *testing.T) {
+func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-	})
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	dateafter = "10000101"
+	datebefore = "99991231"
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
 
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-	got, err := getVideoList(ctx, "12345", 0, after, before, false, false, server.URL)
-	if err != nil {
+	if err := runRootCmd(cmd, []string{"invalid"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != 0 {
-		t.Errorf("expected empty result, got %v", got)
+	if out.Len() != 0 {
+		t.Errorf("expected no stdout output, got %q", out.String())
 	}
 }
 
-func TestGetVideoListHandleNotFound(t *testing.T) {
+func TestRunRootCmdPartialFailureOutputsResults(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	var count int
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count++
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-	})
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	dateafter = "10000101"
+	datebefore = "99991231"
 
-	oldLimit := pageLimit
-	pageLimit = 2
-	defer func() { pageLimit = oldLimit }()
-
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-	got, err := getVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected empty result, got %v", got)
-	}
-	if count != 1 {
-		t.Errorf("expected 1 attempt, got %d", count)
-	}
-}
-
-func TestGetVideoListHandleServerError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	var count int
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count++
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/users/1/") {
+			if r.URL.Query().Get("page") != "1" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-	})
-	server := httptest.NewServer(handler)
-	defer server.Close()
+		_, _ = io.WriteString(w, "invalid")
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
 
 	oldRetries := retries
-	retries = 2
-	defer func() { retries = oldRetries }()
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
 
-	oldLimit := pageLimit
-	pageLimit = 1
-	defer func() { pageLimit = oldLimit }()
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
 
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
 
-	_, err := getVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL)
-	if err == nil {
-		t.Fatalf("expected error, got nil")
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2"}); err == nil {
+		t.Fatalf("expected error")
 	}
-	if count != 2 {
-		t.Errorf("expected 2 attempts, got %d", count)
+	if got := out.String(); got != "sm1\n" {
+		t.Errorf("unexpected stdout output: %q", got)
+	}
+}
+
+func TestRunRootCmdLogFile(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "invalid")
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "app.log")
+	oldLogFilePath := logFilePath
+	logFilePath = logPath
+	t.Cleanup(func() { logFilePath = oldLogFilePath })
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"12345"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected logfile to be created: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatalf("expected logfile to contain logs")
+	}
+}
+
+func TestRunRootCmdLogFileMultipleErrors(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "invalid")
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "app.log")
+	oldLogFilePath := logFilePath
+	logFilePath = logPath
+	t.Cleanup(func() { logFilePath = oldLogFilePath })
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2"}); err == nil {
+		t.Fatalf("expected error")
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected logfile to be created: %v", err)
+	}
+	if got := bytes.Count(data, []byte("failed to get video list")); got < 2 {
+		t.Fatalf("expected at least 2 error logs, got %d", got)
 	}
 }
 
 func TestConcurrencyValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	concurrency = 0
-	defer func() { concurrency = 30 }()
+	t.Cleanup(func() { concurrency = 3 })
 
 	rootCmd.SetArgs([]string{"12345"})
 	err := rootCmd.Execute()

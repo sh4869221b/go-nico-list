@@ -130,7 +130,7 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	var (
 		res *http.Response
 	)
-	const baseDelay = 50 * time.Millisecond
+	const baseDelay = 100 * time.Millisecond
 	maxRetries := retries
 	attempts := retries
 

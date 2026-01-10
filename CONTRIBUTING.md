@@ -62,7 +62,7 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 
 ## Release process
 
-1. Ensure main is green and up to date.
+1. Ensure master is green and up to date.
 2. Create and push a version tag: `vX.Y.Z`.
 3. GitHub Actions runs the release workflow, including gofmt/go vet/go test/go test -race.
 4. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.

@@ -13,7 +13,7 @@ go install github.com/sh4869221b/go-nico-list@latest
 ```
 
 ### Prebuilt binaries
-Prebuilt binaries are available on the GitHub Releases page.
+事前ビルド済みバイナリは GitHub Releases ページで提供しています。
 
 ## Usage
 

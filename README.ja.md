@@ -18,7 +18,7 @@ go install github.com/sh4869221b/go-nico-list@latest
 ## Usage
 
 ```bash
-go-nico-list <nicovideo.jp/user/<id>...> [flags]
+go-nico-list [nicovideo.jp/user/<id>...] [flags]
 ```
 
 Examples:

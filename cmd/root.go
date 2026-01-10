@@ -86,28 +86,34 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	var idList []string
 	var mu sync.Mutex
-	inputs, err := collectInputs(cmd, args)
-	if err != nil {
-		return err
-	}
+	stream := streamInputs(cmd, args)
 
 	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
-	var bar *progressbar.ProgressBar
-	if cmd != nil {
-		bar = progressbar.NewOptions64(int64(len(inputs)), progressbar.OptionSetWriter(cmd.ErrOrStderr()))
-	} else {
-		bar = progressBarNew(int64(len(inputs)))
-	}
+	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
-	errCh := make(chan error, len(inputs))
+	errCh := make(chan error, concurrency)
+	done := make(chan struct{})
+	var retErr error
+	go func() {
+		defer close(done)
+		for err := range errCh {
+			if err == nil {
+				continue
+			}
+			logger.Error("failed to get video list", "error", err)
+			if retErr == nil {
+				retErr = err
+			}
+		}
+	}()
 
-	for i := range inputs {
+	for input := range stream.inputs {
 		sem <- struct{}{}
-		match := r.FindStringSubmatch(inputs[i])
+		match := r.FindStringSubmatch(input)
 		if len(match) == 0 {
-			logger.Warn("invalid user ID", "input", inputs[i])
+			logger.Warn("invalid user ID", "input", input)
 			bar.Add(1)
 			<-sem
 			continue
@@ -130,21 +136,18 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			mu.Unlock()
 			if err != nil {
 				errCh <- err
-				return
 			}
-			errCh <- nil
 		}(userID)
 	}
 	wg.Wait()
 	close(errCh)
-	var retErr error
-	for e := range errCh {
-		if e == nil {
+	<-done
+	for err := range stream.errs {
+		if err == nil {
 			continue
 		}
-		logger.Error("failed to get video list", "error", e)
 		if retErr == nil {
-			retErr = e
+			retErr = err
 		}
 	}
 	close(sem)
@@ -206,59 +209,97 @@ func init() {
 
 }
 
-func collectInputs(cmd *cobra.Command, args []string) ([]string, error) {
-	inputs := make([]string, 0, len(args))
-	inputs = append(inputs, args...)
-
-	if inputFilePath != "" {
-		lines, err := readLinesFromFile(inputFilePath)
-		if err != nil {
-			return nil, err
-		}
-		inputs = append(inputs, lines...)
-	}
-
-	if readStdin {
-		var reader io.Reader = os.Stdin
-		if cmd != nil {
-			reader = cmd.InOrStdin()
-		}
-		lines, err := readLines(reader)
-		if err != nil {
-			return nil, err
-		}
-		inputs = append(inputs, lines...)
-	}
-
-	if len(inputs) == 0 {
-		return nil, errors.New("no inputs provided")
-	}
-
-	return inputs, nil
+type inputStream struct {
+	inputs     <-chan string
+	errs       <-chan error
+	totalKnown bool
+	total      int64
 }
 
-func readLinesFromFile(path string) ([]string, error) {
+func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressbar.ProgressBar {
+	if !totalKnown {
+		total = -1
+	}
+	if cmd != nil {
+		return progressbar.NewOptions64(total, progressbar.OptionSetWriter(cmd.ErrOrStderr()))
+	}
+	return progressBarNew(total)
+}
+
+func streamInputs(cmd *cobra.Command, args []string) inputStream {
+	out := make(chan string)
+	errCh := make(chan error, 1)
+	totalKnown := inputFilePath == "" && !readStdin
+	total := int64(len(args))
+
+	go func() {
+		defer close(out)
+		defer close(errCh)
+
+		count := 0
+		for _, arg := range args {
+			out <- arg
+			count++
+		}
+
+		if inputFilePath != "" {
+			n, err := streamLinesFromFile(inputFilePath, out)
+			count += n
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+
+		if readStdin {
+			var reader io.Reader = os.Stdin
+			if cmd != nil {
+				reader = cmd.InOrStdin()
+			}
+			n, err := streamLines(reader, out)
+			count += n
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+
+		if count == 0 {
+			errCh <- errors.New("no inputs provided")
+		}
+	}()
+
+	return inputStream{
+		inputs:     out,
+		errs:       errCh,
+		totalKnown: totalKnown,
+		total:      total,
+	}
+}
+
+func streamLinesFromFile(path string, out chan<- string) (int, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer file.Close()
-	return readLines(file)
+	return streamLines(file, out)
 }
 
-func readLines(reader io.Reader) ([]string, error) {
+func streamLines(reader io.Reader, out chan<- string) (int, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
-	var lines []string
+	count := 0
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		lines = append(lines, line)
+		out <- line
+		count++
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return count, err
 	}
-	return lines, nil
+	return count, nil
 }

@@ -20,7 +20,7 @@ Prebuilt binaries are available on the GitHub Releases page.
 ## Usage
 
 ```bash
-go-nico-list <nicovideo.jp/user/<id>...> [flags]
+go-nico-list [nicovideo.jp/user/<id>...] [flags]
 ```
 
 Examples:

@@ -37,6 +37,7 @@ cat users.txt | go-nico-list --stdin
 - One video ID per line (example: `sm123`).
 - With `--url`, each line is prefixed with `https://www.nicovideo.jp/watch/`.
 - With `--tab`, each line is prefixed with tabs.
+- With `--json`, stdout is a single JSON object (line output is disabled).
 
 ## Exit status
 - `0`: no fetch errors (invalid inputs are skipped; may produce no output).
@@ -64,6 +65,7 @@ cat users.txt | go-nico-list --stdin
 | `--strict` | return non-zero if any input is invalid | `false` |
 | `--best-effort` | always exit 0 while logging fetch errors | `false` |
 | `--dedupe` | remove duplicate output IDs before sorting | `false` |
+| `--json` | emit JSON output to stdout | `false` |
 
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
@@ -75,6 +77,7 @@ Notes:
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
 - `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
 - `--dedupe` removes duplicate video IDs before sorting/output.
+- `--json` emits a single JSON object to stdout. `--tab`/`--url` do not affect JSON `items`, and the summary still prints to stderr.
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

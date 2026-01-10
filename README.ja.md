@@ -35,6 +35,7 @@ cat users.txt | go-nico-list --stdin
 - 1行に1つの動画IDを出力します（例: `sm123`）。
 - `--url` 指定時は各行に `https://www.nicovideo.jp/watch/` を付与します。
 - `--tab` 指定時は各行にタブを付与します。
+- `--json` 指定時は stdout に単一の JSON オブジェクトを出力します（行出力は無効化）。
 
 ## Exit status
 - `0`: 取得エラーなし（無効入力はスキップされ、出力が空になる場合があります）。
@@ -62,6 +63,7 @@ cat users.txt | go-nico-list --stdin
 | `--strict` | return non-zero if any input is invalid | `false` |
 | `--best-effort` | always exit 0 while logging fetch errors | `false` |
 | `--dedupe` | remove duplicate output IDs before sorting | `false` |
+| `--json` | emit JSON output to stdout | `false` |
 
 Notes:
 - 入力は引数、`--input-file`、`--stdin` で指定できます（改行区切り）。
@@ -73,6 +75,7 @@ Notes:
 - `--strict` を指定すると、無効な入力がある場合に非0で終了します（有効な結果は出力されます）。
 - `--best-effort` を指定すると取得エラーがあっても終了コードは 0 になります（エラーはログに残ります）。
 - `--dedupe` を指定すると動画IDの重複を除外してからソート/出力します。
+- `--json` は stdout に単一の JSON オブジェクトを出力します。`--tab`/`--url` は JSON の `items` に影響せず、サマリは引き続き stderr に出力します。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

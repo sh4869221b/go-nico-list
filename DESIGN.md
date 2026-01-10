@@ -70,7 +70,15 @@ main.go
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
     - `output_count` uses the **deduped** count.
-  - `--json` emits a minimal schema (initial fields: `inputs`, `invalid`, `users`, `errors`, `output_count`, `items`).
+  - `--json` emits a minimal schema to stdout (single JSON object; line output is disabled).
+    - Summary still prints to stderr.
+    - Schema:
+      - `inputs`: `{ "total": n, "valid": n, "invalid": n }`
+      - `invalid`: list of invalid input strings
+      - `users`: list of `{ "user_id": "<id>", "items": ["sm1"], "error": "" }`
+      - `errors`: list of fetch error messages (order is nondeterministic)
+      - `output_count`: count of `items` after dedupe (if enabled)
+      - `items`: flattened list of IDs (raw `sm*` IDs; `--url`/`--tab` do not affect JSON)
 - Progress:
   - Progress output is auto-disabled on non-TTY stderr.
   - `--progress` forces progress on even when stderr is not a TTY.

@@ -70,6 +70,102 @@ func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdNoInputs(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+	inputFilePath = ""
+	readStdin = false
+	t.Cleanup(func() {
+		inputFilePath = ""
+		readStdin = false
+	})
+
+	if err := runRootCmd(nil, nil); err == nil || err.Error() != "no inputs provided" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRootCmdInputFileNoArgs(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "inputs.txt")
+	if err := os.WriteFile(inputPath, []byte("nicovideo.jp/user/1\ninvalid\n\n"), 0o644); err != nil {
+		t.Fatalf("failed to write inputs: %v", err)
+	}
+	inputFilePath = inputPath
+	readStdin = false
+	t.Cleanup(func() {
+		inputFilePath = ""
+		readStdin = false
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no stdout output, got %q", out.String())
+	}
+}
+
+func TestRunRootCmdStdinNoArgs(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	inputFilePath = ""
+	readStdin = true
+	t.Cleanup(func() {
+		inputFilePath = ""
+		readStdin = false
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetIn(strings.NewReader("nicovideo.jp/user/1\n"))
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no stdout output, got %q", out.String())
+	}
+}
+
 func TestRunRootCmdPartialFailureOutputsResults(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

@@ -4,6 +4,7 @@ Copyright © 2024 sh4869221b <sh4869221b@gmail.com>
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -30,6 +31,8 @@ var (
 	concurrency       int           = 3
 	retries           int           = defaultRetries
 	httpClientTimeout time.Duration = defaultHTTPTimeout
+	inputFilePath     string
+	readStdin         bool
 	logFilePath       string
 	Version           = "unset"
 	logger            *slog.Logger
@@ -40,7 +43,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "go-nico-list",
 	Short: "niconico {user}/video url get video list",
-	Args:  cobra.MinimumNArgs(1),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runRootCmd,
 }
 
@@ -83,24 +86,28 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	var idList []string
 	var mu sync.Mutex
+	inputs, err := collectInputs(cmd, args)
+	if err != nil {
+		return err
+	}
 
 	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
 	var bar *progressbar.ProgressBar
 	if cmd != nil {
-		bar = progressbar.NewOptions64(int64(len(args)), progressbar.OptionSetWriter(cmd.ErrOrStderr()))
+		bar = progressbar.NewOptions64(int64(len(inputs)), progressbar.OptionSetWriter(cmd.ErrOrStderr()))
 	} else {
-		bar = progressBarNew(int64(len(args)))
+		bar = progressBarNew(int64(len(inputs)))
 	}
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
-	errCh := make(chan error, len(args))
+	errCh := make(chan error, len(inputs))
 
-	for i := range args {
+	for i := range inputs {
 		sem <- struct{}{}
-		match := r.FindStringSubmatch(args[i])
+		match := r.FindStringSubmatch(inputs[i])
 		if len(match) == 0 {
-			logger.Warn("invalid user ID", "input", args[i])
+			logger.Warn("invalid user ID", "input", inputs[i])
 			bar.Add(1)
 			<-sem
 			continue
@@ -193,6 +200,65 @@ func init() {
 
 	rootCmd.Flags().DurationVar(&httpClientTimeout, "timeout", defaultHTTPTimeout, "HTTP client timeout")
 	rootCmd.Flags().IntVar(&retries, "retries", defaultRetries, "number of retries for requests")
+	rootCmd.Flags().StringVar(&inputFilePath, "input-file", "", "read inputs from file (newline-separated)")
+	rootCmd.Flags().BoolVar(&readStdin, "stdin", false, "read inputs from stdin (newline-separated)")
 	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")
 
+}
+
+func collectInputs(cmd *cobra.Command, args []string) ([]string, error) {
+	inputs := make([]string, 0, len(args))
+	inputs = append(inputs, args...)
+
+	if inputFilePath != "" {
+		lines, err := readLinesFromFile(inputFilePath)
+		if err != nil {
+			return nil, err
+		}
+		inputs = append(inputs, lines...)
+	}
+
+	if readStdin {
+		var reader io.Reader = os.Stdin
+		if cmd != nil {
+			reader = cmd.InOrStdin()
+		}
+		lines, err := readLines(reader)
+		if err != nil {
+			return nil, err
+		}
+		inputs = append(inputs, lines...)
+	}
+
+	if len(inputs) == 0 {
+		return nil, errors.New("no inputs provided")
+	}
+
+	return inputs, nil
+}
+
+func readLinesFromFile(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return readLines(file)
+}
+
+func readLines(reader io.Reader) ([]string, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	var lines []string
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
 }

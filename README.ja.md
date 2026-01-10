@@ -80,3 +80,11 @@ GitHub Actions は全ブランチの push / pull request で実行され、以�
 
 ## Contributing
 `CONTRIBUTING.md` を参照してください。
+
+## Release
+リリースはタグを作成して GitHub に push することで行います。
+
+1. `vX.Y.Z` の形式でタグを作成します。
+2. タグを GitHub に push します。
+3. GitHub Actions がリリースワークフローを実行します（gofmt/go vet/go test/go test -race + third-party notices の同期チェック）。
+4. GoReleaser が GitHub Release を作成し、成果物をアップロードします。

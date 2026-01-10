@@ -20,7 +20,7 @@ Prebuilt binaries are available on the GitHub Releases page.
 ## Usage
 
 ```bash
-go-nico-list <nicovideo.jp/user/<id>...> [flags]
+go-nico-list [nicovideo.jp/user/<id>...] [flags]
 ```
 
 Examples:
@@ -29,6 +29,8 @@ Examples:
 go-nico-list nicovideo.jp/user/12345
 go-nico-list https://www.nicovideo.jp/user/12345/video --url
 go-nico-list nicovideo.jp/user/1 nicovideo.jp/user/2 --concurrency 10
+go-nico-list --input-file users.txt
+cat users.txt | go-nico-list --stdin
 ```
 
 ## Output
@@ -54,10 +56,13 @@ go-nico-list nicovideo.jp/user/1 nicovideo.jp/user/2 --concurrency 10
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
+| `--input-file` | read inputs from file (newline-separated) | `""` |
+| `--stdin` | read inputs from stdin (newline-separated) | `false` |
 | `--logfile` | log output file path | `""` |
 
 Notes:
-- The input must contain `nicovideo.jp/user/<id>` (scheme optional). Plain digits or `user/<id>` without the domain are treated as invalid inputs and skipped.
+- Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
+- Each input must contain `nicovideo.jp/user/<id>` (scheme optional). Plain digits or `user/<id>` without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
 

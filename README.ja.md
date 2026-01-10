@@ -18,7 +18,7 @@ go install github.com/sh4869221b/go-nico-list@latest
 ## Usage
 
 ```bash
-go-nico-list <nicovideo.jp/user/<id>...> [flags]
+go-nico-list [nicovideo.jp/user/<id>...] [flags]
 ```
 
 Examples:
@@ -27,6 +27,8 @@ Examples:
 go-nico-list nicovideo.jp/user/12345
 go-nico-list https://www.nicovideo.jp/user/12345/video --url
 go-nico-list nicovideo.jp/user/1 nicovideo.jp/user/2 --concurrency 10
+go-nico-list --input-file users.txt
+cat users.txt | go-nico-list --stdin
 ```
 
 ## Output
@@ -52,10 +54,13 @@ go-nico-list nicovideo.jp/user/1 nicovideo.jp/user/2 --concurrency 10
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
+| `--input-file` | read inputs from file (newline-separated) | `""` |
+| `--stdin` | read inputs from stdin (newline-separated) | `false` |
 | `--logfile` | log output file path | `""` |
 
 Notes:
-- 入力は `nicovideo.jp/user/<id>` を含む必要があります（スキームは任意）。数字のみや `user/<id>` だけの入力は無効としてスキップされます。
+- 入力は引数、`--input-file`、`--stdin` で指定できます（改行区切り）。
+- 各入力は `nicovideo.jp/user/<id>` を含む必要があります（スキームは任意）。数字のみや `user/<id>` だけの入力は無効としてスキップされます。
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `concurrency` または `retries` を 1 未満にすると実行時エラーになります。
 

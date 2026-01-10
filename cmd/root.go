@@ -4,6 +4,7 @@ Copyright © 2024 sh4869221b <sh4869221b@gmail.com>
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -30,6 +31,8 @@ var (
 	concurrency       int           = 3
 	retries           int           = defaultRetries
 	httpClientTimeout time.Duration = defaultHTTPTimeout
+	inputFilePath     string
+	readStdin         bool
 	logFilePath       string
 	Version           = "unset"
 	logger            *slog.Logger
@@ -40,7 +43,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "go-nico-list",
 	Short: "niconico {user}/video url get video list",
-	Args:  cobra.MinimumNArgs(1),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runRootCmd,
 }
 
@@ -80,27 +83,66 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if cmd != nil {
 		ctx = cmd.Context()
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	var idList []string
 	var mu sync.Mutex
+	stream := streamInputs(cmd, args)
 
 	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
-	var bar *progressbar.ProgressBar
-	if cmd != nil {
-		bar = progressbar.NewOptions64(int64(len(args)), progressbar.OptionSetWriter(cmd.ErrOrStderr()))
-	} else {
-		bar = progressBarNew(int64(len(args)))
-	}
+	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
-	errCh := make(chan error, len(args))
+	errCh := make(chan error, concurrency)
+	fetchErrCh := make(chan error, 1)
+	go func() {
+		var firstErr error
+		for err := range errCh {
+			if err == nil {
+				continue
+			}
+			logger.Error("failed to get video list", "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+		fetchErrCh <- firstErr
+		close(fetchErrCh)
+	}()
 
-	for i := range args {
+	inputErrCh := make(chan error, 1)
+	go func() {
+		for err := range stream.errs {
+			if err == nil {
+				continue
+			}
+			inputErrCh <- err
+			cancel()
+			break
+		}
+		close(inputErrCh)
+	}()
+
+	var inputErr error
+	for input := range stream.inputs {
+		if inputErr == nil {
+			select {
+			case err := <-inputErrCh:
+				if err != nil {
+					inputErr = err
+				}
+			default:
+			}
+		}
+		if inputErr != nil {
+			continue
+		}
 		sem <- struct{}{}
-		match := r.FindStringSubmatch(args[i])
+		match := r.FindStringSubmatch(input)
 		if len(match) == 0 {
-			logger.Warn("invalid user ID", "input", args[i])
+			logger.Warn("invalid user ID", "input", input)
 			bar.Add(1)
 			<-sem
 			continue
@@ -123,21 +165,18 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			mu.Unlock()
 			if err != nil {
 				errCh <- err
-				return
 			}
-			errCh <- nil
 		}(userID)
 	}
 	wg.Wait()
 	close(errCh)
-	var retErr error
-	for e := range errCh {
-		if e == nil {
-			continue
-		}
-		logger.Error("failed to get video list", "error", e)
-		if retErr == nil {
-			retErr = e
+	fetchErr := <-fetchErrCh
+	if inputErr == nil {
+		for err := range inputErrCh {
+			if err != nil {
+				inputErr = err
+				break
+			}
 		}
 	}
 	close(sem)
@@ -150,7 +189,10 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		niconico.NiconicoSort(idList, tab, url)
 		fmt.Fprintln(out, strings.Join(idList, "\n"))
 	}
-	return retErr
+	if inputErr != nil {
+		return inputErr
+	}
+	return fetchErr
 }
 
 const (
@@ -193,6 +235,103 @@ func init() {
 
 	rootCmd.Flags().DurationVar(&httpClientTimeout, "timeout", defaultHTTPTimeout, "HTTP client timeout")
 	rootCmd.Flags().IntVar(&retries, "retries", defaultRetries, "number of retries for requests")
+	rootCmd.Flags().StringVar(&inputFilePath, "input-file", "", "read inputs from file (newline-separated)")
+	rootCmd.Flags().BoolVar(&readStdin, "stdin", false, "read inputs from stdin (newline-separated)")
 	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")
 
+}
+
+type inputStream struct {
+	inputs     <-chan string
+	errs       <-chan error
+	totalKnown bool
+	total      int64
+}
+
+func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressbar.ProgressBar {
+	if !totalKnown {
+		total = -1
+	}
+	if cmd != nil {
+		return progressbar.NewOptions64(total, progressbar.OptionSetWriter(cmd.ErrOrStderr()))
+	}
+	return progressBarNew(total)
+}
+
+func streamInputs(cmd *cobra.Command, args []string) inputStream {
+	out := make(chan string)
+	errCh := make(chan error, 1)
+	totalKnown := inputFilePath == "" && !readStdin
+	total := int64(len(args))
+
+	go func() {
+		defer close(out)
+		defer close(errCh)
+
+		count := 0
+		for _, arg := range args {
+			out <- arg
+			count++
+		}
+
+		if inputFilePath != "" {
+			n, err := streamLinesFromFile(inputFilePath, out)
+			count += n
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+
+		if readStdin {
+			var reader io.Reader = os.Stdin
+			if cmd != nil {
+				reader = cmd.InOrStdin()
+			}
+			n, err := streamLines(reader, out)
+			count += n
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+
+		if count == 0 {
+			errCh <- errors.New("no inputs provided")
+		}
+	}()
+
+	return inputStream{
+		inputs:     out,
+		errs:       errCh,
+		totalKnown: totalKnown,
+		total:      total,
+	}
+}
+
+func streamLinesFromFile(path string, out chan<- string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	return streamLines(file, out)
+}
+
+func streamLines(reader io.Reader, out chan<- string) (int, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	count := 0
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		out <- line
+		count++
+	}
+	if err := scanner.Err(); err != nil {
+		return count, err
+	}
+	return count, nil
 }

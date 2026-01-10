@@ -59,6 +59,9 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 - Avoid adding new runtime dependencies without prior discussion.
 - Releases are performed by the maintainer.
 - CI runs gofmt, go vet, go test, and go test -race on all branches.
+- Include an auto-close keyword for related issues (e.g. `Closes #123`) in the PR body.
+- After addressing review feedback, re-request review.
+- When using `gh pr create`, prefer `--fill` or `--body-file` to avoid literal `\n` in the description.
 
 ## Release process
 

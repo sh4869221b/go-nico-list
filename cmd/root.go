@@ -6,6 +6,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,7 @@ var (
 	strictInput       bool
 	bestEffort        bool
 	dedupeOutput      bool
+	jsonOutput        bool
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
@@ -114,6 +116,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	var invalidInputs int64
 	var fetchOKCount int64
 	var fetchErrCount int64
+	invalidInputsList := make([]string, 0)
+	userResults := make([]userResult, 0)
+	errorsList := make([]string, 0)
 
 	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
 	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
@@ -165,6 +170,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		match := r.FindStringSubmatch(input)
 		if len(match) == 0 {
 			atomic.AddInt64(&invalidInputs, 1)
+			mu.Lock()
+			invalidInputsList = append(invalidInputsList, input)
+			mu.Unlock()
 			logger.Warn("invalid user ID", "input", input)
 			bar.Add(1)
 			continue
@@ -188,15 +196,29 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer func() { <-sem }()
 			defer bar.Add(1)
 			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, logger)
-			mu.Lock()
-			idList = append(idList, newList...)
-			mu.Unlock()
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
+				mu.Lock()
+				errorsList = append(errorsList, err.Error())
+				userResults = append(userResults, userResult{
+					UserID: userID,
+					Items:  newList,
+					Error:  err.Error(),
+				})
+				idList = append(idList, newList...)
+				mu.Unlock()
 				errCh <- err
 				return
 			}
 			atomic.AddInt64(&fetchOKCount, 1)
+			mu.Lock()
+			userResults = append(userResults, userResult{
+				UserID: userID,
+				Items:  newList,
+				Error:  "",
+			})
+			idList = append(idList, newList...)
+			mu.Unlock()
 		}(userID)
 	}
 	wg.Wait()
@@ -227,11 +249,28 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	outputCount := len(outputIDs)
 	if outputCount > 0 {
-		var out io.Writer = os.Stdout
-		if cmd != nil {
-			out = cmd.OutOrStdout()
-		}
 		niconico.NiconicoSort(outputIDs, tab, url)
+	}
+	var out io.Writer = os.Stdout
+	if cmd != nil {
+		out = cmd.OutOrStdout()
+	}
+	if jsonOutput {
+		jsonPayload := buildJSONOutput(
+			totalInputs,
+			validInputs,
+			invalidInputs,
+			invalidInputsList,
+			userResults,
+			errorsList,
+			outputCount,
+			outputIDs,
+		)
+		enc := json.NewEncoder(out)
+		if err := enc.Encode(jsonPayload); err != nil {
+			return err
+		}
+	} else if outputCount > 0 {
 		fmt.Fprintln(out, strings.Join(outputIDs, "\n"))
 	}
 	if shouldShowProgress(errWriter) {
@@ -307,7 +346,80 @@ func init() {
 	rootCmd.Flags().BoolVar(&strictInput, "strict", false, "return non-zero if any input is invalid")
 	rootCmd.Flags().BoolVar(&bestEffort, "best-effort", false, "always exit 0 while logging fetch errors")
 	rootCmd.Flags().BoolVar(&dedupeOutput, "dedupe", false, "remove duplicate output IDs before sorting")
+	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output to stdout")
 
+}
+
+type jsonInputs struct {
+	Total   int64 `json:"total"`
+	Valid   int64 `json:"valid"`
+	Invalid int64 `json:"invalid"`
+}
+
+type userResult struct {
+	UserID string   `json:"user_id"`
+	Items  []string `json:"items"`
+	Error  string   `json:"error"`
+}
+
+type jsonOutputPayload struct {
+	Inputs      jsonInputs   `json:"inputs"`
+	Invalid     []string     `json:"invalid"`
+	Users       []userResult `json:"users"`
+	Errors      []string     `json:"errors"`
+	OutputCount int          `json:"output_count"`
+	Items       []string     `json:"items"`
+}
+
+func buildJSONOutput(
+	totalInputs int64,
+	validInputs int64,
+	invalidInputs int64,
+	invalidInputsList []string,
+	userResults []userResult,
+	errorsList []string,
+	outputCount int,
+	outputIDs []string,
+) jsonOutputPayload {
+	items := make([]string, 0, len(outputIDs))
+	for _, id := range outputIDs {
+		items = append(items, normalizeOutputID(id))
+	}
+	users := make([]userResult, 0, len(userResults))
+	for _, user := range userResults {
+		users = append(users, userResult{
+			UserID: user.UserID,
+			Items:  normalizeOutputList(user.Items),
+			Error:  user.Error,
+		})
+	}
+	return jsonOutputPayload{
+		Inputs: jsonInputs{
+			Total:   totalInputs,
+			Valid:   validInputs,
+			Invalid: invalidInputs,
+		},
+		Invalid:     append([]string{}, invalidInputsList...),
+		Users:       users,
+		Errors:      append([]string{}, errorsList...),
+		OutputCount: outputCount,
+		Items:       items,
+	}
+}
+
+const nicoWatchURLPrefix = "https://www.nicovideo.jp/watch/"
+
+func normalizeOutputID(id string) string {
+	id = strings.TrimLeft(id, "\t")
+	return strings.TrimPrefix(id, nicoWatchURLPrefix)
+}
+
+func normalizeOutputList(items []string) []string {
+	normalized := make([]string, 0, len(items))
+	for _, item := range items {
+		normalized = append(normalized, normalizeOutputID(item))
+	}
+	return normalized
 }
 
 type inputStream struct {

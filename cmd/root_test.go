@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -447,6 +448,107 @@ func TestRunRootCmdDedupeRemovesDuplicates(t *testing.T) {
 	}
 	if got := out.String(); got != "sm1\nsm2\n" {
 		t.Errorf("unexpected stdout output: %q", got)
+	}
+}
+
+func TestRunRootCmdJSONOutput(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origJSON := jsonOutput
+	origTab := tab
+	origURL := url
+	origDedupe := dedupeOutput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	jsonOutput = true
+	tab = true
+	url = true
+	dedupeOutput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		jsonOutput = origJSON
+		tab = origTab
+		url = origURL
+		dedupeOutput = origDedupe
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "invalid"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload jsonOutputPayload
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+	if payload.Inputs.Total != 2 || payload.Inputs.Valid != 1 || payload.Inputs.Invalid != 1 {
+		t.Errorf("unexpected inputs: %+v", payload.Inputs)
+	}
+	if len(payload.Invalid) != 1 || payload.Invalid[0] != "invalid" {
+		t.Errorf("unexpected invalid list: %+v", payload.Invalid)
+	}
+	if len(payload.Users) != 1 {
+		t.Fatalf("unexpected users length: %d", len(payload.Users))
+	}
+	user := payload.Users[0]
+	if user.UserID != "1" {
+		t.Errorf("unexpected user_id: %s", user.UserID)
+	}
+	if user.Error != "" {
+		t.Errorf("expected empty user error, got %q", user.Error)
+	}
+	if got := strings.Join(user.Items, ","); got != "sm2,sm1,sm1" {
+		t.Errorf("unexpected user items: %v", user.Items)
+	}
+	if payload.OutputCount != 2 {
+		t.Errorf("unexpected output_count: %d", payload.OutputCount)
+	}
+	if got := strings.Join(payload.Items, ","); got != "sm1,sm2" {
+		t.Errorf("unexpected items: %v", payload.Items)
+	}
+	if len(payload.Errors) != 0 {
+		t.Errorf("unexpected errors: %v", payload.Errors)
+	}
+	if !strings.Contains(errOut.String(), "summary inputs=2 valid=1 invalid=1") {
+		t.Errorf("expected summary in stderr, got %q", errOut.String())
 	}
 }
 

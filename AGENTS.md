@@ -6,6 +6,7 @@ Baseline rules for changes in this repository.
 - If you modify Go files, run `gofmt -w <files>` (or `gofmt -w .` to format everything).
 - After changes, run `go vet ./...` and confirm there are no errors.
 - After changes, run `go test ./...` and confirm there are no errors.
+- Use short-lived branches (e.g. `feature/*`) and merge via PR; do not commit directly to `master` unless explicitly requested.
 
 ## Design
 Refer to `DESIGN.md` for the design overview and responsibility boundaries.

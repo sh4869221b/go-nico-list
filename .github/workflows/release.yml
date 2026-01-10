@@ -21,6 +21,11 @@ jobs:
           go-version-file: go.mod
       - name: Download deps
         run: go mod download
+      - name: Verify generated files
+        run: |
+          go mod tidy
+          go generate ./...
+          git diff --exit-code
       - name: Check gofmt
         run: |
           gofmt -w .
@@ -39,7 +44,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: 'latest'
+          version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

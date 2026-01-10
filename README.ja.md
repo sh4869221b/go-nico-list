@@ -66,6 +66,7 @@ Notes:
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `concurrency` または `retries` を 1 未満にすると実行時エラーになります。
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
+- 処理後に実行サマリを stderr に出力します（非0終了時も含む）。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

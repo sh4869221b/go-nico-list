@@ -67,7 +67,9 @@ main.go
   - `--best-effort` exits 0 even when fetch errors occur, while still logging errors.
 - Output behavior:
   - `--dedupe` removes duplicate IDs **before** sorting/output.
-  - Run summary is emitted to stderr; its `output_count` uses the **deduped** count.
+  - Run summary is emitted to stderr after processing (even on non-zero exit codes).
+    - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
+    - `output_count` uses the **deduped** count.
   - `--json` emits a minimal schema (initial fields: `inputs`, `invalid`, `users`, `errors`, `output_count`, `items`).
 - Progress:
   - Progress output is auto-disabled on non-TTY stderr.

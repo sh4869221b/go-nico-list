@@ -83,6 +83,8 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if cmd != nil {
 		ctx = cmd.Context()
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	var idList []string
 	var mu sync.Mutex
@@ -94,22 +96,49 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	errCh := make(chan error, concurrency)
-	done := make(chan struct{})
-	var retErr error
+	fetchErrCh := make(chan error, 1)
 	go func() {
-		defer close(done)
+		var firstErr error
 		for err := range errCh {
 			if err == nil {
 				continue
 			}
 			logger.Error("failed to get video list", "error", err)
-			if retErr == nil {
-				retErr = err
+			if firstErr == nil {
+				firstErr = err
 			}
 		}
+		fetchErrCh <- firstErr
+		close(fetchErrCh)
 	}()
 
+	inputErrCh := make(chan error, 1)
+	go func() {
+		for err := range stream.errs {
+			if err == nil {
+				continue
+			}
+			inputErrCh <- err
+			cancel()
+			break
+		}
+		close(inputErrCh)
+	}()
+
+	var inputErr error
 	for input := range stream.inputs {
+		if inputErr == nil {
+			select {
+			case err := <-inputErrCh:
+				if err != nil {
+					inputErr = err
+				}
+			default:
+			}
+		}
+		if inputErr != nil {
+			continue
+		}
 		sem <- struct{}{}
 		match := r.FindStringSubmatch(input)
 		if len(match) == 0 {
@@ -141,13 +170,13 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	wg.Wait()
 	close(errCh)
-	<-done
-	for err := range stream.errs {
-		if err == nil {
-			continue
-		}
-		if retErr == nil {
-			retErr = err
+	fetchErr := <-fetchErrCh
+	if inputErr == nil {
+		for err := range inputErrCh {
+			if err != nil {
+				inputErr = err
+				break
+			}
 		}
 	}
 	close(sem)
@@ -160,7 +189,10 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		niconico.NiconicoSort(idList, tab, url)
 		fmt.Fprintln(out, strings.Join(idList, "\n"))
 	}
-	return retErr
+	if inputErr != nil {
+		return inputErr
+	}
+	return fetchErr
 }
 
 const (

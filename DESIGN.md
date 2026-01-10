@@ -58,6 +58,20 @@ main.go
 - stderr: progress bar (log output switches to file when `--logfile` is set).
 - Invalid userIDs only produce a warning and do not fail; valid IDs (if present) still output results.
 
+## Planned CLI additions (v0.22.0)
+- Input sources:
+  - `--input-file <path>` and/or `--stdin` read newline-separated inputs.
+- Validation and exit codes:
+  - `--strict` returns non-zero if any invalid input is present (even if other inputs succeed).
+  - If `--strict` and `--best-effort` are both set, **`--strict` takes precedence**.
+  - `--best-effort` exits 0 even when fetch errors occur, while still logging errors.
+- Output behavior:
+  - `--dedupe` removes duplicate IDs **before** sorting/output.
+  - Run summary is emitted to stderr; its `output_count` uses the **deduped** count.
+  - `--json` emits a minimal schema (initial fields: `inputs`, `invalid`, `users`, `errors`, `output_count`, `items`).
+- Progress:
+  - Progress output is auto-disabled on non-TTY stderr (with `--no-progress` / `--progress` overrides).
+
 ## Flow
 1. `cmd/root.go` extracts userIDs using the regex.
 2. For each userID, a goroutine calls `internal/niconico.GetVideoList`.

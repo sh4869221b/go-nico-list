@@ -552,6 +552,107 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/users/1/") {
+			if r.URL.Query().Get("page") != "1" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "invalid")
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origJSON := jsonOutput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	jsonOutput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		jsonOutput = origJSON
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2"}); err == nil {
+		t.Fatalf("expected error")
+	}
+
+	var payload jsonOutputPayload
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+	if payload.Inputs.Total != 2 || payload.Inputs.Valid != 2 || payload.Inputs.Invalid != 0 {
+		t.Errorf("unexpected inputs: %+v", payload.Inputs)
+	}
+	if len(payload.Users) != 2 {
+		t.Fatalf("unexpected users length: %d", len(payload.Users))
+	}
+	user1 := payload.Users[0]
+	if user1.UserID != "1" {
+		t.Errorf("unexpected user_id: %s", user1.UserID)
+	}
+	if got := strings.Join(user1.Items, ","); got != "sm1" {
+		t.Errorf("unexpected user1 items: %v", user1.Items)
+	}
+	user2 := payload.Users[1]
+	if user2.UserID != "2" {
+		t.Errorf("unexpected user_id: %s", user2.UserID)
+	}
+	if user2.Error == "" {
+		t.Errorf("expected user2 error, got empty")
+	}
+	if len(user2.Items) != 0 {
+		t.Errorf("unexpected user2 items: %v", user2.Items)
+	}
+	if payload.OutputCount != 1 {
+		t.Errorf("unexpected output_count: %d", payload.OutputCount)
+	}
+	if got := strings.Join(payload.Items, ","); got != "sm1" {
+		t.Errorf("unexpected items: %v", payload.Items)
+	}
+	if len(payload.Errors) != 1 {
+		t.Errorf("unexpected errors: %v", payload.Errors)
+	}
+	if !strings.Contains(errOut.String(), "fetch_err=1") {
+		t.Errorf("expected fetch_err=1 in summary, got %q", errOut.String())
+	}
+}
+
 func TestRunRootCmdStrictOverridesBestEffort(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

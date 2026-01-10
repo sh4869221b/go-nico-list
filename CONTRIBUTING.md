@@ -68,6 +68,12 @@ If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN
 4. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.
 5. GoReleaser publishes the GitHub Release and uploads artifacts.
 
+## Branch strategy
+
+- Use `master` as the only long-lived branch.
+- Create short-lived branches (e.g. `feature/*`) and merge via PR into `master`.
+- Tags for releases (`vX.Y.Z`) are cut from `master`.
+
 ## Review criteria
 
 - CI must be green (gofmt, go vet, go test, go test -race).

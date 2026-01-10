@@ -125,6 +125,11 @@ main.go
 - `THIRD_PARTY_NOTICES.md` is kept in sync via `scripts/gen-third-party-notices.sh` and verified in CI.
 - GoReleaser builds and publishes artifacts for supported OSes.
 
+## Branch strategy
+- Use `master` as the only long-lived branch.
+- Create short-lived branches (e.g. `feature/*`) and merge via PR into `master`.
+- Releases are tagged from `master` (`vX.Y.Z`).
+
 ## Change Guidelines
 - Do not mix CLI and domain logic.
 - Keep `cmd` limited to IO and parameter handling.

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -208,6 +209,158 @@ func TestRetriesRequestTimeout(t *testing.T) {
 	case <-done:
 	case <-time.After(waitTimeout):
 		t.Fatal("expected handler to observe timeout")
+	}
+}
+
+func TestNewRateLimiterInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		rateLimit   float64
+		minInterval time.Duration
+		wantNil     bool
+		want        time.Duration
+	}{
+		{
+			name:        "disabled",
+			rateLimit:   0,
+			minInterval: 0,
+			wantNil:     true,
+		},
+		{
+			name:        "rate-limit only",
+			rateLimit:   2.5,
+			minInterval: 0,
+			want:        time.Duration(float64(time.Second) / 2.5),
+		},
+		{
+			name:        "min-interval only",
+			rateLimit:   0,
+			minInterval: 150 * time.Millisecond,
+			want:        150 * time.Millisecond,
+		},
+		{
+			name:        "min-interval dominates",
+			rateLimit:   10,
+			minInterval: 200 * time.Millisecond,
+			want:        200 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			limiter := NewRateLimiter(tt.rateLimit, tt.minInterval)
+			if tt.wantNil {
+				if limiter != nil {
+					t.Fatalf("expected nil limiter, got %+v", limiter)
+				}
+				return
+			}
+			if limiter == nil {
+				t.Fatal("expected limiter, got nil")
+			}
+			if limiter.interval != tt.want {
+				t.Errorf("expected interval %v, got %v", tt.want, limiter.interval)
+			}
+		})
+	}
+}
+
+func TestRateLimiterWaitSequence(t *testing.T) {
+	origNow := timeNow
+	origSleep := sleepFn
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	current := base
+	timeNow = func() time.Time { return current }
+	sleepFn = func(ctx context.Context, d time.Duration) error {
+		current = current.Add(d)
+		return nil
+	}
+	t.Cleanup(func() {
+		timeNow = origNow
+		sleepFn = origSleep
+	})
+
+	limiter := &RateLimiter{interval: 50 * time.Millisecond}
+
+	if err := limiter.Wait(context.Background(), 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !current.Equal(base) {
+		t.Fatalf("expected no delay, got %v", current.Sub(base))
+	}
+	if err := limiter.Wait(context.Background(), 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := current.Sub(base); got != 50*time.Millisecond {
+		t.Fatalf("expected delay 50ms, got %v", got)
+	}
+}
+
+func TestRateLimiterWaitHonorsMinDelay(t *testing.T) {
+	origNow := timeNow
+	origSleep := sleepFn
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	current := base
+	timeNow = func() time.Time { return current }
+	sleepFn = func(ctx context.Context, d time.Duration) error {
+		current = current.Add(d)
+		return nil
+	}
+	t.Cleanup(func() {
+		timeNow = origNow
+		sleepFn = origSleep
+	})
+
+	limiter := &RateLimiter{interval: 50 * time.Millisecond}
+	if err := limiter.Wait(context.Background(), 120*time.Millisecond); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := current.Sub(base); got != 120*time.Millisecond {
+		t.Fatalf("expected delay 120ms, got %v", got)
+	}
+}
+
+func TestRateLimiterWaitConcurrent(t *testing.T) {
+	origNow := timeNow
+	origSleep := sleepFn
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time { return base }
+	var mu sync.Mutex
+	delays := make([]time.Duration, 0, 5)
+	sleepFn = func(ctx context.Context, d time.Duration) error {
+		mu.Lock()
+		delays = append(delays, d)
+		mu.Unlock()
+		return nil
+	}
+	t.Cleanup(func() {
+		timeNow = origNow
+		sleepFn = origSleep
+	})
+
+	limiter := &RateLimiter{interval: 10 * time.Millisecond}
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := limiter.Wait(context.Background(), 0); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(delays) != 5 {
+		t.Fatalf("expected 5 delays, got %d", len(delays))
+	}
+	sort.Slice(delays, func(i, j int) bool { return delays[i] < delays[j] })
+	for i, d := range delays {
+		want := time.Duration(i) * 10 * time.Millisecond
+		if d != want {
+			t.Fatalf("expected delay %v, got %v", want, d)
+		}
 	}
 }
 

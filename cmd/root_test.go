@@ -37,8 +37,16 @@ func TestRateLimitValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
 	datebefore = "99991231"
+	oldConcurrency := concurrency
+	oldRetries := retries
+	concurrency = 3
+	retries = defaultRetries
 	rateLimit = -1
-	t.Cleanup(func() { rateLimit = 0 })
+	t.Cleanup(func() {
+		rateLimit = 0
+		concurrency = oldConcurrency
+		retries = oldRetries
+	})
 
 	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "rate-limit must be at least 0" {
 		t.Fatalf("unexpected error: %v", err)

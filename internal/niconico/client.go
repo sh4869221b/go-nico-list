@@ -20,6 +20,11 @@ const (
 	urlStr = "https://www.nicovideo.jp/watch/"
 )
 
+var (
+	timeNow = time.Now
+	sleepFn = sleepWithContext
+)
+
 // NiconicoSort sorts video IDs by their numeric part in ascending order, ignoring any preceding tab or URL strings.
 func NiconicoSort(slice []string, tab bool, url bool) {
 	var num = 2
@@ -200,7 +205,7 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 
 func waitBeforeAttempt(ctx context.Context, limiter *RateLimiter, delay time.Duration) error {
 	if limiter == nil {
-		return sleepWithContext(ctx, delay)
+		return sleepFn(ctx, delay)
 	}
 	return limiter.Wait(ctx, delay)
 }
@@ -254,12 +259,12 @@ func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
 
 func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
 	if l == nil {
-		return sleepWithContext(ctx, minDelay)
+		return sleepFn(ctx, minDelay)
 	}
 	if minDelay < 0 {
 		minDelay = 0
 	}
-	now := time.Now()
+	now := timeNow()
 	readyAt := now.Add(minDelay)
 	l.mu.Lock()
 	if l.nextTime.After(readyAt) {
@@ -267,5 +272,5 @@ func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
 	}
 	l.nextTime = readyAt.Add(l.interval)
 	l.mu.Unlock()
-	return sleepWithContext(ctx, time.Until(readyAt))
+	return sleepFn(ctx, readyAt.Sub(now))
 }

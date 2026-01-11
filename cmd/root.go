@@ -43,6 +43,8 @@ var (
 	bestEffort        bool
 	dedupeOutput      bool
 	jsonOutput        bool
+	rateLimit         float64
+	minInterval       time.Duration
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
@@ -70,6 +72,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	if retries < 1 {
 		return errors.New("retries must be at least 1")
+	}
+	if rateLimit < 0 {
+		return errors.New("rate-limit must be at least 0")
+	}
+	if minInterval < 0 {
+		return errors.New("min-interval must be at least 0")
 	}
 
 	const dateFormat = "20060102"
@@ -111,6 +119,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	var idList []string
 	var mu sync.Mutex
 	stream := streamInputs(cmd, args)
+	limiter := niconico.NewRateLimiter(rateLimit, minInterval)
 	var totalInputs int64
 	var validInputs int64
 	var invalidInputs int64
@@ -201,7 +210,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer addProgress()
-			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, logger)
+			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, limiter, logger)
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
 				mu.Lock()
@@ -344,6 +353,8 @@ func init() {
 
 	rootCmd.Flags().DurationVar(&httpClientTimeout, "timeout", defaultHTTPTimeout, "HTTP client timeout")
 	rootCmd.Flags().IntVar(&retries, "retries", defaultRetries, "number of retries for requests")
+	rootCmd.Flags().Float64Var(&rateLimit, "rate-limit", 0, "maximum requests per second (0 disables)")
+	rootCmd.Flags().DurationVar(&minInterval, "min-interval", 0, "minimum interval between requests (0 disables)")
 	rootCmd.Flags().StringVar(&inputFilePath, "input-file", "", "read inputs from file (newline-separated)")
 	rootCmd.Flags().BoolVar(&readStdin, "stdin", false, "read inputs from stdin (newline-separated)")
 	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")

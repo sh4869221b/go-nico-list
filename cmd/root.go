@@ -45,6 +45,8 @@ var (
 	jsonOutput        bool
 	rateLimit         float64
 	minInterval       time.Duration
+	maxPages          int
+	maxVideos         int
 	Version           = "unset"
 	logger            *slog.Logger
 	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
@@ -78,6 +80,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	if minInterval < 0 {
 		return errors.New("min-interval must be at least 0")
+	}
+	if maxPages < 0 {
+		return errors.New("max-pages must be at least 0")
+	}
+	if maxVideos < 0 {
+		return errors.New("max-videos must be at least 0")
 	}
 
 	const dateFormat = "20060102"
@@ -210,7 +218,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer addProgress()
-			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, limiter, logger)
+			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
 				mu.Lock()
@@ -355,6 +363,8 @@ func init() {
 	rootCmd.Flags().IntVar(&retries, "retries", defaultRetries, "number of retries for requests")
 	rootCmd.Flags().Float64Var(&rateLimit, "rate-limit", 0, "maximum requests per second (0 disables)")
 	rootCmd.Flags().DurationVar(&minInterval, "min-interval", 0, "minimum interval between requests (0 disables)")
+	rootCmd.Flags().IntVar(&maxPages, "max-pages", 0, "maximum number of pages to fetch (0 disables)")
+	rootCmd.Flags().IntVar(&maxVideos, "max-videos", 0, "maximum number of filtered IDs to collect (0 disables)")
 	rootCmd.Flags().StringVar(&inputFilePath, "input-file", "", "read inputs from file (newline-separated)")
 	rootCmd.Flags().BoolVar(&readStdin, "stdin", false, "read inputs from stdin (newline-separated)")
 	rootCmd.Flags().StringVar(&logFilePath, "logfile", "", "log output file path")

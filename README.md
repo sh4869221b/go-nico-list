@@ -57,6 +57,8 @@ cat users.txt | go-nico-list --stdin
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
+| `--max-pages` | maximum number of pages to fetch | `0` |
+| `--max-videos` | maximum number of filtered IDs to collect | `0` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
 | `--input-file` | read inputs from file (newline-separated) | `""` |
@@ -74,6 +76,8 @@ Notes:
 - Each input must contain `nicovideo.jp/user/<id>` (scheme optional). Plain digits or `user/<id>` without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
+- `--max-pages` and `--max-videos` are safety caps; `0` disables them.
+- When a safety cap is hit, fetching stops early and returns best-effort results without error.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
 - Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present.

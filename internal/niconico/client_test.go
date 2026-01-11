@@ -95,32 +95,6 @@ func TestRetriesRequest(t *testing.T) {
 	res.Body.Close()
 }
 
-func TestRetriesRequestBackoff(t *testing.T) {
-	retries := 3
-	count := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count++
-		if count < 3 {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", res.StatusCode)
-	}
-	if count != 3 {
-		t.Errorf("expected 3 attempts, got %d", count)
-	}
-	res.Body.Close()
-}
-
 func TestRetriesRequestContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

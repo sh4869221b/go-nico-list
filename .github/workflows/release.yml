@@ -40,6 +40,10 @@ jobs:
         run: |
           bash scripts/gen-third-party-notices.sh
           git diff --exit-code -- THIRD_PARTY_NOTICES.md
+      - name: Reset go.sum before release
+        run: |
+          git restore --staged --worktree go.sum
+          git diff --exit-code -- go.sum
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

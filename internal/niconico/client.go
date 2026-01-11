@@ -225,7 +225,7 @@ func retryAfterDelay(res *http.Response) time.Duration {
 		return time.Duration(seconds) * time.Second
 	}
 	if parsed, err := http.ParseTime(value); err == nil {
-		if delay := time.Until(parsed); delay > 0 {
+		if delay := parsed.Sub(timeNow()); delay > 0 {
 			return delay
 		}
 	}

@@ -364,6 +364,78 @@ func TestRateLimiterWaitConcurrent(t *testing.T) {
 	}
 }
 
+func TestRetryAfterDelay(t *testing.T) {
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	origNow := timeNow
+	timeNow = func() time.Time { return base }
+	t.Cleanup(func() { timeNow = origNow })
+
+	tests := []struct {
+		name   string
+		res    *http.Response
+		header string
+		want   time.Duration
+	}{
+		{
+			name: "nil response",
+			res:  nil,
+			want: 0,
+		},
+		{
+			name: "non-429 ignored",
+			res:  &http.Response{StatusCode: http.StatusInternalServerError, Header: make(http.Header)},
+			want: 0,
+		},
+		{
+			name: "empty header",
+			res:  &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			want: 0,
+		},
+		{
+			name:   "invalid header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "invalid",
+			want:   0,
+		},
+		{
+			name:   "negative seconds",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "-5",
+			want:   0,
+		},
+		{
+			name:   "seconds header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "120",
+			want:   120 * time.Second,
+		},
+		{
+			name:   "http date header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: base.Add(90 * time.Second).UTC().Format(http.TimeFormat),
+			want:   90 * time.Second,
+		},
+		{
+			name:   "past date header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: base.Add(-30 * time.Second).UTC().Format(http.TimeFormat),
+			want:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.res != nil && tt.header != "" {
+				tt.res.Header.Set("Retry-After", tt.header)
+			}
+			if got := retryAfterDelay(tt.res); got != tt.want {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestGetVideoList(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))

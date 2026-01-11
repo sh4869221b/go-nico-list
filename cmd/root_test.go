@@ -33,6 +33,30 @@ func TestRetriesValidation(t *testing.T) {
 	}
 }
 
+func TestMaxPagesValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+	maxPages = -1
+	t.Cleanup(func() { maxPages = 0 })
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "max-pages must be at least 0" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMaxVideosValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+	maxVideos = -1
+	t.Cleanup(func() { maxVideos = 0 })
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "max-videos must be at least 0" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunRootCmdInvalidInput(t *testing.T) {
 	// prepare custom progress bar to capture completion state
 	var bar *progressbar.ProgressBar

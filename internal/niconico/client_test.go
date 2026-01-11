@@ -234,7 +234,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, logger)
+		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -260,7 +260,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -281,7 +281,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, logger)
+		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -303,7 +303,7 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestGetVideoListHandleNotFound(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, logger)
+	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, 0, 0, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -380,11 +380,67 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
 	if !reflect.DeepEqual(got, []string{"sm1"}) {
 		t.Errorf("expected partial result, got %v", got)
+	}
+}
+
+func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	count := 0
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "1" {
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 1, 0, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"sm1"}) {
+		t.Errorf("expected [sm1], got %v", got)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 attempt, got %d", count)
+	}
+}
+
+func TestGetVideoListMaxVideosStopsEarly(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	count := 0
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm3","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 2, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"sm1", "sm2"}) {
+		t.Errorf("expected [sm1 sm2], got %v", got)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 attempt, got %d", count)
 	}
 }

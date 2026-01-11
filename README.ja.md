@@ -53,6 +53,8 @@ cat users.txt | go-nico-list --stdin
 | `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
+| `--max-pages` | maximum number of pages to fetch | `0` |
+| `--max-videos` | maximum number of filtered IDs to collect | `0` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
 | `--input-file` | read inputs from file (newline-separated) | `""` |
@@ -70,6 +72,8 @@ Notes:
 - 各入力は `nicovideo.jp/user/<id>` を含む必要があります（スキームは任意）。数字のみや `user/<id>` だけの入力は無効としてスキップされます。
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `concurrency` または `retries` を 1 未満にすると実行時エラーになります。
+- `--max-pages` と `--max-videos` は安全制限で、`0` で無効化されます。
+- 上限に達した場合は取得を早期終了し、エラー扱いにせず best-effort の結果を返します。
 - 200/404 以外の HTTP ステータスがリトライ後も続く場合は取得エラー扱いになります。
 - HTTP 200 でも `meta.status != 200` の場合は警告ログを出しつつ処理を続行します。
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。

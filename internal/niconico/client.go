@@ -56,6 +56,8 @@ func GetVideoList(
 	baseURL string,
 	retries int,
 	httpClientTimeout time.Duration,
+	maxPages int,
+	maxVideos int,
 	logger *slog.Logger,
 ) ([]string, error) {
 	if logger == nil {
@@ -73,6 +75,9 @@ func GetVideoList(
 	}
 
 	for page := 1; ; page++ {
+		if maxPages > 0 && page > maxPages {
+			break
+		}
 		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, page)
 		res, err := retriesRequest(ctx, requestURL, httpClientTimeout, retries)
 		if err != nil {
@@ -114,6 +119,9 @@ func GetVideoList(
 					continue
 				}
 				resStr = append(resStr, fmt.Sprintf("%s%s", beforeStr, s.Essential.ID))
+				if maxVideos > 0 && len(resStr) >= maxVideos {
+					return resStr, nil
+				}
 			}
 		}
 	}

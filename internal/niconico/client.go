@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"sort"
 	"time"
@@ -98,6 +97,9 @@ func GetVideoList(
 				logger.Error("failed to unmarshal response body", "error", err)
 				return resStr, err
 			}
+			if nicoData.Meta.Status != http.StatusOK {
+				logger.Warn("unexpected meta status", "status", nicoData.Meta.Status)
+			}
 			if len(nicoData.Data.Items) == 0 {
 				break
 			}
@@ -127,15 +129,12 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	req.Header.Set("Accept", "*/*")
 	client := &http.Client{Timeout: httpClientTimeout}
 
-	var (
-		res *http.Response
-	)
+	var lastErr error
 	const baseDelay = 100 * time.Millisecond
-	maxRetries := retries
-	attempts := retries
+	const maxDelay = 30 * time.Second
 
-	for attempts > 0 {
-		res, err = client.Do(req)
+	for attempt := 1; attempt <= retries; attempt++ {
+		res, err := client.Do(req)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				if res != nil {
@@ -146,20 +145,41 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			if res != nil {
 				res.Body.Close()
 			}
+			lastErr = err
 		} else {
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
-				break
+				return res, nil
 			}
 			res.Body.Close()
+			lastErr = fmt.Errorf("unexpected status: %d", res.StatusCode)
 		}
-		attempts--
-		wait := time.Duration(math.Min(math.Pow(2, float64(maxRetries-attempts))*float64(baseDelay), float64(30*time.Second)))
-		time.Sleep(wait)
+
+		if attempt == retries {
+			return nil, lastErr
+		}
+
+		wait := baseDelay * time.Duration(1<<uint(attempt-1))
+		if wait > maxDelay {
+			wait = maxDelay
+		}
+		if err := sleepWithContext(ctx, wait); err != nil {
+			return nil, err
+		}
 	}
 
-	if err != nil {
-		return nil, err
-	}
+	return nil, lastErr
+}
 
-	return res, nil
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

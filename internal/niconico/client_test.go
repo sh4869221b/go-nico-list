@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -93,6 +94,69 @@ func TestRetriesRequest(t *testing.T) {
 		t.Errorf("expected 3 attempts, got %d", count)
 	}
 	res.Body.Close()
+}
+
+func TestRetriesRequestExhaustedReturnsError(t *testing.T) {
+	retries := 1
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if res != nil {
+		t.Errorf("expected nil response, got %v", res)
+	}
+	if count != retries {
+		t.Errorf("expected %d attempts, got %d", retries, count)
+	}
+}
+
+func TestRetriesRequestBackoffCanceled(t *testing.T) {
+	retries := 3
+	count := 0
+	handled := make(chan struct{})
+	var handledOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.WriteHeader(http.StatusInternalServerError)
+		handledOnce.Do(func() { close(handled) })
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := retriesRequest(ctx, server.URL, time.Second, retries)
+		errCh <- err
+	}()
+
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("expected request to be handled")
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected retriesRequest to return after cancel")
+	}
+	if count != 1 {
+		t.Errorf("expected 1 attempt, got %d", count)
+	}
 }
 
 func TestRetriesRequestContextCanceled(t *testing.T) {

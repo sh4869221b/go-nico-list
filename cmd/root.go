@@ -122,6 +122,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
 	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
+	var progressMu sync.Mutex
+	addProgress := func() {
+		progressMu.Lock()
+		bar.Add(1)
+		progressMu.Unlock()
+	}
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -174,12 +180,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			invalidInputsList = append(invalidInputsList, input)
 			mu.Unlock()
 			logger.Warn("invalid user ID", "input", input)
-			bar.Add(1)
+			addProgress()
 			continue
 		}
 		atomic.AddInt64(&validInputs, 1)
 		if inputErr != nil {
-			bar.Add(1)
+			addProgress()
 			continue
 		}
 		sem <- struct{}{}
@@ -194,7 +200,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		go func(userID string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			defer bar.Add(1)
+			defer addProgress()
 			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, tab, url, baseURL, retries, httpClientTimeout, logger)
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)

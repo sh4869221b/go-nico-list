@@ -115,12 +115,14 @@ main.go
   - `registeredAt` <= `datebefore` (inclusive via an exclusive upper bound: `registeredAt < beforeDate.AddDate(0,0,1)`)
 - `StatusNotFound` stops fetching.
 - `context.Canceled/DeadlineExceeded` returns empty result without error.
+- HTTP 200 responses with `meta.status != 200` are logged as warnings and treated as successful responses.
 - On errors during fetch, return partial results plus error (caller logs and continues).
 
 ### Retry (`internal/niconico.retriesRequest`)
 - Retry on anything other than HTTP 200/404.
+- When retries are exhausted and the final status is not 200/404, return an error and do not return a closed body.
 - Exponential backoff starting at `100ms`, max `30s`.
-- Cancel/timeout ends HTTP requests immediately; the backoff sleep is not interrupted.
+- Skip backoff sleep after the final attempt; backoff sleep is canceled by `ctx.Done()`.
 
 ### Sort (`internal/niconico.NiconicoSort`)
 - Remove a fixed prefix length (`sm` + optional tab/url) and compare with `"%08s"` padding.
@@ -129,6 +131,7 @@ main.go
 ## Concurrency
 - `concurrency` limits goroutines via a semaphore.
 - Aggregated `[]string` is guarded by a mutex.
+- Progress bar updates are serialized for race safety.
 
 ## Logging
 - JSON logger via `slog`.

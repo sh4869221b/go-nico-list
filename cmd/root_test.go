@@ -33,12 +33,47 @@ func TestRetriesValidation(t *testing.T) {
 	}
 }
 
+func TestRateLimitValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+	oldConcurrency := concurrency
+	oldRetries := retries
+	oldRateLimit := rateLimit
+	concurrency = 3
+	retries = defaultRetries
+	rateLimit = -1
+	t.Cleanup(func() {
+		rateLimit = oldRateLimit
+		concurrency = oldConcurrency
+		retries = oldRetries
+	})
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "rate-limit must be at least 0" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMinIntervalValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+	oldMinInterval := minInterval
+	minInterval = -time.Second
+	t.Cleanup(func() { minInterval = oldMinInterval })
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "min-interval must be at least 0" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMaxPagesValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
 	datebefore = "99991231"
+	oldMaxPages := maxPages
 	maxPages = -1
-	t.Cleanup(func() { maxPages = 0 })
+	t.Cleanup(func() { maxPages = oldMaxPages })
 
 	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "max-pages must be at least 0" {
 		t.Fatalf("unexpected error: %v", err)
@@ -49,8 +84,9 @@ func TestMaxVideosValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
 	datebefore = "99991231"
+	oldMaxVideos := maxVideos
 	maxVideos = -1
-	t.Cleanup(func() { maxVideos = 0 })
+	t.Cleanup(func() { maxVideos = oldMaxVideos })
 
 	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "max-videos must be at least 0" {
 		t.Fatalf("unexpected error: %v", err)

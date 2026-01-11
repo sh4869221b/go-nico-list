@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -83,7 +84,7 @@ func TestRetriesRequest(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestRetriesRequestExhaustedReturnsError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -134,7 +135,7 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := retriesRequest(ctx, server.URL, time.Second, retries)
+		_, err := retriesRequest(ctx, server.URL, time.Second, retries, nil)
 		errCh <- err
 	}()
 
@@ -162,7 +163,7 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 func TestRetriesRequestContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	res, err := retriesRequest(ctx, "http://example.com", time.Second, 3)
+	res, err := retriesRequest(ctx, "http://example.com", time.Second, 3, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -182,7 +183,7 @@ func TestRetriesRequestTimeout(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	timeout := 50 * time.Millisecond
-	res, err := retriesRequest(context.Background(), server.URL, timeout, 3)
+	res, err := retriesRequest(context.Background(), server.URL, timeout, 3, nil)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline exceeded, got %v", err)
@@ -211,6 +212,230 @@ func TestRetriesRequestTimeout(t *testing.T) {
 	}
 }
 
+func TestNewRateLimiterInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		rateLimit   float64
+		minInterval time.Duration
+		wantNil     bool
+		want        time.Duration
+	}{
+		{
+			name:        "disabled",
+			rateLimit:   0,
+			minInterval: 0,
+			wantNil:     true,
+		},
+		{
+			name:        "rate-limit only",
+			rateLimit:   2.5,
+			minInterval: 0,
+			want:        time.Duration(float64(time.Second) / 2.5),
+		},
+		{
+			name:        "min-interval only",
+			rateLimit:   0,
+			minInterval: 150 * time.Millisecond,
+			want:        150 * time.Millisecond,
+		},
+		{
+			name:        "min-interval dominates",
+			rateLimit:   10,
+			minInterval: 200 * time.Millisecond,
+			want:        200 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			limiter := NewRateLimiter(tt.rateLimit, tt.minInterval)
+			if tt.wantNil {
+				if limiter != nil {
+					t.Fatalf("expected nil limiter, got %+v", limiter)
+				}
+				return
+			}
+			if limiter == nil {
+				t.Fatal("expected limiter, got nil")
+			}
+			if limiter.interval != tt.want {
+				t.Errorf("expected interval %v, got %v", tt.want, limiter.interval)
+			}
+		})
+	}
+}
+
+func TestRateLimiterWaitSequence(t *testing.T) {
+	origNow := timeNow
+	origSleep := sleepFn
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	current := base
+	timeNow = func() time.Time { return current }
+	sleepFn = func(ctx context.Context, d time.Duration) error {
+		current = current.Add(d)
+		return nil
+	}
+	t.Cleanup(func() {
+		timeNow = origNow
+		sleepFn = origSleep
+	})
+
+	limiter := &RateLimiter{interval: 50 * time.Millisecond}
+
+	if err := limiter.Wait(context.Background(), 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !current.Equal(base) {
+		t.Fatalf("expected no delay, got %v", current.Sub(base))
+	}
+	if err := limiter.Wait(context.Background(), 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := current.Sub(base); got != 50*time.Millisecond {
+		t.Fatalf("expected delay 50ms, got %v", got)
+	}
+}
+
+func TestRateLimiterWaitHonorsMinDelay(t *testing.T) {
+	origNow := timeNow
+	origSleep := sleepFn
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	current := base
+	timeNow = func() time.Time { return current }
+	sleepFn = func(ctx context.Context, d time.Duration) error {
+		current = current.Add(d)
+		return nil
+	}
+	t.Cleanup(func() {
+		timeNow = origNow
+		sleepFn = origSleep
+	})
+
+	limiter := &RateLimiter{interval: 50 * time.Millisecond}
+	if err := limiter.Wait(context.Background(), 120*time.Millisecond); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := current.Sub(base); got != 120*time.Millisecond {
+		t.Fatalf("expected delay 120ms, got %v", got)
+	}
+}
+
+func TestRateLimiterWaitConcurrent(t *testing.T) {
+	origNow := timeNow
+	origSleep := sleepFn
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time { return base }
+	var mu sync.Mutex
+	delays := make([]time.Duration, 0, 5)
+	sleepFn = func(ctx context.Context, d time.Duration) error {
+		mu.Lock()
+		delays = append(delays, d)
+		mu.Unlock()
+		return nil
+	}
+	t.Cleanup(func() {
+		timeNow = origNow
+		sleepFn = origSleep
+	})
+
+	limiter := &RateLimiter{interval: 10 * time.Millisecond}
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := limiter.Wait(context.Background(), 0); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(delays) != 5 {
+		t.Fatalf("expected 5 delays, got %d", len(delays))
+	}
+	sort.Slice(delays, func(i, j int) bool { return delays[i] < delays[j] })
+	for i, d := range delays {
+		want := time.Duration(i) * 10 * time.Millisecond
+		if d != want {
+			t.Fatalf("expected delay %v, got %v", want, d)
+		}
+	}
+}
+
+func TestRetryAfterDelay(t *testing.T) {
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	origNow := timeNow
+	timeNow = func() time.Time { return base }
+	t.Cleanup(func() { timeNow = origNow })
+
+	tests := []struct {
+		name   string
+		res    *http.Response
+		header string
+		want   time.Duration
+	}{
+		{
+			name: "nil response",
+			res:  nil,
+			want: 0,
+		},
+		{
+			name: "non-429 ignored",
+			res:  &http.Response{StatusCode: http.StatusInternalServerError, Header: make(http.Header)},
+			want: 0,
+		},
+		{
+			name: "empty header",
+			res:  &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			want: 0,
+		},
+		{
+			name:   "invalid header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "invalid",
+			want:   0,
+		},
+		{
+			name:   "negative seconds",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "-5",
+			want:   0,
+		},
+		{
+			name:   "seconds header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "120",
+			want:   120 * time.Second,
+		},
+		{
+			name:   "http date header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: base.Add(90 * time.Second).UTC().Format(http.TimeFormat),
+			want:   90 * time.Second,
+		},
+		{
+			name:   "past date header",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: base.Add(-30 * time.Second).UTC().Format(http.TimeFormat),
+			want:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.res != nil && tt.header != "" {
+				tt.res.Header.Set("Retry-After", tt.header)
+			}
+			if got := retryAfterDelay(tt.res); got != tt.want {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestGetVideoList(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -234,7 +459,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
+		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -260,7 +485,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
+		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -281,7 +506,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
+		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -303,7 +528,7 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
+	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +551,7 @@ func TestGetVideoListHandleNotFound(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +577,7 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, 0, 0, logger)
+	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, nil, 0, 0, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -380,7 +605,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -407,7 +632,7 @@ func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 1, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 1, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -433,7 +658,7 @@ func TestGetVideoListMaxVideosStopsEarly(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

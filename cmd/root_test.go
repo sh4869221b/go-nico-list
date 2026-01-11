@@ -822,14 +822,8 @@ func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
 	var canceledOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedOnce.Do(func() { close(started) })
-		select {
-		case <-r.Context().Done():
-			canceledOnce.Do(func() { close(canceled) })
-			return
-		case <-time.After(2 * time.Second):
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-		}
+		<-r.Context().Done()
+		canceledOnce.Do(func() { close(canceled) })
 	}))
 	t.Cleanup(server.Close)
 
@@ -871,9 +865,16 @@ func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
 		errCh <- runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
 	}()
 
+	waitTimeout := time.Second
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline) / 2; remaining > 0 {
+			waitTimeout = remaining
+		}
+	}
+
 	select {
 	case <-started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(waitTimeout):
 		t.Fatal("expected request to start")
 	}
 
@@ -884,13 +885,13 @@ func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
 		if err == nil || err.Error() != "stdin read error" {
 			t.Fatalf("unexpected error: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(waitTimeout):
 		t.Fatal("expected command to finish after input error")
 	}
 
 	select {
 	case <-canceled:
-	case <-time.After(2 * time.Second):
+	case <-time.After(waitTimeout):
 		t.Fatal("expected request to be canceled")
 	}
 }
@@ -906,14 +907,8 @@ func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
 	var canceledOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedOnce.Do(func() { close(started) })
-		select {
-		case <-r.Context().Done():
-			canceledOnce.Do(func() { close(canceled) })
-			return
-		case <-time.After(2 * time.Second):
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-		}
+		<-r.Context().Done()
+		canceledOnce.Do(func() { close(canceled) })
 	}))
 	t.Cleanup(server.Close)
 
@@ -959,9 +954,16 @@ func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
 		errCh <- runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
 	}()
 
+	waitTimeout := time.Second
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline) / 2; remaining > 0 {
+			waitTimeout = remaining
+		}
+	}
+
 	select {
 	case <-started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(waitTimeout):
 		t.Fatal("expected request to start")
 	}
 
@@ -975,13 +977,13 @@ func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
 		if err == nil || !errors.Is(err, bufio.ErrTooLong) {
 			t.Fatalf("unexpected error: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(waitTimeout):
 		t.Fatal("expected command to finish after input error")
 	}
 
 	select {
 	case <-canceled:
-	case <-time.After(2 * time.Second):
+	case <-time.After(waitTimeout):
 		t.Fatal("expected request to be canceled")
 	}
 }

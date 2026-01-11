@@ -108,16 +108,17 @@ func TestRetriesRequestContextCanceled(t *testing.T) {
 }
 
 func TestRetriesRequestTimeout(t *testing.T) {
+	started := make(chan struct{})
+	done := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
+		close(started)
+		<-r.Context().Done()
+		close(done)
 	}))
 	t.Cleanup(server.Close)
 
 	timeout := 50 * time.Millisecond
-	start := time.Now()
 	res, err := retriesRequest(context.Background(), server.URL, timeout, 3)
-	elapsed := time.Since(start)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline exceeded, got %v", err)
@@ -125,8 +126,24 @@ func TestRetriesRequestTimeout(t *testing.T) {
 	if res != nil {
 		t.Errorf("expected nil response, got %v", res)
 	}
-	if elapsed < timeout {
-		t.Errorf("timeout returned too quickly: %v", elapsed)
+
+	waitTimeout := time.Second
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline) / 2; remaining > 0 {
+			waitTimeout = remaining
+		}
+	}
+
+	select {
+	case <-started:
+	case <-time.After(waitTimeout):
+		t.Fatal("expected request to start")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(waitTimeout):
+		t.Fatal("expected handler to observe timeout")
 	}
 }
 

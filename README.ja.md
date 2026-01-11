@@ -53,6 +53,8 @@ cat users.txt | go-nico-list --stdin
 | `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
+| `--rate-limit` | maximum requests per second (0 disables) | `0` |
+| `--min-interval` | minimum interval between requests | `0s` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
 | `--input-file` | read inputs from file (newline-separated) | `""` |
@@ -72,6 +74,7 @@ Notes:
 - `concurrency` または `retries` を 1 未満にすると実行時エラーになります。
 - 200/404 以外の HTTP ステータスがリトライ後も続く場合は取得エラー扱いになります。
 - HTTP 200 でも `meta.status != 200` の場合は警告ログを出しつつ処理を続行します。
+- すべてのリクエスト（リトライ含む）に対してレート制限が適用され、HTTP 429 の `Retry-After` は可能な限り尊重されます。
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
 - 処理後に実行サマリを stderr に出力します（非0終了時も含む）。
 - `--strict` を指定すると、無効な入力がある場合に非0で終了します（有効な結果は出力されます）。

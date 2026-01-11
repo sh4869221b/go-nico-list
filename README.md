@@ -55,6 +55,8 @@ cat users.txt | go-nico-list --stdin
 | `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
+| `--rate-limit` | maximum requests per second (0 disables) | `0` |
+| `--min-interval` | minimum interval between requests | `0s` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
 | `--input-file` | read inputs from file (newline-separated) | `""` |
@@ -74,6 +76,7 @@ Notes:
 - Setting `concurrency` or `retries` to a value less than 1 will cause a runtime error.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
+- Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.

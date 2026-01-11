@@ -9,6 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -56,6 +59,7 @@ func GetVideoList(
 	baseURL string,
 	retries int,
 	httpClientTimeout time.Duration,
+	limiter *RateLimiter,
 	logger *slog.Logger,
 ) ([]string, error) {
 	if logger == nil {
@@ -74,7 +78,7 @@ func GetVideoList(
 
 	for page := 1; ; page++ {
 		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, page)
-		res, err := retriesRequest(ctx, requestURL, httpClientTimeout, retries)
+		res, err := retriesRequest(ctx, requestURL, httpClientTimeout, retries, limiter)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, nil
@@ -120,7 +124,7 @@ func GetVideoList(
 	return resStr, nil
 }
 
-func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int) (*http.Response, error) {
+func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -133,7 +137,13 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	const baseDelay = 100 * time.Millisecond
 	const maxDelay = 30 * time.Second
 
+	delay := time.Duration(0)
 	for attempt := 1; attempt <= retries; attempt++ {
+		if err := waitBeforeAttempt(ctx, limiter, delay); err != nil {
+			return nil, err
+		}
+		delay = 0
+
 		res, err := client.Do(req)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -150,8 +160,12 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 				return res, nil
 			}
+			retryAfter := retryAfterDelay(res)
 			res.Body.Close()
 			lastErr = fmt.Errorf("unexpected status: %d", res.StatusCode)
+			if retryAfter > 0 {
+				delay = retryAfter
+			}
 		}
 
 		if attempt == retries {
@@ -162,8 +176,8 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 		if wait > maxDelay {
 			wait = maxDelay
 		}
-		if err := sleepWithContext(ctx, wait); err != nil {
-			return nil, err
+		if wait > delay {
+			delay = wait
 		}
 	}
 
@@ -182,4 +196,76 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func waitBeforeAttempt(ctx context.Context, limiter *RateLimiter, delay time.Duration) error {
+	if limiter == nil {
+		return sleepWithContext(ctx, delay)
+	}
+	return limiter.Wait(ctx, delay)
+}
+
+func retryAfterDelay(res *http.Response) time.Duration {
+	if res == nil || res.StatusCode != http.StatusTooManyRequests {
+		return 0
+	}
+	value := strings.TrimSpace(res.Header.Get("Retry-After"))
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if parsed, err := http.ParseTime(value); err == nil {
+		if delay := time.Until(parsed); delay > 0 {
+			return delay
+		}
+	}
+	return 0
+}
+
+type RateLimiter struct {
+	mu       sync.Mutex
+	interval time.Duration
+	nextTime time.Time
+}
+
+func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
+	interval := time.Duration(0)
+	if rateLimit > 0 {
+		seconds := float64(time.Second) / rateLimit
+		if seconds < float64(time.Nanosecond) {
+			interval = time.Nanosecond
+		} else {
+			interval = time.Duration(seconds)
+		}
+	}
+	if minInterval > interval {
+		interval = minInterval
+	}
+	if interval <= 0 {
+		return nil
+	}
+	return &RateLimiter{interval: interval}
+}
+
+func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
+	if l == nil {
+		return sleepWithContext(ctx, minDelay)
+	}
+	if minDelay < 0 {
+		minDelay = 0
+	}
+	now := time.Now()
+	readyAt := now.Add(minDelay)
+	l.mu.Lock()
+	if l.nextTime.After(readyAt) {
+		readyAt = l.nextTime
+	}
+	l.nextTime = readyAt.Add(l.interval)
+	l.mu.Unlock()
+	return sleepWithContext(ctx, time.Until(readyAt))
 }

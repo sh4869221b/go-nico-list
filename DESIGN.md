@@ -44,6 +44,8 @@ main.go
     - Parsed by `time.Parse("20060102", ...)` (UTC).
   - `--tab` (default `false`), `--url` (default `false`): output formatting.
   - `--concurrency` (default `3`): concurrent requests.
+  - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
+  - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
   - `--timeout` (default `10s`): HTTP client timeout.
   - `--retries` (default `10`): retry count.
   - `--logfile` (default `""`): log file path (empty = stderr, set = file output).
@@ -123,6 +125,9 @@ main.go
 - When retries are exhausted and the final status is not 200/404, return an error and do not return a closed body.
 - Exponential backoff starting at `100ms`, max `30s`.
 - Skip backoff sleep after the final attempt; backoff sleep is canceled by `ctx.Done()`.
+- Apply global rate limiting before each request (including retries).
+- When both `--rate-limit` and `--min-interval` are set, use the stricter limit (max of `min-interval` and `1/rate-limit`).
+- On HTTP 429 with `Retry-After`, wait for the longer of `Retry-After` and the computed backoff/interval delay.
 
 ### Sort (`internal/niconico.NiconicoSort`)
 - Remove a fixed prefix length (`sm` + optional tab/url) and compare with `"%08s"` padding.

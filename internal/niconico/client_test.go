@@ -83,7 +83,7 @@ func TestRetriesRequest(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestRetriesRequestExhaustedReturnsError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -134,7 +134,7 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := retriesRequest(ctx, server.URL, time.Second, retries)
+		_, err := retriesRequest(ctx, server.URL, time.Second, retries, nil)
 		errCh <- err
 	}()
 
@@ -162,7 +162,7 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 func TestRetriesRequestContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	res, err := retriesRequest(ctx, "http://example.com", time.Second, 3)
+	res, err := retriesRequest(ctx, "http://example.com", time.Second, 3, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -182,7 +182,7 @@ func TestRetriesRequestTimeout(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	timeout := 50 * time.Millisecond
-	res, err := retriesRequest(context.Background(), server.URL, timeout, 3)
+	res, err := retriesRequest(context.Background(), server.URL, timeout, 3, nil)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline exceeded, got %v", err)
@@ -234,7 +234,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, logger)
+		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, nil, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -260,7 +260,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -281,7 +281,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, logger)
+		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, nil, logger)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -303,7 +303,7 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestGetVideoListHandleNotFound(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, logger)
+	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, nil, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -380,7 +380,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}

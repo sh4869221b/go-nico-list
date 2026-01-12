@@ -33,13 +33,12 @@ Before any code change, update `DESIGN.md` as needed and get explicit confirmati
 If user-facing behavior changes, update `README.md` as well.
 
 ## Improvements / Backlog
-Record undecided proposals and improvement ideas in `IMPROVEMENTS.md` (not in `DESIGN.md`).
 Keep `DESIGN.md` focused on the current, agreed-upon behavior.
-Keep `IMPROVEMENTS.md` in English.
+Do not add undecided proposals to `DESIGN.md`.
+Record undecided proposals and improvement ideas in GitHub Issues.
 
 ## Work Log
 Use `WORKLOG.md` (git-ignored) to record interrupted work, session status, and next steps.
-Move short-lived coordination notes or deferred tasks from `IMPROVEMENTS.md` into `WORKLOG.md` when they are about ongoing execution rather than long-term backlog.
 Do not commit `WORKLOG.md`; keep it local-only.
 Keep `WORKLOG.md` in English.
 
@@ -52,4 +51,4 @@ Do not implement changes related to those findings until answers are received.
 Number each question to make responses easier.
 
 ## Documentation Language
-Keep `README.md`, `DESIGN.md`, `AGENTS.md`, and `IMPROVEMENTS.md` in English.
+Keep `README.md`, `DESIGN.md`, and `AGENTS.md` in English.

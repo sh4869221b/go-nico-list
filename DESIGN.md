@@ -62,7 +62,7 @@ main.go
 - stderr: progress bar (log output switches to file when `--logfile` is set).
 - Invalid userIDs only produce a warning and do not fail; valid IDs (if present) still output results.
 
-## Planned CLI additions (v0.22.0)
+## CLI additions (v0.22.0)
 - Input sources:
   - `--input-file <path>` and/or `--stdin` read newline-separated inputs.
 - Validation and exit codes:

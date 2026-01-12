@@ -51,7 +51,7 @@ Requires bash and network access to fetch module license metadata.
 - `internal/niconico/`: domain logic (fetch, retry, sorting, types)
 
 If the user-facing behavior changes, update `README.md` and `DESIGN.md`.
-If the idea is not finalized yet, put it in `IMPROVEMENTS.md` instead of `DESIGN.md`.
+If the idea is not finalized yet, keep it out of `DESIGN.md` and track it in a GitHub Issue.
 Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 ## Pull requests
@@ -115,3 +115,11 @@ Please use the issue templates and include:
 - whether the issue is reproducible
 - expected vs actual behavior
 - any relevant logs (stderr or `--logfile` output)
+
+## Issue status labels
+
+Use status labels to separate confirmed items from open questions:
+
+- `confirmed`: use when the owner decides the issue is confirmed.
+- `needs-decision`: use when the idea is not finalized yet.
+- `needs-clarification`: use when more information is required from the reporter, and remove it once clarified.

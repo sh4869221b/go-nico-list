@@ -34,22 +34,22 @@ type NicoData struct {
 					ListingURL string `json:"listingUrl"`
 					NHdURL     string `json:"nHdUrl"`
 				} `json:"thumbnail"`
-				Duration             int         `json:"duration"`
-				ShortDescription     string      `json:"shortDescription"`
-				LatestCommentSummary string      `json:"latestCommentSummary"`
-				IsChannelVideo       bool        `json:"isChannelVideo"`
-				IsPaymentRequired    bool        `json:"isPaymentRequired"`
-				PlaybackPosition     interface{} `json:"playbackPosition"`
+				Duration             int    `json:"duration"`
+				ShortDescription     string `json:"shortDescription"`
+				LatestCommentSummary string `json:"latestCommentSummary"`
+				IsChannelVideo       bool   `json:"isChannelVideo"`
+				IsPaymentRequired    bool   `json:"isPaymentRequired"`
+				PlaybackPosition     any    `json:"playbackPosition"`
 				Owner                struct {
 					OwnerType string `json:"ownerType"`
 					ID        string `json:"id"`
 					Name      string `json:"name"`
 					IconURL   string `json:"iconUrl"`
 				} `json:"owner"`
-				RequireSensitiveMasking bool        `json:"requireSensitiveMasking"`
-				VideoLive               interface{} `json:"videoLive"`
-				NineD091F87             bool        `json:"9d091f87"`
-				Acf68865                bool        `json:"acf68865"`
+				RequireSensitiveMasking bool `json:"requireSensitiveMasking"`
+				VideoLive               any  `json:"videoLive"`
+				NineD091F87             bool `json:"9d091f87"`
+				Acf68865                bool `json:"acf68865"`
 			} `json:"essential"`
 		} `json:"items"`
 	} `json:"data"`

@@ -68,7 +68,7 @@ var rootCmd = &cobra.Command{
 	RunE:  runRootCmd,
 }
 
-func runRootCmd(cmd *cobra.Command, args []string) error {
+func validateFlags() error {
 	if concurrency < 1 {
 		return errors.New("concurrency must be at least 1")
 	}
@@ -87,29 +87,78 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if maxVideos < 0 {
 		return errors.New("max-videos must be at least 0")
 	}
+	return nil
+}
 
+func parseDateRange(after, before string) (time.Time, time.Time, error) {
 	const dateFormat = "20060102"
-
-	t, err := time.Parse(dateFormat, dateafter)
+	parsedAfter, err := time.Parse(dateFormat, after)
 	if err != nil {
-		return errors.New("dateafter format error")
+		return time.Time{}, time.Time{}, errors.New("dateafter format error")
 	}
-	afterDate := t
-	t, err = time.Parse(dateFormat, datebefore)
+	parsedBefore, err := time.Parse(dateFormat, before)
 	if err != nil {
-		return errors.New("datebefore format error")
+		return time.Time{}, time.Time{}, errors.New("datebefore format error")
 	}
-	beforeDate := t
+	return parsedAfter, parsedBefore, nil
+}
 
-	logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
-	if logFilePath != "" {
-		logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return err
+func setupLogger(path string) (*slog.Logger, func(), error) {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+	if path == "" {
+		return logger, func() {}, nil
+	}
+	logFile, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	cleanup := func() { _ = logFile.Close() }
+	logger = slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{}))
+	return logger, cleanup, nil
+}
+
+func errWriterFor(cmd *cobra.Command) io.Writer {
+	if cmd == nil {
+		return os.Stderr
+	}
+	return cmd.ErrOrStderr()
+}
+
+func outWriterFor(cmd *cobra.Command) io.Writer {
+	if cmd == nil {
+		return os.Stdout
+	}
+	return cmd.OutOrStdout()
+}
+
+func userIDFromMatch(match []string, re *regexp.Regexp) string {
+	if len(match) == 0 {
+		return ""
+	}
+	result := make(map[string]string)
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			result[name] = match[i]
 		}
-		defer logFile.Close()
-		logger = slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{}))
 	}
+	return result["userID"]
+}
+
+func runRootCmd(cmd *cobra.Command, args []string) error {
+	if err := validateFlags(); err != nil {
+		return err
+	}
+	afterDate, beforeDate, err := parseDateRange(dateafter, datebefore)
+	if err != nil {
+		return err
+	}
+
+	newLogger, cleanup, err := setupLogger(logFilePath)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	logger = newLogger
 	slog.SetDefault(logger)
 
 	ctx := context.Background()
@@ -119,10 +168,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var errWriter io.Writer = os.Stderr
-	if cmd != nil {
-		errWriter = cmd.ErrOrStderr()
-	}
+	errWriter := errWriterFor(cmd)
 
 	var idList []string
 	var mu sync.Mutex
@@ -207,13 +253,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		}
 		sem <- struct{}{}
 		wg.Add(1)
-		result := make(map[string]string)
-		for j, name := range r.SubexpNames() {
-			if j != 0 && name != "" {
-				result[name] = match[j]
-			}
-		}
-		userID := result["userID"]
+		userID := userIDFromMatch(match, r)
 		go func(userID string) {
 			defer wg.Done()
 			defer func() { <-sem }()
@@ -274,10 +314,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if outputCount > 0 {
 		niconico.NiconicoSort(outputIDs, tab, url)
 	}
-	var out io.Writer = os.Stdout
-	if cmd != nil {
-		out = cmd.OutOrStdout()
-	}
+	out := outWriterFor(cmd)
 	if jsonOutput {
 		jsonPayload := buildJSONOutput(
 			totalInputs,

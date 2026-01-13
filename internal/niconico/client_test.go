@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -341,7 +341,7 @@ func TestRateLimiterWaitConcurrent(t *testing.T) {
 
 	limiter := &RateLimiter{interval: 10 * time.Millisecond}
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -355,7 +355,7 @@ func TestRateLimiterWaitConcurrent(t *testing.T) {
 	if len(delays) != 5 {
 		t.Fatalf("expected 5 delays, got %d", len(delays))
 	}
-	sort.Slice(delays, func(i, j int) bool { return delays[i] < delays[j] })
+	slices.Sort(delays)
 	for i, d := range delays {
 		want := time.Duration(i) * 10 * time.Millisecond
 		if d != want {

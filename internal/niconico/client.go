@@ -185,13 +185,8 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			return nil, lastErr
 		}
 
-		wait := baseDelay * time.Duration(1<<uint(attempt-1))
-		if wait > maxDelay {
-			wait = maxDelay
-		}
-		if wait > delay {
-			delay = wait
-		}
+		wait := min(baseDelay*time.Duration(1<<uint(attempt-1)), maxDelay)
+		delay = max(delay, wait)
 	}
 
 	return nil, lastErr

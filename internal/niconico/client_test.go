@@ -341,7 +341,7 @@ func TestRateLimiterWaitConcurrent(t *testing.T) {
 
 	limiter := &RateLimiter{interval: 10 * time.Millisecond}
 	var wg sync.WaitGroup
-	for i := range 5 {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

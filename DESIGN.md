@@ -16,6 +16,12 @@ main.go
               └─ internal/niconico (domain: fetch/retry/sort)
 ```
 
+### Refactoring guardrails
+- Behavior and output must remain identical during refactors.
+- Refactors only change internal structure (function boundaries, helpers, file splits).
+- CLI/user-facing flags, outputs, logs, exit codes, and progress behavior are unchanged.
+- Domain API behavior (filters, pagination, retry/ratelimit semantics) is unchanged.
+
 ### Responsibilities
 - `main.go`:
   - Resolve version (build info / ldflags).

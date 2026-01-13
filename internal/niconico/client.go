@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	tabStr = "\t\t\t\t\t\t\t\t\t"
-	urlStr = "https://www.nicovideo.jp/watch/"
+	tabStr         = "\t\t\t\t\t\t\t\t\t"
+	urlStr         = "https://www.nicovideo.jp/watch/"
+	retryBaseDelay = 100 * time.Millisecond
+	retryMaxDelay  = 30 * time.Second
 )
 
 var (
@@ -137,6 +139,20 @@ func GetVideoList(
 	return resStr, nil
 }
 
+func evaluateResponse(res *http.Response) (*http.Response, time.Duration, error) {
+	if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
+		return res, 0, nil
+	}
+	retryAfter := retryAfterDelay(res)
+	res.Body.Close()
+	return nil, retryAfter, fmt.Errorf("unexpected status: %d", res.StatusCode)
+}
+
+func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
+	wait := min(retryBaseDelay*time.Duration(1<<uint(attempt-1)), retryMaxDelay)
+	return max(retryAfter, wait)
+}
+
 func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -147,8 +163,6 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	client := &http.Client{Timeout: httpClientTimeout}
 
 	var lastErr error
-	const baseDelay = 100 * time.Millisecond
-	const maxDelay = 30 * time.Second
 
 	delay := time.Duration(0)
 	for attempt := 1; attempt <= retries; attempt++ {
@@ -170,23 +184,20 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			}
 			lastErr = err
 		} else {
-			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
+			var retryAfter time.Duration
+			res, retryAfter, err = evaluateResponse(res)
+			if err == nil {
 				return res, nil
 			}
-			retryAfter := retryAfterDelay(res)
-			res.Body.Close()
-			lastErr = fmt.Errorf("unexpected status: %d", res.StatusCode)
-			if retryAfter > 0 {
-				delay = retryAfter
-			}
+			lastErr = err
+			delay = retryAfter
 		}
 
 		if attempt == retries {
 			return nil, lastErr
 		}
 
-		wait := min(baseDelay*time.Duration(1<<uint(attempt-1)), maxDelay)
-		delay = max(delay, wait)
+		delay = nextRetryDelay(delay, attempt)
 	}
 
 	return nil, lastErr

@@ -50,8 +50,8 @@ Requires bash and network access to fetch module license metadata.
 - `cmd/`: CLI (flags, IO, validation, concurrency, exit codes)
 - `internal/niconico/`: domain logic (fetch, retry, sorting, types)
 
-If the user-facing behavior changes, update `README.md` and `DESIGN.md`.
-If the idea is not finalized yet, keep it out of `DESIGN.md` and track it in a GitHub Issue.
+If the user-facing behavior changes, update `README.md` and `docs/DESIGN.md`.
+If the idea is not finalized yet, keep it out of `docs/DESIGN.md` and track it in a GitHub Issue.
 Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 ## Docstring policy
@@ -91,7 +91,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 - CI must be green (gofmt, go vet, go test, go test -race).
 - If behavior changes, add or update tests; otherwise explain why in the PR.
-- If user-facing behavior changes, update README.md and DESIGN.md.
+- If user-facing behavior changes, update README.md and docs/DESIGN.md.
 - If dependencies change, run `go mod tidy` and update `THIRD_PARTY_NOTICES.md`.
 - Breaking changes must be called out in the PR and docs.
 

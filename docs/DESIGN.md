@@ -35,6 +35,12 @@ main.go
   - API response types (`nico_data.go`).
   - Domain logic for fetch/retry/sort (`client.go`).
 
+## Documentation
+- `README.md` remains at the repository root.
+- `docs/README.ja.md` holds the Japanese README.
+- `docs/DESIGN.md` is the canonical design overview.
+- `CONTRIBUTING.md` remains at the repository root.
+
 ## Input and Output
 
 ### Input

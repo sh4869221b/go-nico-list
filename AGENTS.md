@@ -27,14 +27,14 @@ Baseline rules for changes in this repository.
 - When a versioned milestone is completed, release using the same version number; after the release workflow succeeds, close the milestone.
 
 ## Design
-Refer to `DESIGN.md` for the design overview and responsibility boundaries.
-Keep `DESIGN.md` up-to-date with the current code and behavior.
-Before any code change, update `DESIGN.md` as needed and get explicit confirmation (OK) before implementing.
+Refer to `docs/DESIGN.md` for the design overview and responsibility boundaries.
+Keep `docs/DESIGN.md` up-to-date with the current code and behavior.
+Before any code change, update `docs/DESIGN.md` as needed and get explicit confirmation (OK) before implementing.
 If user-facing behavior changes, update `README.md` as well.
 
 ## Improvements / Backlog
-Keep `DESIGN.md` focused on the current, agreed-upon behavior.
-Do not add undecided proposals to `DESIGN.md`.
+Keep `docs/DESIGN.md` focused on the current, agreed-upon behavior.
+Do not add undecided proposals to `docs/DESIGN.md`.
 Record undecided proposals and improvement ideas in GitHub Issues.
 
 ## Work Log
@@ -51,4 +51,4 @@ Do not implement changes related to those findings until answers are received.
 Number each question to make responses easier.
 
 ## Documentation Language
-Keep `README.md`, `DESIGN.md`, and `AGENTS.md` in English.
+Keep `README.md`, `docs/DESIGN.md`, and `AGENTS.md` in English.

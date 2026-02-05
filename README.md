@@ -2,7 +2,7 @@
 
 Command line tool to fetch video IDs from a niconico user page.
 
-[Japanese README](README.ja.md)
+[Japanese README](docs/README.ja.md)
 
 ## Overview
 Fetches video IDs from one or more `nicovideo.jp/user/<id>` pages, filters them by comment count and date range, sorts the results, and prints them to stdout.

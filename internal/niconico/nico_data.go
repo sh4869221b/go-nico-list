@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// NicoData represents the niconico API response payload.
 type NicoData struct {
 	Meta struct {
 		Status int `json:"status"`

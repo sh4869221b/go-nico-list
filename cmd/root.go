@@ -68,6 +68,7 @@ var rootCmd = &cobra.Command{
 	RunE:  runRootCmd,
 }
 
+// validateFlags validates CLI flag values before execution.
 func validateFlags() error {
 	if concurrency < 1 {
 		return errors.New("concurrency must be at least 1")
@@ -90,6 +91,7 @@ func validateFlags() error {
 	return nil
 }
 
+// parseDateRange parses date strings into UTC time values.
 func parseDateRange(after, before string) (time.Time, time.Time, error) {
 	const dateFormat = "20060102"
 	parsedAfter, err := time.Parse(dateFormat, after)
@@ -103,6 +105,7 @@ func parseDateRange(after, before string) (time.Time, time.Time, error) {
 	return parsedAfter, parsedBefore, nil
 }
 
+// setupLogger initializes a JSON logger and optional cleanup for log files.
 func setupLogger(path string) (*slog.Logger, func(), error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
 	if path == "" {
@@ -117,6 +120,7 @@ func setupLogger(path string) (*slog.Logger, func(), error) {
 	return logger, cleanup, nil
 }
 
+// errWriterFor returns the stderr writer for a command.
 func errWriterFor(cmd *cobra.Command) io.Writer {
 	if cmd == nil {
 		return os.Stderr
@@ -124,6 +128,7 @@ func errWriterFor(cmd *cobra.Command) io.Writer {
 	return cmd.ErrOrStderr()
 }
 
+// outWriterFor returns the stdout writer for a command.
 func outWriterFor(cmd *cobra.Command) io.Writer {
 	if cmd == nil {
 		return os.Stdout
@@ -131,6 +136,7 @@ func outWriterFor(cmd *cobra.Command) io.Writer {
 	return cmd.OutOrStdout()
 }
 
+// userIDFromMatch extracts the userID named submatch from a regex match.
 func userIDFromMatch(match []string, re *regexp.Regexp) string {
 	if len(match) == 0 {
 		return ""
@@ -144,6 +150,7 @@ func userIDFromMatch(match []string, re *regexp.Regexp) string {
 	return result["userID"]
 }
 
+// runRootCmd executes the main CLI workflow.
 func runRootCmd(cmd *cobra.Command, args []string) error {
 	if err := validateFlags(); err != nil {
 		return err
@@ -372,11 +379,13 @@ func Execute() {
 	ExecuteContext(context.Background())
 }
 
+// ExecuteContext runs the root command with the provided context.
 func ExecuteContext(ctx context.Context) {
 	rootCmd.Version = Version
 	cobra.CheckErr(rootCmd.ExecuteContext(ctx))
 }
 
+// init configures command flags and defaults.
 func init() {
 	rootCmd.SilenceUsage = true
 	rootCmd.SilenceErrors = true
@@ -414,18 +423,21 @@ func init() {
 
 }
 
+// jsonInputs summarizes input counts for JSON output.
 type jsonInputs struct {
 	Total   int64 `json:"total"`
 	Valid   int64 `json:"valid"`
 	Invalid int64 `json:"invalid"`
 }
 
+// userResult captures per-user results for JSON output.
 type userResult struct {
 	UserID string   `json:"user_id"`
 	Items  []string `json:"items"`
 	Error  string   `json:"error"`
 }
 
+// jsonOutputPayload defines the JSON output schema.
 type jsonOutputPayload struct {
 	Inputs      jsonInputs   `json:"inputs"`
 	Invalid     []string     `json:"invalid"`
@@ -435,6 +447,7 @@ type jsonOutputPayload struct {
 	Items       []string     `json:"items"`
 }
 
+// buildJSONOutput assembles the JSON payload from run results.
 func buildJSONOutput(
 	totalInputs int64,
 	validInputs int64,
@@ -473,11 +486,13 @@ func buildJSONOutput(
 
 const nicoWatchURLPrefix = "https://www.nicovideo.jp/watch/"
 
+// normalizeOutputID strips tab and URL prefixes from an output ID.
 func normalizeOutputID(id string) string {
 	id = strings.TrimLeft(id, "\t")
 	return strings.TrimPrefix(id, nicoWatchURLPrefix)
 }
 
+// normalizeOutputList normalizes a list of output IDs.
 func normalizeOutputList(items []string) []string {
 	normalized := make([]string, 0, len(items))
 	for _, item := range items {
@@ -486,6 +501,7 @@ func normalizeOutputList(items []string) []string {
 	return normalized
 }
 
+// inputStream bundles input channels and total count metadata.
 type inputStream struct {
 	inputs     <-chan string
 	errs       <-chan error
@@ -493,6 +509,7 @@ type inputStream struct {
 	total      int64
 }
 
+// newProgressBar creates a progress bar configured for the current run.
 func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressbar.ProgressBar {
 	if !totalKnown {
 		total = -1
@@ -509,6 +526,7 @@ func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressb
 	return progressBarNew(total, writer, visible)
 }
 
+// shouldShowProgress reports whether progress output should be visible.
 func shouldShowProgress(errWriter io.Writer) bool {
 	visible := isTerminal(errWriter)
 	if forceProgress {
@@ -520,6 +538,7 @@ func shouldShowProgress(errWriter io.Writer) bool {
 	return visible
 }
 
+// defaultIsTerminal reports whether the writer is a terminal.
 func defaultIsTerminal(w io.Writer) bool {
 	if file, ok := w.(*os.File); ok {
 		return term.IsTerminal(int(file.Fd()))
@@ -527,6 +546,7 @@ func defaultIsTerminal(w io.Writer) bool {
 	return false
 }
 
+// streamInputs streams inputs from args, input files, and stdin.
 func streamInputs(cmd *cobra.Command, args []string) inputStream {
 	out := make(chan string)
 	errCh := make(chan error, 1)
@@ -578,6 +598,7 @@ func streamInputs(cmd *cobra.Command, args []string) inputStream {
 	}
 }
 
+// streamLinesFromFile streams trimmed lines from a file into out.
 func streamLinesFromFile(path string, out chan<- string) (int, error) {
 	file, err := openInputFile(path)
 	if err != nil {
@@ -587,6 +608,7 @@ func streamLinesFromFile(path string, out chan<- string) (int, error) {
 	return streamLines(file, out)
 }
 
+// streamLines streams non-empty trimmed lines from a reader into out.
 func streamLines(reader io.Reader, out chan<- string) (int, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)

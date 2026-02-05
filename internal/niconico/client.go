@@ -139,6 +139,7 @@ func GetVideoList(
 	return resStr, nil
 }
 
+// evaluateResponse validates HTTP responses and returns any retry delay needed.
 func evaluateResponse(res *http.Response) (*http.Response, time.Duration, error) {
 	if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 		return res, 0, nil
@@ -148,11 +149,13 @@ func evaluateResponse(res *http.Response) (*http.Response, time.Duration, error)
 	return nil, retryAfter, fmt.Errorf("unexpected status: %d", res.StatusCode)
 }
 
+// nextRetryDelay calculates the next backoff delay, honoring Retry-After when larger.
 func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
 	wait := min(retryBaseDelay*time.Duration(1<<uint(attempt-1)), retryMaxDelay)
 	return max(retryAfter, wait)
 }
 
+// retriesRequest issues a GET request with retries and rate limiting.
 func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -203,6 +206,7 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	return nil, lastErr
 }
 
+// sleepWithContext waits for the duration or returns early on context cancellation.
 func sleepWithContext(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
@@ -217,6 +221,7 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// waitBeforeAttempt applies any delay and rate limiting before a request attempt.
 func waitBeforeAttempt(ctx context.Context, limiter *RateLimiter, delay time.Duration) error {
 	if limiter == nil {
 		return sleepFn(ctx, delay)
@@ -224,6 +229,7 @@ func waitBeforeAttempt(ctx context.Context, limiter *RateLimiter, delay time.Dur
 	return limiter.Wait(ctx, delay)
 }
 
+// retryAfterDelay parses Retry-After for 429 responses and returns a delay.
 func retryAfterDelay(res *http.Response) time.Duration {
 	if res == nil || res.StatusCode != http.StatusTooManyRequests {
 		return 0
@@ -246,12 +252,14 @@ func retryAfterDelay(res *http.Response) time.Duration {
 	return 0
 }
 
+// RateLimiter enforces a minimum interval between requests.
 type RateLimiter struct {
 	mu       sync.Mutex
 	interval time.Duration
 	nextTime time.Time
 }
 
+// NewRateLimiter builds a RateLimiter from rate and minimum interval settings.
 func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
 	interval := time.Duration(0)
 	if rateLimit > 0 {
@@ -271,6 +279,7 @@ func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
 	return &RateLimiter{interval: interval}
 }
 
+// Wait blocks until the next request slot is available.
 func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
 	if l == nil {
 		return sleepFn(ctx, minDelay)

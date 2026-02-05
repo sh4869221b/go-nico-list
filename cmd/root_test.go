@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -95,15 +94,11 @@ func TestMaxVideosValidation(t *testing.T) {
 
 func TestRunRootCmdInvalidInput(t *testing.T) {
 	// prepare custom progress bar to capture completion state
-	var bar *progressbar.ProgressBar
+	var bar *progressBar
 	origProgressBarNew := progressBarNew
 	origIsTerminal := isTerminal
-	progressBarNew = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
-		bar = progressbar.NewOptions64(
-			max,
-			progressbar.OptionSetWriter(writer),
-			progressbar.OptionSetVisibility(visible),
-		)
+	progressBarNew = func(max int64, writer io.Writer, visible bool) *progressBar {
+		bar = newProgressCounter(max, writer, visible)
 		return bar
 	}
 	isTerminal = func(io.Writer) bool { return true }
@@ -141,13 +136,9 @@ func TestProgressAutoDisabledOnNonTTY(t *testing.T) {
 	})
 
 	var visible bool
-	progressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+	progressBarNew = func(max int64, writer io.Writer, show bool) *progressBar {
 		visible = show
-		return progressbar.NewOptions64(
-			max,
-			progressbar.OptionSetWriter(io.Discard),
-			progressbar.OptionSetVisibility(show),
-		)
+		return newProgressCounter(max, io.Discard, show)
 	}
 	isTerminal = func(io.Writer) bool { return false }
 	forceProgress = false
@@ -185,13 +176,9 @@ func TestProgressForcedOn(t *testing.T) {
 	})
 
 	var visible bool
-	progressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+	progressBarNew = func(max int64, writer io.Writer, show bool) *progressBar {
 		visible = show
-		return progressbar.NewOptions64(
-			max,
-			progressbar.OptionSetWriter(io.Discard),
-			progressbar.OptionSetVisibility(show),
-		)
+		return newProgressCounter(max, io.Discard, show)
 	}
 	isTerminal = func(io.Writer) bool { return false }
 	forceProgress = true
@@ -229,13 +216,9 @@ func TestNoProgressOverridesForceProgress(t *testing.T) {
 	})
 
 	var visible bool
-	progressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+	progressBarNew = func(max int64, writer io.Writer, show bool) *progressBar {
 		visible = show
-		return progressbar.NewOptions64(
-			max,
-			progressbar.OptionSetWriter(io.Discard),
-			progressbar.OptionSetVisibility(show),
-		)
+		return newProgressCounter(max, io.Discard, show)
 	}
 	isTerminal = func(io.Writer) bool { return true }
 	forceProgress = true

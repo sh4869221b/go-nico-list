@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
 	"golang.org/x/term"
 
@@ -49,15 +48,9 @@ var (
 	maxVideos         int
 	Version           = "unset"
 	logger            *slog.Logger
-	progressBarNew    func(int64, io.Writer, bool) *progressbar.ProgressBar = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
-		return progressbar.NewOptions64(
-			max,
-			progressbar.OptionSetWriter(writer),
-			progressbar.OptionSetVisibility(visible),
-		)
-	}
-	openInputFile func(string) (io.ReadCloser, error) = func(path string) (io.ReadCloser, error) { return os.Open(path) }
-	isTerminal    func(io.Writer) bool                = defaultIsTerminal
+	progressBarNew    func(int64, io.Writer, bool) *progressBar = newProgressCounter
+	openInputFile     func(string) (io.ReadCloser, error)       = func(path string) (io.ReadCloser, error) { return os.Open(path) }
+	isTerminal        func(io.Writer) bool                      = defaultIsTerminal
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -510,7 +503,7 @@ type inputStream struct {
 }
 
 // newProgressBar creates a progress bar configured for the current run.
-func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressbar.ProgressBar {
+func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressBar {
 	if !totalKnown {
 		total = -1
 	}

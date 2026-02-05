@@ -17,6 +17,7 @@ var (
 	Version = "unset"
 )
 
+// main resolves version info, installs signal handling, and runs the CLI.
 func main() {
 	if Version == "unset" {
 		info, ok := debug.ReadBuildInfo()

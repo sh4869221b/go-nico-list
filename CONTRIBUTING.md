@@ -54,6 +54,13 @@ If the user-facing behavior changes, update `README.md` and `DESIGN.md`.
 If the idea is not finalized yet, keep it out of `DESIGN.md` and track it in a GitHub Issue.
 Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
+## Docstring policy
+
+- Add docstrings for all non-test functions, methods, and types.
+- Start docstrings with the identifier name and keep them to a single sentence when possible.
+- Test functions (`Test*`, `Benchmark*`, `Example*`) are exempt.
+- Docstrings for `const`/`var` are optional; add them when intent is non-obvious.
+
 ## Pull requests
 
 - Keep diffs small and focused.

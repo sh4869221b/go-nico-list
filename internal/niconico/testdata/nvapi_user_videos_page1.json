@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "status": 200
+  },
+  "data": {
+    "totalCount": 2,
+    "items": [
+      {
+        "essential": {
+          "type": "video",
+          "id": "sm9",
+          "title": "sample title 1",
+          "registeredAt": "2025-01-02T03:04:05Z",
+          "count": {
+            "view": 100,
+            "comment": 12,
+            "mylist": 3,
+            "like": 8
+          },
+          "thumbnail": {
+            "url": "https://example.invalid/thumb1.jpg",
+            "middleUrl": "https://example.invalid/thumb1-m.jpg",
+            "largeUrl": "https://example.invalid/thumb1-l.jpg",
+            "listingUrl": "https://example.invalid/thumb1-s.jpg",
+            "nHdUrl": "https://example.invalid/thumb1-hd.jpg"
+          },
+          "duration": 120,
+          "shortDescription": "desc",
+          "latestCommentSummary": "summary",
+          "isChannelVideo": false,
+          "isPaymentRequired": false,
+          "playbackPosition": null,
+          "owner": {
+            "ownerType": "user",
+            "id": "1",
+            "name": "owner-1",
+            "iconUrl": "https://example.invalid/icon1.png"
+          },
+          "requireSensitiveMasking": false,
+          "videoLive": null,
+          "9d091f87": false,
+          "acf68865": false
+        }
+      },
+      {
+        "essential": {
+          "type": "video",
+          "id": "sm10",
+          "title": "sample title 2",
+          "registeredAt": "2025-01-03T04:05:06Z",
+          "count": {
+            "view": 200,
+            "comment": 34,
+            "mylist": 5,
+            "like": 13
+          },
+          "thumbnail": {
+            "url": "https://example.invalid/thumb2.jpg",
+            "middleUrl": "https://example.invalid/thumb2-m.jpg",
+            "largeUrl": "https://example.invalid/thumb2-l.jpg",
+            "listingUrl": "https://example.invalid/thumb2-s.jpg",
+            "nHdUrl": "https://example.invalid/thumb2-hd.jpg"
+          },
+          "duration": 240,
+          "shortDescription": "desc-2",
+          "latestCommentSummary": "summary-2",
+          "isChannelVideo": false,
+          "isPaymentRequired": false,
+          "playbackPosition": null,
+          "owner": {
+            "ownerType": "user",
+            "id": "2",
+            "name": "owner-2",
+            "iconUrl": "https://example.invalid/icon2.png"
+          },
+          "requireSensitiveMasking": false,
+          "videoLive": null,
+          "9d091f87": false,
+          "acf68865": false
+        }
+      }
+    ]
+  }
+}

@@ -28,6 +28,24 @@ go vet ./...
 go test ./...
 ```
 
+## Optional test layers
+
+Use these opt-in commands when working on higher-level test coverage:
+
+```bash
+# Contract fixture decode checks
+go test ./internal/niconico -run TestNicoDataContract -count=1
+
+# Fuzz smoke run (short)
+go test ./... -run=^$ -fuzz=Fuzz -fuzztime=10s
+
+# E2E against real API (requires env var)
+GO_NICO_LIST_E2E_USER_ID=<user-id> go test -tags=e2e ./internal/niconico -run TestGetVideoListE2E -count=1
+
+# Bench baseline
+go test ./internal/niconico -run=^$ -bench=BenchmarkNiconicoSort -benchmem -count=1
+```
+
 ## Third-party notices
 
 If your change updates dependencies (changes `go.mod` / `go.sum`), run:

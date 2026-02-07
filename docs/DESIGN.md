@@ -168,6 +168,10 @@ main.go
 ## Tests
 - CLI tests: `cmd/root_test.go` (validation, output, progress, logfile).
 - Domain tests: `internal/niconico/client_test.go` (fetch/retry/sort).
+- Contract test: `internal/niconico/nico_data_contract_test.go` validates fixture JSON decode into `NicoData`.
+- Fuzz tests: `internal/niconico/fuzz_test.go` and `cmd/root_fuzz_test.go` ensure sorting/JSON/url parsing paths do not panic.
+- E2E test (opt-in): `internal/niconico/e2e_test.go` is gated by `//go:build e2e` and `GO_NICO_LIST_E2E_USER_ID`.
+- Benchmark (opt-in): `internal/niconico/benchmark_test.go` provides a `NiconicoSort` baseline (`go test -bench`).
 
 ## Release process (CI)
 - Release is triggered by pushing a `vX.Y.Z` tag to GitHub.

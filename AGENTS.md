@@ -6,6 +6,9 @@ Baseline rules for changes in this repository.
 - If you modify Go files, run `gofmt -w <files>` (or `gofmt -w .` to format everything).
 - After changes, run `go vet ./...` and confirm there are no errors.
 - After changes, run `go test ./...` and confirm there are no errors.
+- After changes, run `go test -race ./...` and confirm there are no errors.
+- Before opening a PR, verify generated-file drift checks stay clean: `go mod tidy`, `go generate ./...`, and `git diff --exit-code`.
+- If dependencies changed (`go.mod` / `go.sum`), run `bash scripts/gen-third-party-notices.sh` and ensure no drift in `THIRD_PARTY_NOTICES.md`.
 - Before implementation, create (or confirm) a GitHub Issue that tracks the work.
 - Use short-lived branches (e.g. `feature/*`) and merge via PR using **squash merge**; do not commit directly to `master` unless explicitly requested.
 - Implement only on the issue branch and merge via PR; never push implementation commits directly to `master`.
@@ -27,11 +30,14 @@ Baseline rules for changes in this repository.
 - Avoid interactive editors in automated merges (use `gh pr merge --squash` and set `GIT_EDITOR` to a non-interactive command when needed).
 - Before merging, wait for all CI checks to complete (use `gh pr checks --watch`) unless explicitly told to skip.
 - When a versioned milestone is completed, release using the same version number; after the release workflow succeeds, close the milestone.
+- `master` is protected by repository rulesets: PR-only updates, required conversation resolution, required `go-ci`, and squash-only merge method.
+- Release tags (`refs/tags/v*`) are protected by repository rulesets that control tag create/update/delete operations.
 
 ## Design
 Refer to `docs/DESIGN.md` for the design overview and responsibility boundaries.
 Keep `docs/DESIGN.md` up-to-date with the current code and behavior.
-Before any code change, update `docs/DESIGN.md` as needed and get explicit confirmation (OK) before implementing.
+Before implementing user-facing behavior changes or design-boundary changes, update `docs/DESIGN.md` as needed and get explicit confirmation (OK) before implementing.
+For internal-only changes (for example CI/docs/process-only updates), `docs/DESIGN.md` updates are not required.
 If user-facing behavior changes, update `README.md` as well.
 
 ## Improvements / Backlog

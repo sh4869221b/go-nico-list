@@ -28,6 +28,9 @@ func validateFlags() error {
 	if retries < 1 {
 		return errors.New("retries must be at least 1")
 	}
+	if httpClientTimeout <= 0 {
+		return errors.New("timeout must be greater than 0")
+	}
 	if rateLimit < 0 {
 		return errors.New("rate-limit must be at least 0")
 	}

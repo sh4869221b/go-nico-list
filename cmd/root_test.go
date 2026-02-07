@@ -54,6 +54,21 @@ func TestRateLimitValidation(t *testing.T) {
 	}
 }
 
+func TestTimeoutValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+	oldTimeout := httpClientTimeout
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		httpClientTimeout = timeout
+		if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "timeout must be greater than 0" {
+			t.Fatalf("unexpected error for timeout %v: %v", timeout, err)
+		}
+	}
+}
+
 func TestMinIntervalValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

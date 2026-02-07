@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	tabStr         = "\t\t\t\t\t\t\t\t\t"
-	urlStr         = "https://www.nicovideo.jp/watch/"
 	retryBaseDelay = 100 * time.Millisecond
 	retryMaxDelay  = 30 * time.Second
 )
@@ -27,26 +25,20 @@ var (
 	sleepFn = sleepWithContext
 )
 
-// NiconicoSort sorts video IDs by their numeric part in ascending order, ignoring any preceding tab or URL strings.
-func NiconicoSort(slice []string, tab bool, url bool) {
-	var num = 2
-	if tab {
-		num += len(tabStr)
-	}
-	if url {
-		num += len(urlStr)
-	}
+// NiconicoSort sorts video IDs by their numeric part in ascending order.
+func NiconicoSort(slice []string) {
+	const prefixLen = 2
 	str := "%08s"
 
 	sort.Slice(slice, func(i, j int) bool {
 		var s1, s2 string
-		if len(slice[i]) >= num {
-			s1 = slice[i][num:]
+		if len(slice[i]) >= prefixLen {
+			s1 = slice[i][prefixLen:]
 		} else {
 			s1 = slice[i]
 		}
-		if len(slice[j]) >= num {
-			s2 = slice[j][num:]
+		if len(slice[j]) >= prefixLen {
+			s2 = slice[j][prefixLen:]
 		} else {
 			s2 = slice[j]
 		}
@@ -61,8 +53,6 @@ func GetVideoList(
 	commentCount int,
 	afterDate time.Time,
 	beforeDate time.Time,
-	tab bool,
-	url bool,
 	baseURL string,
 	retries int,
 	httpClientTimeout time.Duration,
@@ -76,14 +66,6 @@ func GetVideoList(
 	}
 
 	var resStr []string
-
-	var beforeStr = ""
-	if tab {
-		beforeStr += tabStr
-	}
-	if url {
-		beforeStr += urlStr
-	}
 
 	for page := 1; ; page++ {
 		if maxPages > 0 && page > maxPages {
@@ -129,7 +111,7 @@ func GetVideoList(
 				if !s.Essential.RegisteredAt.Before(beforeDate.AddDate(0, 0, 1)) {
 					continue
 				}
-				resStr = append(resStr, fmt.Sprintf("%s%s", beforeStr, s.Essential.ID))
+				resStr = append(resStr, s.Essential.ID)
 				if maxVideos > 0 && len(resStr) >= maxVideos {
 					return resStr, nil
 				}

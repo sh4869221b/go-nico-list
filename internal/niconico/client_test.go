@@ -31,44 +31,17 @@ func TestNiconicoSort(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    []string
-		tab      bool
-		url      bool
 		expected []string
 	}{
 		{
 			name:     "simple",
 			input:    []string{"sm12", "sm3", "sm1"},
-			tab:      false,
-			url:      false,
 			expected: []string{"sm1", "sm3", "sm12"},
-		},
-		{
-			name:     "withTab",
-			input:    []string{tabStr + "sm12", tabStr + "sm3", tabStr + "sm1"},
-			tab:      true,
-			url:      false,
-			expected: []string{tabStr + "sm1", tabStr + "sm3", tabStr + "sm12"},
-		},
-		{
-			name:     "withTabAndURL",
-			input:    []string{tabStr + urlStr + "sm2", tabStr + urlStr + "sm10", tabStr + urlStr + "sm1"},
-			tab:      true,
-			url:      true,
-			expected: []string{tabStr + urlStr + "sm1", tabStr + urlStr + "sm2", tabStr + urlStr + "sm10"},
 		},
 		{
 			name:     "shortString",
 			input:    []string{"sm12", "s", "sm3"},
-			tab:      false,
-			url:      false,
 			expected: []string{"sm3", "s", "sm12"},
-		},
-		{
-			name:     "shortStringTabURL",
-			input:    []string{tabStr + urlStr + "sm2", tabStr + urlStr + "s", tabStr + urlStr + "sm10"},
-			tab:      true,
-			url:      true,
-			expected: []string{tabStr + urlStr + "s", tabStr + urlStr + "sm2", tabStr + urlStr + "sm10"},
 		},
 	}
 
@@ -76,7 +49,7 @@ func TestNiconicoSort(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			slice := append([]string(nil), tt.input...)
-			NiconicoSort(slice, tt.tab, tt.url)
+			NiconicoSort(slice)
 			if !reflect.DeepEqual(slice, tt.expected) {
 				t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, slice)
 			}
@@ -496,7 +469,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
+		got, err := GetVideoList(context.Background(), "12345", 5, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -522,7 +495,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
+		got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -543,7 +516,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		_, err := GetVideoList(context.Background(), "12345", 5, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
+		_, err := GetVideoList(context.Background(), "12345", 5, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -565,7 +538,7 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(ctx, "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
+	got, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -588,7 +561,7 @@ func TestGetVideoListHandleNotFound(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -614,7 +587,7 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	_, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 2, time.Second, nil, 0, 0, logger)
+	_, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 2, time.Second, nil, 0, 0, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -642,7 +615,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -669,7 +642,7 @@ func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 1, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, 0, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -695,7 +668,7 @@ func TestGetVideoListMaxVideosStopsEarly(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, false, false, server.URL, 1, time.Second, nil, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

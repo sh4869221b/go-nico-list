@@ -12,7 +12,7 @@ This document summarizes the behavior required for a coding agent to reproduce t
 ```
 main.go
   └─ cmd.ExecuteContext(ctx)
-        └─ cmd/root.go (CLI: flags/IO/validation)
+        └─ cmd/root_*.go (CLI: flags/run/IO/JSON helpers)
               └─ internal/niconico (domain: fetch/retry/sort)
 ```
 
@@ -30,10 +30,11 @@ main.go
   - Cobra commands/flags.
   - Input validation (`concurrency`, `retries`, dates).
   - Progress to stderr, results to stdout.
+  - Output formatting (`--tab`/`--url`) and JSON payload assembly.
   - Call into `internal/niconico` and aggregate results.
 - `internal/niconico/`:
   - API response types (`nico_data.go`).
-  - Domain logic for fetch/retry/sort (`client.go`).
+  - Domain logic for fetch/retry/sort on raw video IDs (`client.go`).
 
 ## Documentation
 - `README.md` remains at the repository root.
@@ -101,9 +102,9 @@ main.go
   - `--no-progress` always disables progress output and takes precedence when both flags are set.
 
 ## Flow
-1. `cmd/root.go` extracts userIDs using the regex.
+1. `cmd/root_*.go` extracts userIDs using the regex.
 2. For each userID, a goroutine calls `internal/niconico.GetVideoList`.
-3. Aggregate and sort IDs, then print to stdout.
+3. Aggregate and sort raw IDs, apply optional `tab/url` formatting, then print to stdout.
 
 ## Errors and Exit Codes
 - Validation errors (`concurrency`/`retries`/date format): **non-zero exit**.
@@ -134,6 +135,7 @@ main.go
 - `StatusNotFound` stops fetching.
 - `context.Canceled/DeadlineExceeded` returns empty result without error.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings and treated as successful responses.
+- Returned IDs are raw `sm*` values (no tab/url prefix).
 - On errors during fetch, return partial results plus error (caller logs and continues).
 
 ### Retry (`internal/niconico.retriesRequest`)
@@ -146,8 +148,7 @@ main.go
 - On HTTP 429 with `Retry-After`, wait for the longer of `Retry-After` and the computed backoff/interval delay.
 
 ### Sort (`internal/niconico.NiconicoSort`)
-- Remove a fixed prefix length (`sm` + optional tab/url) and compare with `"%08s"` padding.
-- `tab`/`url` prefixes are ignored using `tabStr`/`urlStr` lengths.
+- Sort raw `sm*` IDs by numeric part in ascending order.
 
 ## Concurrency
 - `concurrency` limits goroutines via a semaphore.

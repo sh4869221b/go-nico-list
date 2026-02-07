@@ -23,7 +23,7 @@ go run ./... --help
 Run these before opening a PR:
 
 ```bash
-gofmt -w .
+gofmt -w $(git ls-files '*.go')
 go vet ./...
 go test ./...
 ```

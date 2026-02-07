@@ -57,6 +57,9 @@ func parseDateRange(after, before string) (time.Time, time.Time, error) {
 	if err != nil {
 		return time.Time{}, time.Time{}, errors.New("datebefore format error")
 	}
+	if parsedAfter.After(parsedBefore) {
+		return time.Time{}, time.Time{}, errors.New("dateafter must be on or before datebefore")
+	}
 	return parsedAfter, parsedBefore, nil
 }
 

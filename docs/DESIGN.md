@@ -55,6 +55,7 @@ main.go
   - `--comment` (default `0`): minimum comment count.
   - `--dateafter` (default `10000101`) / `--datebefore` (default `99991231`): `YYYYMMDD`.
     - Parsed by `time.Parse("20060102", ...)` (UTC).
+    - `dateafter` must be on or before `datebefore`.
   - `--tab` (default `false`), `--url` (default `false`): output formatting.
   - `--concurrency` (default `3`): concurrent requests.
   - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).

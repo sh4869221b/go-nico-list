@@ -174,6 +174,9 @@ main.go
 - Benchmark (opt-in): `internal/niconico/benchmark_test.go` provides a `NiconicoSort` baseline (`go test -bench`).
 
 ## Release process (CI)
+- The main CI workflow runs on pull requests to `master` and pushes to `master`.
+- The main CI workflow verifies generated files (`go mod tidy`, `go generate ./...`) and `THIRD_PARTY_NOTICES.md` sync.
+- The main CI workflow runs quality gates (gofmt, go vet, go test, go test -race).
 - Release is triggered by pushing a `vX.Y.Z` tag to GitHub.
 - The release workflow verifies generated files (`go mod tidy`, `go generate ./...`).
 - The release workflow runs quality gates (gofmt, go vet, go test, go test -race).

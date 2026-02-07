@@ -86,7 +86,10 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 - Keep diffs small and focused.
 - Avoid adding new runtime dependencies without prior discussion.
 - Releases are performed by the maintainer.
-- CI runs gofmt, go vet, go test, and go test -race on all branches.
+- CI runs on pull requests to `master` and pushes to `master`.
+- CI checks generated-file drift (`go mod tidy`, `go generate ./...`, `git diff --exit-code`).
+- CI checks `THIRD_PARTY_NOTICES.md` drift (`bash scripts/gen-third-party-notices.sh` + diff check).
+- CI runs gofmt, go vet, go test, and go test -race.
 - Include an auto-close keyword for related issues (e.g. `Closes #123`) in the PR body.
 - After addressing review feedback, request a Codex re-review in chat.
 - When using `gh pr create`, always use `--body-file` with `.github/PULL_REQUEST_TEMPLATE.md` to avoid literal `\n` in the description.
@@ -109,7 +112,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 ## Review criteria
 
-- CI must be green (gofmt, go vet, go test, go test -race).
+- CI must be green (generated files, third-party notices, gofmt, go vet, go test, go test -race).
 - If behavior changes, add or update tests; otherwise explain why in the PR.
 - If user-facing behavior changes, update README.md and docs/DESIGN.md.
 - If dependencies change, run `go mod tidy` and update `THIRD_PARTY_NOTICES.md`.

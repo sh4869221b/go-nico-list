@@ -102,7 +102,9 @@ This project separates the CLI layer from the domain logic so each part is easie
 3. Results are sorted and printed; progress is written to stderr.
 
 ## CI
-GitHub Actions runs on every push and pull request (all branches) and enforces:
+GitHub Actions runs on pull requests to `master` and pushes to `master`, and enforces:
+- generated file checks (`go mod tidy`, `go generate ./...`, `git diff --exit-code`)
+- third-party notice sync (`bash scripts/gen-third-party-notices.sh`, `git diff --exit-code -- THIRD_PARTY_NOTICES.md`)
 - `gofmt` (format + diff check)
 - `go vet ./...`
 - `go test -count=1 ./...`

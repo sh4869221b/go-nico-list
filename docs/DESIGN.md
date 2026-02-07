@@ -91,7 +91,7 @@ main.go
     - Schema:
       - `inputs`: `{ "total": n, "valid": n, "invalid": n }`
       - `invalid`: list of invalid input strings
-      - `users`: list of `{ "user_id": "<id>", "items": ["sm1"], "error": "" }`
+      - `users`: list of `{ "user_id": "<id>", "items": ["sm1"], "error": "" }`, sorted by numeric `user_id` ascending
       - `errors`: list of fetch error messages (order is nondeterministic)
       - `output_count`: count of `items` after dedupe (if enabled)
       - `items`: flattened list of IDs (raw `sm*` IDs; `--url`/`--tab` do not affect JSON)

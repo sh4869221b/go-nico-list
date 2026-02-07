@@ -1275,16 +1275,16 @@ func TestRunRootCmdLogFile(t *testing.T) {
 	cmd.SetErr(&errOut)
 	cmd.SetContext(context.Background())
 
-	if err := runRootCmd(cmd, []string{"12345"}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1"}); err == nil {
+		t.Fatalf("expected fetch error")
 	}
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("expected logfile to be created: %v", err)
 	}
-	if len(data) == 0 {
-		t.Fatalf("expected logfile to contain logs")
+	if !bytes.Contains(data, []byte("failed to get video list")) {
+		t.Fatalf("expected fetch error logs in logfile, got %q", string(data))
 	}
 }
 

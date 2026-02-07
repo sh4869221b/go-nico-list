@@ -85,6 +85,12 @@ func TestRetriesRequest(t *testing.T) {
 	retries := 3
 	count := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Frontend-Id"); got != "6" {
+			t.Fatalf("unexpected X-Frontend-Id header: %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "*/*" {
+			t.Fatalf("unexpected Accept header: %q", got)
+		}
 		count++
 		if count < 3 {
 			w.WriteHeader(http.StatusInternalServerError)

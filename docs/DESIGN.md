@@ -107,7 +107,7 @@ main.go
 3. Aggregate and sort raw IDs, apply optional `tab/url` formatting, then print to stdout.
 
 ## Errors and Exit Codes
-- Validation errors (`concurrency`/`retries`/date format): **non-zero exit**.
+- Validation errors (`concurrency`/`retries`/`timeout`/date format): **non-zero exit**.
   - Print **only the error message** to stderr; no usage output.
 - If any fetch errors occur: **log all errors** to the log destination and still output any retrieved IDs, exit **non-zero**.
   - Errors include HTTP/IO/JSON failures from fetch operations.

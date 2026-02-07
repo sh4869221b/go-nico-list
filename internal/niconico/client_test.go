@@ -14,6 +14,19 @@ import (
 	"time"
 )
 
+type trackingReadCloser struct {
+	closed bool
+}
+
+func (r *trackingReadCloser) Read(_ []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (r *trackingReadCloser) Close() error {
+	r.closed = true
+	return nil
+}
+
 func TestNiconicoSort(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -69,6 +82,30 @@ func TestNiconicoSort(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCloseAndIsNotFound(t *testing.T) {
+	t.Run("not found closes body", func(t *testing.T) {
+		body := &trackingReadCloser{}
+		res := &http.Response{StatusCode: http.StatusNotFound, Body: body}
+		if !closeAndIsNotFound(res) {
+			t.Fatal("expected true")
+		}
+		if !body.closed {
+			t.Fatal("expected body to be closed")
+		}
+	})
+
+	t.Run("non-404 does not close body", func(t *testing.T) {
+		body := &trackingReadCloser{}
+		res := &http.Response{StatusCode: http.StatusOK, Body: body}
+		if closeAndIsNotFound(res) {
+			t.Fatal("expected false")
+		}
+		if body.closed {
+			t.Fatal("expected body to remain open")
+		}
+	})
 }
 
 func TestRetriesRequest(t *testing.T) {

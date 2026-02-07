@@ -713,6 +713,77 @@ func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdJSONOutputUsersSortedByUserID(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/users/1/") {
+			time.Sleep(40 * time.Millisecond)
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 2
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origJSON := jsonOutput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	jsonOutput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		jsonOutput = origJSON
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload jsonOutputPayload
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+	if len(payload.Users) != 2 {
+		t.Fatalf("unexpected users length: %d", len(payload.Users))
+	}
+	if payload.Users[0].UserID != "1" || payload.Users[1].UserID != "2" {
+		t.Fatalf("expected users ordered by user_id, got %+v", payload.Users)
+	}
+}
+
 func TestRunRootCmdStrictOverridesBestEffort(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

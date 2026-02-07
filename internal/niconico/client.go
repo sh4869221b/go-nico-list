@@ -98,7 +98,7 @@ func GetVideoList(
 			return resStr, err
 		}
 		if res != nil {
-			if res.StatusCode == http.StatusNotFound {
+			if closeAndIsNotFound(res) {
 				break
 			}
 			body, err := io.ReadAll(res.Body)
@@ -137,6 +137,15 @@ func GetVideoList(
 		}
 	}
 	return resStr, nil
+}
+
+// closeAndIsNotFound closes the response body and reports whether the status is 404.
+func closeAndIsNotFound(res *http.Response) bool {
+	if res == nil || res.StatusCode != http.StatusNotFound {
+		return false
+	}
+	_ = res.Body.Close()
+	return true
 }
 
 // evaluateResponse validates HTTP responses and returns any retry delay needed.

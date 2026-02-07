@@ -13,6 +13,8 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -294,6 +296,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	wg.Wait()
 	close(errCh)
 	fetchErrRet := <-fetchErrCh
+	sortUserResultsByUserID(userResults)
 	if inputErr == nil {
 		for err := range inputErrCh {
 			if err != nil {
@@ -485,6 +488,27 @@ func buildJSONOutput(
 }
 
 const nicoWatchURLPrefix = "https://www.nicovideo.jp/watch/"
+
+// sortUserResultsByUserID sorts user results by numeric user_id in ascending order.
+func sortUserResultsByUserID(results []userResult) {
+	sort.Slice(results, func(i, j int) bool {
+		leftID, leftErr := strconv.Atoi(results[i].UserID)
+		rightID, rightErr := strconv.Atoi(results[j].UserID)
+		if leftErr == nil && rightErr == nil && leftID != rightID {
+			return leftID < rightID
+		}
+		if leftErr == nil && rightErr != nil {
+			return true
+		}
+		if leftErr != nil && rightErr == nil {
+			return false
+		}
+		if results[i].UserID != results[j].UserID {
+			return results[i].UserID < results[j].UserID
+		}
+		return results[i].Error < results[j].Error
+	})
+}
 
 // normalizeOutputID strips tab and URL prefixes from an output ID.
 func normalizeOutputID(id string) string {

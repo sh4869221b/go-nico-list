@@ -51,6 +51,7 @@ main.go
   - Regex is **partial match** (valid if the input contains a match).
   - If multiple matches exist, use the **first `nicovideo.jp/user/<id>`**.
   - `user/<id>` without the domain and plain digits are treated as invalid inputs.
+  - Input lines read from `--input-file` or `--stdin` are limited to 1 MiB per line (`bufio.Scanner` limit); longer lines return an input read error.
 - Flags:
   - `--comment` (default `0`): minimum comment count.
   - `--dateafter` (default `10000101`) / `--datebefore` (default `99991231`): `YYYYMMDD`.

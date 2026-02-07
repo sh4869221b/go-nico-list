@@ -176,14 +176,17 @@ main.go
 
 ## Release process (CI)
 - The main CI workflow runs on pull requests to `master` and pushes to `master`.
+- `master` is enforced by a repository ruleset: pull-request-only updates, at least one approval, required conversation resolution, and required `go-ci` status checks.
 - The main CI workflow verifies generated files (`go mod tidy`, `go generate ./...`) and `THIRD_PARTY_NOTICES.md` sync.
 - The main CI workflow runs quality gates (gofmt, go vet, go test, go test -race).
 - Release is triggered by pushing a `vX.Y.Z` tag to GitHub.
+- Release tags (`refs/tags/v*`) are governed by a repository tag ruleset to restrict creation/update/deletion.
 - The release workflow verifies generated files (`go mod tidy`, `go generate ./...`).
 - The release workflow runs quality gates (gofmt, go vet, go test, go test -race).
 - `THIRD_PARTY_NOTICES.md` is kept in sync via `scripts/gen-third-party-notices.sh` and verified in CI.
   - The script uses `go-licenses report` and excludes test-only dependencies by default.
   - `GO_LICENSES_SAVE_PATH` can be set to export license texts with `go-licenses save`.
+- Workflow actions are pinned to commit SHAs to reduce supply-chain risk from mutable action tags.
 - GoReleaser builds and publishes artifacts for supported OSes.
 
 ## Branch strategy

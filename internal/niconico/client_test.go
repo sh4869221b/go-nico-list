@@ -3,6 +3,7 @@ package niconico
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -84,7 +85,19 @@ func TestCloseAndIsNotFound(t *testing.T) {
 func TestRetriesRequest(t *testing.T) {
 	retries := 3
 	count := 0
+	var headerErrs []string
+	var headerErrsMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Frontend-Id"); got != "6" {
+			headerErrsMu.Lock()
+			headerErrs = append(headerErrs, fmt.Sprintf("unexpected X-Frontend-Id header: %q", got))
+			headerErrsMu.Unlock()
+		}
+		if got := r.Header.Get("Accept"); got != "*/*" {
+			headerErrsMu.Lock()
+			headerErrs = append(headerErrs, fmt.Sprintf("unexpected Accept header: %q", got))
+			headerErrsMu.Unlock()
+		}
 		count++
 		if count < 3 {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -103,6 +116,11 @@ func TestRetriesRequest(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("expected 3 attempts, got %d", count)
+	}
+	headerErrsMu.Lock()
+	defer headerErrsMu.Unlock()
+	if len(headerErrs) > 0 {
+		t.Fatalf("header assertions failed: %v", headerErrs)
 	}
 	res.Body.Close()
 }

@@ -108,6 +108,22 @@ GitHub Actions runs on every push and pull request (all branches) and enforces:
 - `go test -count=1 ./...`
 - `go test -race -count=1 ./...`
 
+## Test layers
+- Integration-style command wiring tests: `cmd/root_test.go` (`httptest` + stdout/stderr/exit-code checks).
+- Contract tests: `internal/niconico/nico_data_contract_test.go` (fixture decode from `internal/niconico/testdata/`).
+- Fuzz tests: `internal/niconico/fuzz_test.go`, `cmd/root_fuzz_test.go` (sorting/JSON/url-parse panic safety).
+- E2E tests (opt-in): `internal/niconico/e2e_test.go` with `-tags=e2e`.
+- Benchmarks (opt-in): `internal/niconico/benchmark_test.go`.
+
+Opt-in commands:
+
+```bash
+go test ./internal/niconico -run TestNicoDataContract -count=1
+go test ./... -run=^$ -fuzz=Fuzz -fuzztime=10s
+GO_NICO_LIST_E2E_USER_ID=<user-id> go test -tags=e2e ./internal/niconico -run TestGetVideoListE2E -count=1
+go test ./internal/niconico -run=^$ -bench=BenchmarkNiconicoSort -benchmem -count=1
+```
+
 ## Contributing
 See `CONTRIBUTING.md`.
 

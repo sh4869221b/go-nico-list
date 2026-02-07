@@ -76,6 +76,7 @@ Notes:
 - Each input must contain `nicovideo.jp/user/<id>` (scheme optional). Plain digits or `user/<id>` without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `concurrency` or `retries` to a value less than 1, or `timeout` to a value less than or equal to 0, will cause a runtime error.
+- `--dateafter` must be on or before `--datebefore`; inverted ranges return a validation error.
 - `--max-pages` and `--max-videos` are safety caps; `0` disables them.
 - When a safety cap is hit, fetching stops early and returns best-effort results without error.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.

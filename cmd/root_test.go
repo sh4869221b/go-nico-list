@@ -69,6 +69,55 @@ func TestTimeoutValidation(t *testing.T) {
 	}
 }
 
+func TestDateRangeOrderValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	oldAfter := dateafter
+	oldBefore := datebefore
+	dateafter = "20250102"
+	datebefore = "20250101"
+	t.Cleanup(func() {
+		dateafter = oldAfter
+		datebefore = oldBefore
+	})
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "dateafter must be on or before datebefore" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDateRangeSameDayAllowed(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	oldAfter := dateafter
+	oldBefore := datebefore
+	oldRetries := retries
+	oldConcurrency := concurrency
+	oldTimeout := httpClientTimeout
+	oldBaseURL := baseURL
+	dateafter = "20250101"
+	datebefore = "20250101"
+	retries = 1
+	concurrency = 1
+	httpClientTimeout = time.Second
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	}))
+	baseURL = server.URL
+	t.Cleanup(func() {
+		dateafter = oldAfter
+		datebefore = oldBefore
+		retries = oldRetries
+		concurrency = oldConcurrency
+		httpClientTimeout = oldTimeout
+		baseURL = oldBaseURL
+		server.Close()
+	})
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMinIntervalValidation(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

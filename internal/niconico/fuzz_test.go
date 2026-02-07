@@ -7,16 +7,16 @@ import (
 )
 
 func FuzzNiconicoSortNoPanic(f *testing.F) {
-	f.Add("sm12\nsm3\nsm1", false, false)
-	f.Add(tabStr+urlStr+"sm2\n"+tabStr+urlStr+"sm10\n"+tabStr+urlStr+"sm1", true, true)
+	f.Add("sm12\nsm3\nsm1")
+	f.Add("sm2\nsm10\nsm1")
 
-	f.Fuzz(func(t *testing.T, raw string, tab bool, url bool) {
+	f.Fuzz(func(t *testing.T, raw string) {
 		items := strings.Split(raw, "\n")
 		if len(items) > 256 {
 			items = items[:256]
 		}
 		values := append([]string(nil), items...)
-		NiconicoSort(values, tab, url)
+		NiconicoSort(values)
 	})
 }
 

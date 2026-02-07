@@ -14,6 +14,6 @@ func BenchmarkNiconicoSort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		values := append([]string(nil), base...)
-		NiconicoSort(values, false, false)
+		NiconicoSort(values)
 	}
 }

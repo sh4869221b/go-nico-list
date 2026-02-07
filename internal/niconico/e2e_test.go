@@ -37,8 +37,6 @@ func TestGetVideoListE2E(t *testing.T) {
 		0,
 		time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC),
-		false,
-		false,
 		baseURL,
 		3,
 		10*time.Second,

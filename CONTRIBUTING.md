@@ -84,7 +84,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 ## Branch strategy
 
 - Use `master` as the only long-lived branch.
-- Create short-lived branches (e.g. `feature/*`) and merge via PR into `master`.
+- Create short-lived branches (e.g. `feature/*`) and merge via **squash PR** into `master`.
 - Tags for releases (`vX.Y.Z`) are cut from `master`.
 
 ## Review criteria

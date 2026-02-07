@@ -178,7 +178,7 @@ main.go
 
 ## Branch strategy
 - Use `master` as the only long-lived branch.
-- Create short-lived branches (e.g. `feature/*`) and merge via PR into `master`.
+- Create short-lived branches (e.g. `feature/*`) and merge via **squash PR** into `master`.
 - Releases are tagged from `master` (`vX.Y.Z`).
 
 ## Change Guidelines

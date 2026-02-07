@@ -42,7 +42,9 @@ If your change updates dependencies (changes `go.mod` / `go.sum`), also update:
 bash scripts/gen-third-party-notices.sh
 ```
 
-Requires bash and network access to fetch module license metadata.
+The script uses `go-licenses` (pinned in the script) and excludes test-only dependencies by default.
+Set `GO_LICENSES_SAVE_PATH` when you also want to save license texts to a directory.
+Requires bash and network access.
 
 ## Project structure
 

@@ -174,6 +174,8 @@ main.go
 - The release workflow verifies generated files (`go mod tidy`, `go generate ./...`).
 - The release workflow runs quality gates (gofmt, go vet, go test, go test -race).
 - `THIRD_PARTY_NOTICES.md` is kept in sync via `scripts/gen-third-party-notices.sh` and verified in CI.
+  - The script uses `go-licenses report` and excludes test-only dependencies by default.
+  - `GO_LICENSES_SAVE_PATH` can be set to export license texts with `go-licenses save`.
 - GoReleaser builds and publishes artifacts for supported OSes.
 
 ## Branch strategy

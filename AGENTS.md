@@ -7,7 +7,7 @@ Baseline rules for changes in this repository.
 - After changes, run `go vet ./...` and confirm there are no errors.
 - After changes, run `go test ./...` and confirm there are no errors.
 - Before implementation, create (or confirm) a GitHub Issue that tracks the work.
-- Use short-lived branches (e.g. `feature/*`) and merge via PR; do not commit directly to `master` unless explicitly requested.
+- Use short-lived branches (e.g. `feature/*`) and merge via PR using **squash merge**; do not commit directly to `master` unless explicitly requested.
 - Implement only on the issue branch and merge via PR; never push implementation commits directly to `master`.
 - Use the `branch-helper` skill for tasks that modify the repository unless the user requests otherwise.
 - After addressing review feedback, ask Codex for a re-review in chat.
@@ -24,7 +24,7 @@ Baseline rules for changes in this repository.
 ## Workflow Notes
 - Keep tests deterministic; avoid time-based ordering and use controllable IO (e.g. pipes) when sequencing matters.
 - When mocking the niconico API, ensure pagination terminates (e.g. return empty items or 404 for page > 1).
-- Avoid interactive editors in automated merges (use `git merge -m` or set `GIT_EDITOR` to a non-interactive command).
+- Avoid interactive editors in automated merges (use `gh pr merge --squash` and set `GIT_EDITOR` to a non-interactive command when needed).
 - Before merging, wait for all CI checks to complete (use `gh pr checks --watch`) unless explicitly told to skip.
 - When a versioned milestone is completed, release using the same version number; after the release workflow succeeds, close the milestone.
 

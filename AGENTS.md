@@ -10,6 +10,7 @@ Baseline rules for changes in this repository.
 - Before opening a PR, verify generated-file drift checks stay clean: `go mod tidy`, `go generate ./...`, and `git diff --exit-code`.
 - If dependencies changed (`go.mod` / `go.sum`), run `bash scripts/gen-third-party-notices.sh` and ensure no drift in `THIRD_PARTY_NOTICES.md`.
 - Before implementation, create (or confirm) a GitHub Issue that tracks the work.
+- Keep issue scope atomic: one issue must map to one fix or one feature.
 - Use short-lived branches (e.g. `feature/*`) and merge via PR using **squash merge**; do not commit directly to `master` unless explicitly requested.
 - Implement only on the issue branch and merge via PR; never push implementation commits directly to `master`.
 - Use the `branch-helper` skill for tasks that modify the repository unless the user requests otherwise.

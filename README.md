@@ -103,12 +103,14 @@ This project separates the CLI layer from the domain logic so each part is easie
 
 ## CI
 GitHub Actions runs on pull requests to `master` and pushes to `master`, and enforces:
+- repository ruleset protection on `master` (PR-only updates with required `go-ci` status checks)
 - generated file checks (`go mod tidy`, `go generate ./...`, `git diff --exit-code`)
 - third-party notice sync (`bash scripts/gen-third-party-notices.sh`, `git diff --exit-code -- THIRD_PARTY_NOTICES.md`)
 - `gofmt` (format + diff check)
 - `go vet ./...`
 - `go test -count=1 ./...`
 - `go test -race -count=1 ./...`
+- GitHub Actions references are pinned to commit SHAs in workflow files.
 
 ## Test layers
 - Integration-style command wiring tests: `cmd/root_test.go` (`httptest` + stdout/stderr/exit-code checks).
@@ -140,3 +142,4 @@ Releases are published by tagging a version and pushing it to GitHub.
 
 Notes:
 - When a versioned milestone is complete, release using the same version number.
+- Release tags (`vX.Y.Z`) are governed by a repository tag ruleset.

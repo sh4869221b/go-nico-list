@@ -87,9 +87,11 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 - Avoid adding new runtime dependencies without prior discussion.
 - Releases are performed by the maintainer.
 - CI runs on pull requests to `master` and pushes to `master`.
+- `master` is protected by a repository ruleset: changes must go through PRs, require conversation resolution, and pass the required `go-ci` status check.
 - CI checks generated-file drift (`go mod tidy`, `go generate ./...`, `git diff --exit-code`).
 - CI checks `THIRD_PARTY_NOTICES.md` drift (`bash scripts/gen-third-party-notices.sh` + diff check).
 - CI runs gofmt, go vet, go test, and go test -race.
+- Workflow actions are pinned by commit SHA. When upgrading action versions, update the pinned SHAs intentionally.
 - Include an auto-close keyword for related issues (e.g. `Closes #123`) in the PR body.
 - After addressing review feedback, request a Codex re-review in chat.
 - When using `gh pr create`, always use `--body-file` with `.github/PULL_REQUEST_TEMPLATE.md` to avoid literal `\n` in the description.
@@ -99,6 +101,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 1. Ensure master is green and up to date.
 2. If a versioned milestone is complete, release using the same version number.
 3. Create and push a version tag: `vX.Y.Z`.
+   - Release tags are protected by a repository ruleset for `refs/tags/v*`.
 4. GitHub Actions runs the release workflow, verifying generated files (`go mod tidy`, `go generate ./...`) and running gofmt/go vet/go test/go test -race.
 5. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.
 6. GoReleaser publishes the GitHub Release and uploads artifacts.

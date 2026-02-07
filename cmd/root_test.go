@@ -85,6 +85,38 @@ func TestDateRangeOrderValidation(t *testing.T) {
 	}
 }
 
+func TestDateAfterFormatValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	oldAfter := dateafter
+	oldBefore := datebefore
+	dateafter = "2025-01-01"
+	datebefore = "20250101"
+	t.Cleanup(func() {
+		dateafter = oldAfter
+		datebefore = oldBefore
+	})
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "dateafter format error" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDateBeforeFormatValidation(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	oldAfter := dateafter
+	oldBefore := datebefore
+	dateafter = "20250101"
+	datebefore = "2025-01-01"
+	t.Cleanup(func() {
+		dateafter = oldAfter
+		datebefore = oldBefore
+	})
+
+	if err := runRootCmd(nil, []string{"nicovideo.jp/user/1"}); err == nil || err.Error() != "datebefore format error" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDateRangeSameDayAllowed(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	oldAfter := dateafter

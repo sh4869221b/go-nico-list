@@ -30,6 +30,7 @@ Baseline rules for changes in this repository.
 - When mocking the niconico API, ensure pagination terminates (e.g. return empty items or 404 for page > 1).
 - Avoid interactive editors in automated merges (use `gh pr merge --squash` and set `GIT_EDITOR` to a non-interactive command when needed).
 - Before merging, wait for all CI checks to complete (use `gh pr checks --watch`) unless explicitly told to skip.
+- When handling multiple pull requests, create all PRs first, then run CI confirmation and merge operations together at the end.
 - When a versioned milestone is completed, release using the same version number; after the release workflow succeeds, close the milestone.
 - `master` is protected by repository rulesets: PR-only updates, required conversation resolution, required `go-ci`, and squash-only merge method.
 - Release tags (`refs/tags/v*`) are protected by repository rulesets that control tag create/update/delete operations.

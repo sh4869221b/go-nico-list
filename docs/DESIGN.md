@@ -176,7 +176,7 @@ main.go
 
 ## Release process (CI)
 - The main CI workflow runs on pull requests to `master` and pushes to `master`.
-- `master` is enforced by a repository ruleset: pull-request-only updates, at least one approval, required conversation resolution, and required `go-ci` status checks.
+- `master` is enforced by a repository ruleset: pull-request-only updates, required conversation resolution, and required `go-ci` status checks.
 - The main CI workflow verifies generated files (`go mod tidy`, `go generate ./...`) and `THIRD_PARTY_NOTICES.md` sync.
 - The main CI workflow runs quality gates (gofmt, go vet, go test, go test -race).
 - Release is triggered by pushing a `vX.Y.Z` tag to GitHub.

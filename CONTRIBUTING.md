@@ -87,7 +87,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 - Avoid adding new runtime dependencies without prior discussion.
 - Releases are performed by the maintainer.
 - CI runs on pull requests to `master` and pushes to `master`.
-- `master` is protected by a repository ruleset: changes must go through PRs, require at least one approval, and pass the required `go-ci` status check.
+- `master` is protected by a repository ruleset: changes must go through PRs, require conversation resolution, and pass the required `go-ci` status check.
 - CI checks generated-file drift (`go mod tidy`, `go generate ./...`, `git diff --exit-code`).
 - CI checks `THIRD_PARTY_NOTICES.md` drift (`bash scripts/gen-third-party-notices.sh` + diff check).
 - CI runs gofmt, go vet, go test, and go test -race.

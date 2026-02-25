@@ -1,18 +1,14 @@
 package cmd
 
-import (
-	"regexp"
-	"testing"
-)
+import "testing"
 
-func FuzzUserIDFromMatchNoPanic(f *testing.F) {
-	re := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
+func FuzzParseInputTargetNoPanic(f *testing.F) {
 	f.Add("https://www.nicovideo.jp/user/12345/video")
 	f.Add("nicovideo.jp/user/1")
+	f.Add("https://www.nicovideo.jp/mylist/847130")
 	f.Add("invalid")
 
 	f.Fuzz(func(t *testing.T, input string) {
-		match := re.FindStringSubmatch(input)
-		_ = userIDFromMatch(match, re)
+		_, _ = parseInputTarget(input)
 	})
 }

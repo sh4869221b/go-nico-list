@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,20 +93,6 @@ func outWriterFor(cmd *cobra.Command) io.Writer {
 	return cmd.OutOrStdout()
 }
 
-// userIDFromMatch extracts the userID named submatch from a regex match.
-func userIDFromMatch(match []string, re *regexp.Regexp) string {
-	if len(match) == 0 {
-		return ""
-	}
-	result := make(map[string]string)
-	for i, name := range re.SubexpNames() {
-		if i != 0 && name != "" {
-			result[name] = match[i]
-		}
-	}
-	return result["userID"]
-}
-
 // formatOutputIDs applies optional tab/url prefixes for line output.
 func formatOutputIDs(items []string, withTab bool, withURL bool) []string {
 	if !withTab && !withURL {
@@ -167,7 +152,6 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	userResults := make([]userResult, 0)
 	errorsList := make([]string, 0)
 
-	r := regexp.MustCompile(`((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`)
 	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
 	var progressMu sync.Mutex
 	addProgress := func() {
@@ -220,8 +204,8 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			default:
 			}
 		}
-		match := r.FindStringSubmatch(input)
-		if len(match) == 0 {
+		target, ok := parseInputTarget(input)
+		if !ok {
 			atomic.AddInt64(&invalidInputs, 1)
 			mu.Lock()
 			invalidInputsList = append(invalidInputsList, input)
@@ -237,18 +221,26 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		}
 		sem <- struct{}{}
 		wg.Add(1)
-		userID := userIDFromMatch(match, r)
-		go func(userID string) {
+		go func(target inputTarget) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer addProgress()
-			newList, err := niconico.GetVideoList(ctx, userID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
+			var newList []string
+			var err error
+			switch target.Type {
+			case targetTypeUser:
+				newList, err = niconico.GetVideoList(ctx, target.ID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
+			case targetTypeMylist:
+				newList, err = niconico.GetMylistVideoList(ctx, target.ID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
+			default:
+				err = fmt.Errorf("unsupported input target: %s", target.Type)
+			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
 				mu.Lock()
 				errorsList = append(errorsList, err.Error())
 				userResults = append(userResults, userResult{
-					UserID: userID,
+					UserID: target.ID,
 					Items:  newList,
 					Error:  err.Error(),
 				})
@@ -260,13 +252,13 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			atomic.AddInt64(&fetchOKCount, 1)
 			mu.Lock()
 			userResults = append(userResults, userResult{
-				UserID: userID,
+				UserID: target.ID,
 				Items:  newList,
 				Error:  "",
 			})
 			idList = append(idList, newList...)
 			mu.Unlock()
-		}(userID)
+		}(target)
 	}
 	wg.Wait()
 	close(errCh)

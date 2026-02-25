@@ -1384,3 +1384,63 @@ func TestConcurrencyValidation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRunRootCmdMylistInput(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/mylists/847130") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[]}}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[{"video":{"id":"sm42","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/mylist/847130"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := out.String(); got != "sm42\n" {
+		t.Errorf("unexpected stdout output: %q", got)
+	}
+}

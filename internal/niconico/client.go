@@ -25,6 +25,12 @@ var (
 	sleepFn = sleepWithContext
 )
 
+type videoItem struct {
+	ID           string
+	CommentCount int
+	RegisteredAt time.Time
+}
+
 // NiconicoSort sorts video IDs by their numeric part in ascending order.
 func NiconicoSort(slice []string) {
 	const prefixLen = 2
@@ -61,6 +67,88 @@ func GetVideoList(
 	maxVideos int,
 	logger *slog.Logger,
 ) ([]string, error) {
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger,
+		func(page int) string {
+			return fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, page)
+		},
+		func(body []byte) ([]videoItem, int, error) {
+			var nicoData NicoData
+			if err := json.Unmarshal(body, &nicoData); err != nil {
+				return nil, 0, err
+			}
+			items := make([]videoItem, 0, len(nicoData.Data.Items))
+			for _, s := range nicoData.Data.Items {
+				items = append(items, videoItem{ID: s.Essential.ID, CommentCount: s.Essential.Count.Comment, RegisteredAt: s.Essential.RegisteredAt})
+			}
+			return items, nicoData.Meta.Status, nil
+		},
+	)
+}
+
+// GetMylistVideoList retrieves video IDs for a mylist.
+func GetMylistVideoList(
+	ctx context.Context,
+	mylistID string,
+	commentCount int,
+	afterDate time.Time,
+	beforeDate time.Time,
+	baseURL string,
+	retries int,
+	httpClientTimeout time.Duration,
+	limiter *RateLimiter,
+	maxPages int,
+	maxVideos int,
+	logger *slog.Logger,
+) ([]string, error) {
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger,
+		func(page int) string {
+			return fmt.Sprintf("%s/mylists/%s?pageSize=100&page=%d", baseURL, mylistID, page)
+		},
+		func(body []byte) ([]videoItem, int, error) {
+			var payload struct {
+				Meta struct {
+					Status int `json:"status"`
+				} `json:"meta"`
+				Data struct {
+					Mylist struct {
+						Items []struct {
+							Video struct {
+								ID           string    `json:"id"`
+								RegisteredAt time.Time `json:"registeredAt"`
+								Count        struct {
+									Comment int `json:"comment"`
+								} `json:"count"`
+							} `json:"video"`
+						} `json:"items"`
+					} `json:"mylist"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				return nil, 0, err
+			}
+			items := make([]videoItem, 0, len(payload.Data.Mylist.Items))
+			for _, it := range payload.Data.Mylist.Items {
+				items = append(items, videoItem{ID: it.Video.ID, CommentCount: it.Video.Count.Comment, RegisteredAt: it.Video.RegisteredAt})
+			}
+			return items, payload.Meta.Status, nil
+		},
+	)
+}
+
+func collectVideoList(
+	ctx context.Context,
+	commentCount int,
+	afterDate time.Time,
+	beforeDate time.Time,
+	retries int,
+	httpClientTimeout time.Duration,
+	limiter *RateLimiter,
+	maxPages int,
+	maxVideos int,
+	logger *slog.Logger,
+	requestURL func(page int) string,
+	parseItems func(body []byte) ([]videoItem, int, error),
+) ([]string, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -71,50 +159,49 @@ func GetVideoList(
 		if maxPages > 0 && page > maxPages {
 			break
 		}
-		requestURL := fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, page)
-		res, err := retriesRequest(ctx, requestURL, httpClientTimeout, retries, limiter)
+		res, err := retriesRequest(ctx, requestURL(page), httpClientTimeout, retries, limiter)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, nil
 			}
 			return resStr, err
 		}
-		if res != nil {
-			if closeAndIsNotFound(res) {
-				break
+		if res == nil {
+			continue
+		}
+		if closeAndIsNotFound(res) {
+			break
+		}
+		body, err := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if err != nil {
+			logger.Error("failed to read response body", "error", err)
+			return resStr, err
+		}
+		items, status, err := parseItems(body)
+		if err != nil {
+			logger.Error("failed to unmarshal response body", "error", err)
+			return resStr, err
+		}
+		if status != http.StatusOK {
+			logger.Warn("unexpected meta status", "status", status)
+		}
+		if len(items) == 0 {
+			break
+		}
+		for _, item := range items {
+			if item.CommentCount <= commentCount {
+				continue
 			}
-			body, err := io.ReadAll(res.Body)
-			_ = res.Body.Close()
-			if err != nil {
-				logger.Error("failed to read response body", "error", err)
-				return resStr, err
+			if item.RegisteredAt.Before(afterDate) {
+				continue
 			}
-
-			var nicoData NicoData
-			if err := json.Unmarshal(body, &nicoData); err != nil {
-				logger.Error("failed to unmarshal response body", "error", err)
-				return resStr, err
+			if !item.RegisteredAt.Before(beforeDate.AddDate(0, 0, 1)) {
+				continue
 			}
-			if nicoData.Meta.Status != http.StatusOK {
-				logger.Warn("unexpected meta status", "status", nicoData.Meta.Status)
-			}
-			if len(nicoData.Data.Items) == 0 {
-				break
-			}
-			for _, s := range nicoData.Data.Items {
-				if s.Essential.Count.Comment <= commentCount {
-					continue
-				}
-				if s.Essential.RegisteredAt.Before(afterDate) {
-					continue
-				}
-				if !s.Essential.RegisteredAt.Before(beforeDate.AddDate(0, 0, 1)) {
-					continue
-				}
-				resStr = append(resStr, s.Essential.ID)
-				if maxVideos > 0 && len(resStr) >= maxVideos {
-					return resStr, nil
-				}
+			resStr = append(resStr, item.ID)
+			if maxVideos > 0 && len(resStr) >= maxVideos {
+				return resStr, nil
 			}
 		}
 	}

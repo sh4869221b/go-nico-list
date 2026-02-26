@@ -1,0 +1,46 @@
+name: Latest Deps CI
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  latest-deps-go-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download deps
+        run: go mod download
+
+      - name: Update dependencies to latest (CI only)
+        run: go get -u -t ./...
+
+      - name: Tidy modules after update
+        run: go mod tidy
+
+      - name: Check gofmt
+        run: |
+          gofmt -w $(git ls-files '*.go')
+          git diff --exit-code -- '*.go'
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Go build
+        run: go build ./...
+
+      - name: Go test
+        run: go test -count=1 ./...
+
+      - name: Go test (race)
+        run: go test -race -count=1 ./...

@@ -4,13 +4,13 @@ go 1.26.0
 
 require (
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/term v0.39.0
+	golang.org/x/term v0.41.0
 )
 
 require (
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 )
 
 require (

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -695,5 +696,43 @@ func TestGetVideoListMaxVideosStopsEarly(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 attempt, got %d", count)
+	}
+}
+
+func TestGetMylistVideoList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/mylists/847130") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[]}}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[{"video":{"id":"sm9","registeredAt":"2025-01-02T03:04:05Z","count":{"comment":12}}}]}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	ids, err := GetMylistVideoList(
+		context.Background(),
+		"847130",
+		0,
+		time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC),
+		server.URL,
+		1,
+		time.Second,
+		nil,
+		0,
+		0,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(ids, []string{"sm9"}) {
+		t.Fatalf("unexpected ids: %v", ids)
 	}
 }

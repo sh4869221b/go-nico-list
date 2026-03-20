@@ -3,7 +3,7 @@
 This document summarizes the behavior required for a coding agent to reproduce the same program.
 
 ## Purpose and Scope
-- Purpose: Provide a CLI that fetches video IDs from a niconico userID, filters them, and outputs the list.
+- Purpose: Provide a CLI that fetches video IDs from niconico user pages and mylists, filters them, and outputs the list.
 - In scope: fetching, filtering, sorting, output, error handling, tests.
 - Out of scope: UI, persistence, auth, config files, i18n.
 
@@ -45,12 +45,12 @@ main.go
 ## Input and Output
 
 ### Input
-- Arguments: `nicovideo.jp/user/<id>` URL (scheme optional).
-  - Regex: `((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`
-  - `userID` is **1–9 digits**.
+- Arguments: `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` URL (scheme optional).
+  - User regex: `((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`
+  - Mylist regex: `((http(s)?://)?(www\.)?)nicovideo\.jp/mylist/(?P<mylistID>\d{1,12})`
   - Regex is **partial match** (valid if the input contains a match).
-  - If multiple matches exist, use the **first `nicovideo.jp/user/<id>`**.
-  - `user/<id>` without the domain and plain digits are treated as invalid inputs.
+  - If multiple matches exist, use the first matching target pattern in the input string.
+  - Domain-less paths and plain digits are treated as invalid inputs.
   - Input lines read from `--input-file` or `--stdin` are limited to 1 MiB per line (`bufio.Scanner` limit); longer lines return an input read error.
 - Flags:
   - `--comment` (default `0`): minimum comment count.
@@ -104,8 +104,8 @@ main.go
   - `--no-progress` always disables progress output and takes precedence when both flags are set.
 
 ## Flow
-1. `cmd/root_*.go` extracts userIDs using the regex.
-2. For each userID, a goroutine calls `internal/niconico.GetVideoList`.
+1. `cmd/root_*.go` extracts user or mylist targets using regex matching.
+2. For each target, a goroutine calls `internal/niconico.GetVideoList` (user) or `internal/niconico.GetMylistVideoList` (mylist).
 3. Aggregate and sort raw IDs, apply optional `tab/url` formatting, then print to stdout.
 
 ## Errors and Exit Codes
@@ -121,9 +121,10 @@ main.go
 
 ## Core Logic
 
-### Fetch (`internal/niconico.GetVideoList`)
-- Endpoint:
-  - `https://nvapi.nicovideo.jp/v3/users/<userID>/videos?pageSize=100&page=<n>`
+### Fetch (`internal/niconico.GetVideoList`, `internal/niconico.GetMylistVideoList`)
+- Endpoints:
+  - User: `https://nvapi.nicovideo.jp/v3/users/<userID>/videos?pageSize=100&page=<n>`
+  - Mylist: `https://nvapi.nicovideo.jp/v3/mylists/<mylistID>?pageSize=100&page=<n>`
 - Request headers:
   - `X-Frontend-Id: 6`
   - `Accept: */*`

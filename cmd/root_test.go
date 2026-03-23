@@ -813,26 +813,29 @@ func TestRunRootCmdJSONOutputUsersSortedByUserID(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
 	datebefore = "99991231"
-	user2Served := make(chan struct{})
-	var user2ServedOnce sync.Once
+	user2Completed := make(chan struct{})
+	var user2CompletedOnce sync.Once
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		isUser2 := strings.Contains(r.URL.Path, "/users/2/")
 		if r.URL.Query().Get("page") != "1" {
+			if isUser2 {
+				user2CompletedOnce.Do(func() { close(user2Completed) })
+			}
 			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
 			return
 		}
 		if strings.Contains(r.URL.Path, "/users/1/") {
 			select {
-			case <-user2Served:
+			case <-user2Completed:
 			case <-r.Context().Done():
-				http.Error(w, "request canceled before user 2 response", http.StatusGatewayTimeout)
+				http.Error(w, "request canceled before user 2 completed", http.StatusGatewayTimeout)
 				return
 			}
 			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
 			return
 		}
-		user2ServedOnce.Do(func() { close(user2Served) })
 		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
 	}))
 	t.Cleanup(server.Close)

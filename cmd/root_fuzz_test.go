@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 )
@@ -66,6 +67,9 @@ func FuzzSubmatchByNameNoPanic(f *testing.F) {
 		}
 
 		match := make([]string, int(matchLen%16))
+		for i := range match {
+			match[i] = fmt.Sprintf("capture-%d", i)
+		}
 		got := submatchByName(match, re, name)
 		idx := re.SubexpIndex(name)
 		if idx < 0 || idx >= len(match) {

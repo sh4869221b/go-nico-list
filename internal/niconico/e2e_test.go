@@ -41,8 +41,8 @@ func TestGetVideoListE2E(t *testing.T) {
 		3,
 		10*time.Second,
 		nil,
-		1,
-		1,
+		2,
+		10,
 		logger,
 	)
 	if err != nil {
@@ -51,8 +51,13 @@ func TestGetVideoListE2E(t *testing.T) {
 	if len(ids) == 0 {
 		t.Fatalf("expected at least one id for user %s", userID)
 	}
+	if len(ids) > 10 {
+		t.Fatalf("expected at most 10 ids due to maxVideos cap, got %d", len(ids))
+	}
+
+	videoIDPattern := regexp.MustCompile(`^(sm|so|nm)\d+$`)
 	for _, id := range ids {
-		if !strings.HasPrefix(id, "sm") {
+		if !videoIDPattern.MatchString(id) {
 			t.Fatalf("unexpected video id format: %q", id)
 		}
 	}

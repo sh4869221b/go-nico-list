@@ -813,6 +813,8 @@ func TestRunRootCmdJSONOutputUsersSortedByUserID(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
 	datebefore = "99991231"
+	user2Served := make(chan struct{})
+	var user2ServedOnce sync.Once
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -821,10 +823,16 @@ func TestRunRootCmdJSONOutputUsersSortedByUserID(t *testing.T) {
 			return
 		}
 		if strings.Contains(r.URL.Path, "/users/1/") {
-			time.Sleep(40 * time.Millisecond)
+			select {
+			case <-user2Served:
+			case <-r.Context().Done():
+				http.Error(w, "request canceled before user 2 response", http.StatusGatewayTimeout)
+				return
+			}
 			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
 			return
 		}
+		user2ServedOnce.Do(func() { close(user2Served) })
 		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
 	}))
 	t.Cleanup(server.Close)

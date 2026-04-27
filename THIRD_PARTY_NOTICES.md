@@ -17,5 +17,5 @@ Note: this is provided for convenience and is not legal advice.
 | github.com/schollz/progressbar/v3 | v3.19.0 | MIT | https://github.com/schollz/progressbar/blob/v3.19.0/LICENSE |
 | github.com/spf13/cobra | v1.10.2 | Apache-2.0 | https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt |
 | github.com/spf13/pflag | v1.0.10 | BSD-3-Clause | https://github.com/spf13/pflag/blob/v1.0.10/LICENSE |
-| golang.org/x/sys/unix | v0.42.0 | BSD-3-Clause | https://cs.opensource.google/go/x/sys/+/v0.42.0:LICENSE |
-| golang.org/x/term | v0.41.0 | BSD-3-Clause | https://cs.opensource.google/go/x/term/+/v0.41.0:LICENSE |
+| golang.org/x/sys/unix | v0.43.0 | BSD-3-Clause | https://cs.opensource.google/go/x/sys/+/v0.43.0:LICENSE |
+| golang.org/x/term | v0.42.0 | BSD-3-Clause | https://cs.opensource.google/go/x/term/+/v0.42.0:LICENSE |

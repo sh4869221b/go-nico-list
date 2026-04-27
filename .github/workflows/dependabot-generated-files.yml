@@ -1,6 +1,7 @@
 name: Dependabot generated files
 
 permissions:
+  actions: write
   contents: write
 
 on:
@@ -37,6 +38,7 @@ jobs:
 
       - name: Commit generated file updates
         env:
+          GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           if git diff --quiet --exit-code; then
@@ -49,3 +51,4 @@ jobs:
           git add go.mod go.sum THIRD_PARTY_NOTICES.md
           git commit -m "chore(deps): refresh generated files"
           git push origin "HEAD:${HEAD_REF}"
+          gh workflow run ci.yml --ref "${HEAD_REF}"

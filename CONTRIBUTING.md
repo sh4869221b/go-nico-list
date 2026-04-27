@@ -64,6 +64,9 @@ The script uses `go-licenses` (pinned in the script) and excludes test-only depe
 Set `GO_LICENSES_SAVE_PATH` when you also want to save license texts to a directory.
 Requires bash and network access.
 
+Same-repository Dependabot module update PRs automatically refresh generated files with the
+`Dependabot generated files` workflow before the required CI drift checks run.
+
 ## Project structure
 
 - `main.go`: bootstrap (version, cancelable context)

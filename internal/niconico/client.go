@@ -33,23 +33,36 @@ type videoItem struct {
 
 // NiconicoSort sorts video IDs by their numeric part in ascending order.
 func NiconicoSort(slice []string) {
-	const prefixLen = 2
-	str := "%08s"
-
 	sort.Slice(slice, func(i, j int) bool {
-		var s1, s2 string
-		if len(slice[i]) >= prefixLen {
-			s1 = slice[i][prefixLen:]
-		} else {
-			s1 = slice[i]
+		left, leftOK := videoIDNumber(slice[i])
+		right, rightOK := videoIDNumber(slice[j])
+		if leftOK && rightOK {
+			return left < right
 		}
-		if len(slice[j]) >= prefixLen {
-			s2 = slice[j][prefixLen:]
-		} else {
-			s2 = slice[j]
-		}
-		return fmt.Sprintf(str, s1) < fmt.Sprintf(str, s2)
+		return legacyVideoIDSortKey(slice[i]) < legacyVideoIDSortKey(slice[j])
 	})
+}
+
+// videoIDNumber parses the numeric portion of a video ID.
+func videoIDNumber(id string) (int64, bool) {
+	const prefixLen = 2
+	if len(id) >= prefixLen {
+		id = id[prefixLen:]
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// legacyVideoIDSortKey returns the historical fallback key for malformed IDs.
+func legacyVideoIDSortKey(id string) string {
+	const prefixLen = 2
+	if len(id) >= prefixLen {
+		id = id[prefixLen:]
+	}
+	return fmt.Sprintf("%08s", id)
 }
 
 // GetVideoList retrieves video IDs for a user.

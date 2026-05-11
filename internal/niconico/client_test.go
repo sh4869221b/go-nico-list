@@ -50,6 +50,11 @@ func TestNiconicoSort(t *testing.T) {
 			input:    []string{"sm100000000", "sm99999999", "sm3"},
 			expected: []string{"sm3", "sm99999999", "sm100000000"},
 		},
+		{
+			name:     "malformedWithLongNumericIDs",
+			input:    []string{"sm100000000", "xx200000000a", "sm99999999"},
+			expected: []string{"sm99999999", "sm100000000", "xx200000000a"},
+		},
 	}
 
 	for _, tt := range tests {

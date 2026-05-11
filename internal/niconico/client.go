@@ -31,38 +31,43 @@ type videoItem struct {
 	RegisteredAt time.Time
 }
 
+// videoIDSortKey stores a total-order key for a video ID.
+type videoIDSortKey struct {
+	length int
+	text   string
+}
+
 // NiconicoSort sorts video IDs by their numeric part in ascending order.
 func NiconicoSort(slice []string) {
 	sort.Slice(slice, func(i, j int) bool {
-		left, leftOK := videoIDNumber(slice[i])
-		right, rightOK := videoIDNumber(slice[j])
-		if leftOK && rightOK {
-			return left < right
+		left := videoIDSortKeyFor(slice[i])
+		right := videoIDSortKeyFor(slice[j])
+		if left.length != right.length {
+			return left.length < right.length
 		}
-		return legacyVideoIDSortKey(slice[i]) < legacyVideoIDSortKey(slice[j])
+		if left.text != right.text {
+			return left.text < right.text
+		}
+		return slice[i] < slice[j]
 	})
 }
 
-// videoIDNumber parses the numeric portion of a video ID.
-func videoIDNumber(id string) (int64, bool) {
-	const prefixLen = 2
-	if len(id) >= prefixLen {
-		id = id[prefixLen:]
+// videoIDSortKeyFor returns a total-order key for a video ID.
+func videoIDSortKeyFor(id string) videoIDSortKey {
+	text := videoIDSortText(id)
+	if n, err := strconv.ParseUint(text, 10, 64); err == nil {
+		text = strconv.FormatUint(n, 10)
 	}
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return n, true
+	return videoIDSortKey{length: len(text), text: text}
 }
 
-// legacyVideoIDSortKey returns the historical fallback key for malformed IDs.
-func legacyVideoIDSortKey(id string) string {
+// videoIDSortText returns the comparable text portion of a video ID.
+func videoIDSortText(id string) string {
 	const prefixLen = 2
 	if len(id) >= prefixLen {
-		id = id[prefixLen:]
+		return id[prefixLen:]
 	}
-	return fmt.Sprintf("%08s", id)
+	return id
 }
 
 // GetVideoList retrieves video IDs for a user.

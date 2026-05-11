@@ -31,25 +31,43 @@ type videoItem struct {
 	RegisteredAt time.Time
 }
 
+// videoIDSortKey stores a total-order key for a video ID.
+type videoIDSortKey struct {
+	length int
+	text   string
+}
+
 // NiconicoSort sorts video IDs by their numeric part in ascending order.
 func NiconicoSort(slice []string) {
-	const prefixLen = 2
-	str := "%08s"
-
 	sort.Slice(slice, func(i, j int) bool {
-		var s1, s2 string
-		if len(slice[i]) >= prefixLen {
-			s1 = slice[i][prefixLen:]
-		} else {
-			s1 = slice[i]
+		left := videoIDSortKeyFor(slice[i])
+		right := videoIDSortKeyFor(slice[j])
+		if left.length != right.length {
+			return left.length < right.length
 		}
-		if len(slice[j]) >= prefixLen {
-			s2 = slice[j][prefixLen:]
-		} else {
-			s2 = slice[j]
+		if left.text != right.text {
+			return left.text < right.text
 		}
-		return fmt.Sprintf(str, s1) < fmt.Sprintf(str, s2)
+		return slice[i] < slice[j]
 	})
+}
+
+// videoIDSortKeyFor returns a total-order key for a video ID.
+func videoIDSortKeyFor(id string) videoIDSortKey {
+	text := videoIDSortText(id)
+	if n, err := strconv.ParseUint(text, 10, 64); err == nil {
+		text = strconv.FormatUint(n, 10)
+	}
+	return videoIDSortKey{length: len(text), text: text}
+}
+
+// videoIDSortText returns the comparable text portion of a video ID.
+func videoIDSortText(id string) string {
+	const prefixLen = 2
+	if len(id) >= prefixLen {
+		return id[prefixLen:]
+	}
+	return id
 }
 
 // GetVideoList retrieves video IDs for a user.

@@ -110,6 +110,7 @@ GitHub Actions runs on pull requests to `master` and pushes to `master`, and enf
 - third-party notice sync (`bash scripts/gen-third-party-notices.sh`, `git diff --exit-code -- THIRD_PARTY_NOTICES.md`)
 - `gofmt` (format + diff check)
 - `go vet ./...`
+- `golangci-lint run ./...`
 - `go test -count=1 ./...`
 - `go test -race -count=1 ./...`
 - GitHub Actions references are pinned to commit SHAs in workflow files.
@@ -138,7 +139,7 @@ Releases are published by tagging a version and pushing it to GitHub.
 
 1. Create a tag like `vX.Y.Z`.
 2. Push the tag to GitHub.
-3. GitHub Actions runs the release workflow (verifies `go mod tidy`/`go generate ./...`, runs gofmt/go vet/go test/go test -race, and checks third-party notices).
+3. GitHub Actions runs the release workflow (verifies `go mod tidy`/`go generate ./...`, runs gofmt/go vet/golangci-lint/go test/go test -race, and checks third-party notices).
 4. GoReleaser publishes the GitHub Release and uploads artifacts.
 5. Close the milestone after the release workflow succeeds.
 

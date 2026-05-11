@@ -25,6 +25,7 @@ Run these before opening a PR:
 ```bash
 gofmt -w $(git ls-files '*.go')
 go vet ./...
+golangci-lint run ./...
 go test ./...
 ```
 
@@ -93,7 +94,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 - `master` is protected by a repository ruleset: changes must go through PRs, require conversation resolution, and pass the required `go-ci` status check.
 - CI checks generated-file drift (`go mod tidy`, `go generate ./...`, `git diff --exit-code`).
 - CI checks `THIRD_PARTY_NOTICES.md` drift (`bash scripts/gen-third-party-notices.sh` + diff check).
-- CI runs gofmt, go vet, go test, and go test -race.
+- CI runs gofmt, go vet, golangci-lint, go test, and go test -race.
 - Workflow actions are pinned by commit SHA. When upgrading action versions, update the pinned SHAs intentionally.
 - Include an auto-close keyword for related issues (e.g. `Closes #123`) in the PR body.
 - After addressing review feedback, request a Codex re-review in chat.
@@ -105,7 +106,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 2. If a versioned milestone is complete, release using the same version number.
 3. Create and push a version tag: `vX.Y.Z`.
    - Release tags are protected by a repository ruleset for `refs/tags/v*`.
-4. GitHub Actions runs the release workflow, verifying generated files (`go mod tidy`, `go generate ./...`) and running gofmt/go vet/go test/go test -race.
+4. GitHub Actions runs the release workflow, verifying generated files (`go mod tidy`, `go generate ./...`) and running gofmt/go vet/golangci-lint/go test/go test -race.
 5. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.
 6. GoReleaser publishes the GitHub Release and uploads artifacts.
 7. After the release workflow succeeds, close the milestone.
@@ -118,7 +119,7 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 ## Review criteria
 
-- CI must be green (generated files, third-party notices, gofmt, go vet, go test, go test -race).
+- CI must be green (generated files, third-party notices, gofmt, go vet, golangci-lint, go test, go test -race).
 - If behavior changes, add or update tests; otherwise explain why in the PR.
 - If user-facing behavior changes, update README.md and docs/DESIGN.md.
 - If dependencies change, run `go mod tidy` and update `THIRD_PARTY_NOTICES.md`.

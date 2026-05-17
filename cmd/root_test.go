@@ -994,6 +994,8 @@ func TestSortTargetResultsSortsByTypeAndNumericID(t *testing.T) {
 		{Type: targetTypeMylist, ID: "2"},
 		{Type: targetTypeUser, ID: "1"},
 		{Type: targetTypeMylist, ID: "11"},
+		{Type: targetTypeMylist, ID: "10000000000"},
+		{Type: targetTypeMylist, ID: "9999999999"},
 	}
 
 	sortTargetResults(results)
@@ -1002,7 +1004,7 @@ func TestSortTargetResultsSortsByTypeAndNumericID(t *testing.T) {
 	for _, result := range results {
 		got = append(got, result.Type+":"+result.ID)
 	}
-	if strings.Join(got, ",") != "mylist:2,mylist:11,user:1,user:10" {
+	if strings.Join(got, ",") != "mylist:2,mylist:11,mylist:9999999999,mylist:10000000000,user:1,user:10" {
 		t.Fatalf("unexpected target order: %v", got)
 	}
 }

@@ -77,8 +77,8 @@ func sortTargetResults(results []targetResult) {
 		if results[i].Type != results[j].Type {
 			return results[i].Type < results[j].Type
 		}
-		leftID, leftErr := strconv.Atoi(results[i].ID)
-		rightID, rightErr := strconv.Atoi(results[j].ID)
+		leftID, leftErr := strconv.ParseUint(results[i].ID, 10, 64)
+		rightID, rightErr := strconv.ParseUint(results[j].ID, 10, 64)
 		if leftErr == nil && rightErr == nil && leftID != rightID {
 			return leftID < rightID
 		}

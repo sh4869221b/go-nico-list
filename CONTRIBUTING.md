@@ -38,7 +38,10 @@ Use these opt-in commands when working on higher-level test coverage:
 go test ./internal/niconico -run TestNicoDataContract -count=1
 
 # Fuzz smoke run (short)
-go test ./... -run=^$ -fuzz=Fuzz -fuzztime=10s
+go test ./cmd -run=^$ -fuzz=FuzzParseInputTargetNoPanic -fuzztime=10s
+go test ./cmd -run=^$ -fuzz=FuzzSubmatchByNameNoPanic -fuzztime=10s
+go test ./internal/niconico -run=^$ -fuzz=FuzzNiconicoSortNoPanic -fuzztime=10s
+go test ./internal/niconico -run=^$ -fuzz=FuzzNicoDataUnmarshalNoPanic -fuzztime=10s
 
 # E2E against real API (requires env var)
 GO_NICO_LIST_E2E_USER_ID=<user-id> go test -tags=e2e ./internal/niconico -run TestGetVideoListE2E -count=1

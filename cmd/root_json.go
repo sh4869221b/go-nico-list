@@ -15,21 +15,22 @@ type jsonInputs struct {
 	Invalid int64 `json:"invalid"`
 }
 
-// userResult captures per-user results for JSON output.
-type userResult struct {
-	UserID string   `json:"user_id"`
-	Items  []string `json:"items"`
-	Error  string   `json:"error"`
+// targetResult captures per-input-target results for JSON output.
+type targetResult struct {
+	Type  string   `json:"type"`
+	ID    string   `json:"id"`
+	Items []string `json:"items"`
+	Error string   `json:"error"`
 }
 
 // jsonOutputPayload defines the JSON output schema.
 type jsonOutputPayload struct {
-	Inputs      jsonInputs   `json:"inputs"`
-	Invalid     []string     `json:"invalid"`
-	Users       []userResult `json:"users"`
-	Errors      []string     `json:"errors"`
-	OutputCount int          `json:"output_count"`
-	Items       []string     `json:"items"`
+	Inputs      jsonInputs     `json:"inputs"`
+	Invalid     []string       `json:"invalid"`
+	Targets     []targetResult `json:"targets"`
+	Errors      []string       `json:"errors"`
+	OutputCount int            `json:"output_count"`
+	Items       []string       `json:"items"`
 }
 
 // buildJSONOutput assembles the JSON payload from run results.
@@ -38,7 +39,7 @@ func buildJSONOutput(
 	validInputs int64,
 	invalidInputs int64,
 	invalidInputsList []string,
-	userResults []userResult,
+	targetResults []targetResult,
 	errorsList []string,
 	outputCount int,
 	outputIDs []string,
@@ -47,12 +48,13 @@ func buildJSONOutput(
 	for _, id := range outputIDs {
 		items = append(items, normalizeOutputID(id))
 	}
-	users := make([]userResult, 0, len(userResults))
-	for _, user := range userResults {
-		users = append(users, userResult{
-			UserID: user.UserID,
-			Items:  normalizeOutputList(user.Items),
-			Error:  user.Error,
+	targets := make([]targetResult, 0, len(targetResults))
+	for _, target := range targetResults {
+		targets = append(targets, targetResult{
+			Type:  target.Type,
+			ID:    target.ID,
+			Items: normalizeOutputList(target.Items),
+			Error: target.Error,
 		})
 	}
 	return jsonOutputPayload{
@@ -62,18 +64,21 @@ func buildJSONOutput(
 			Invalid: invalidInputs,
 		},
 		Invalid:     append([]string{}, invalidInputsList...),
-		Users:       users,
+		Targets:     targets,
 		Errors:      append([]string{}, errorsList...),
 		OutputCount: outputCount,
 		Items:       items,
 	}
 }
 
-// sortUserResultsByUserID sorts user results by numeric user_id in ascending order.
-func sortUserResultsByUserID(results []userResult) {
+// sortTargetResults sorts target results by type and numeric id in ascending order.
+func sortTargetResults(results []targetResult) {
 	sort.Slice(results, func(i, j int) bool {
-		leftID, leftErr := strconv.Atoi(results[i].UserID)
-		rightID, rightErr := strconv.Atoi(results[j].UserID)
+		if results[i].Type != results[j].Type {
+			return results[i].Type < results[j].Type
+		}
+		leftID, leftErr := strconv.Atoi(results[i].ID)
+		rightID, rightErr := strconv.Atoi(results[j].ID)
 		if leftErr == nil && rightErr == nil && leftID != rightID {
 			return leftID < rightID
 		}
@@ -83,8 +88,8 @@ func sortUserResultsByUserID(results []userResult) {
 		if leftErr != nil && rightErr == nil {
 			return false
 		}
-		if results[i].UserID != results[j].UserID {
-			return results[i].UserID < results[j].UserID
+		if results[i].ID != results[j].ID {
+			return results[i].ID < results[j].ID
 		}
 		return results[i].Error < results[j].Error
 	})

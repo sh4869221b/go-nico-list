@@ -681,18 +681,21 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 	if len(payload.Invalid) != 1 || payload.Invalid[0] != "invalid" {
 		t.Errorf("unexpected invalid list: %+v", payload.Invalid)
 	}
-	if len(payload.Users) != 1 {
-		t.Fatalf("unexpected users length: %d", len(payload.Users))
+	if len(payload.Targets) != 1 {
+		t.Fatalf("unexpected targets length: %d", len(payload.Targets))
 	}
-	user := payload.Users[0]
-	if user.UserID != "1" {
-		t.Errorf("unexpected user_id: %s", user.UserID)
+	target := payload.Targets[0]
+	if target.Type != targetTypeUser {
+		t.Errorf("unexpected target type: %s", target.Type)
 	}
-	if user.Error != "" {
-		t.Errorf("expected empty user error, got %q", user.Error)
+	if target.ID != "1" {
+		t.Errorf("unexpected target id: %s", target.ID)
 	}
-	if got := strings.Join(user.Items, ","); got != "sm2,sm1,sm1" {
-		t.Errorf("unexpected user items: %v", user.Items)
+	if target.Error != "" {
+		t.Errorf("expected empty target error, got %q", target.Error)
+	}
+	if got := strings.Join(target.Items, ","); got != "sm2,sm1,sm1" {
+		t.Errorf("unexpected target items: %v", target.Items)
 	}
 	if payload.OutputCount != 2 {
 		t.Errorf("unexpected output_count: %d", payload.OutputCount)
@@ -775,25 +778,31 @@ func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
 	if payload.Inputs.Total != 2 || payload.Inputs.Valid != 2 || payload.Inputs.Invalid != 0 {
 		t.Errorf("unexpected inputs: %+v", payload.Inputs)
 	}
-	if len(payload.Users) != 2 {
-		t.Fatalf("unexpected users length: %d", len(payload.Users))
+	if len(payload.Targets) != 2 {
+		t.Fatalf("unexpected targets length: %d", len(payload.Targets))
 	}
-	user1 := payload.Users[0]
-	if user1.UserID != "1" {
-		t.Errorf("unexpected user_id: %s", user1.UserID)
+	target1 := payload.Targets[0]
+	if target1.Type != targetTypeUser {
+		t.Errorf("unexpected target type: %s", target1.Type)
 	}
-	if got := strings.Join(user1.Items, ","); got != "sm1" {
-		t.Errorf("unexpected user1 items: %v", user1.Items)
+	if target1.ID != "1" {
+		t.Errorf("unexpected target id: %s", target1.ID)
 	}
-	user2 := payload.Users[1]
-	if user2.UserID != "2" {
-		t.Errorf("unexpected user_id: %s", user2.UserID)
+	if got := strings.Join(target1.Items, ","); got != "sm1" {
+		t.Errorf("unexpected target1 items: %v", target1.Items)
 	}
-	if user2.Error == "" {
-		t.Errorf("expected user2 error, got empty")
+	target2 := payload.Targets[1]
+	if target2.Type != targetTypeUser {
+		t.Errorf("unexpected target type: %s", target2.Type)
 	}
-	if len(user2.Items) != 0 {
-		t.Errorf("unexpected user2 items: %v", user2.Items)
+	if target2.ID != "2" {
+		t.Errorf("unexpected target id: %s", target2.ID)
+	}
+	if target2.Error == "" {
+		t.Errorf("expected target2 error, got empty")
+	}
+	if len(target2.Items) != 0 {
+		t.Errorf("unexpected target2 items: %v", target2.Items)
 	}
 	if payload.OutputCount != 1 {
 		t.Errorf("unexpected output_count: %d", payload.OutputCount)
@@ -809,7 +818,7 @@ func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
 	}
 }
 
-func TestRunRootCmdJSONOutputUsersSortedByUserID(t *testing.T) {
+func TestRunRootCmdJSONOutputTargetsSortedByTypeAndID(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"
 	datebefore = "99991231"
@@ -883,11 +892,118 @@ func TestRunRootCmdJSONOutputUsersSortedByUserID(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to parse JSON output: %v", err)
 	}
-	if len(payload.Users) != 2 {
-		t.Fatalf("unexpected users length: %d", len(payload.Users))
+	if len(payload.Targets) != 2 {
+		t.Fatalf("unexpected targets length: %d", len(payload.Targets))
 	}
-	if payload.Users[0].UserID != "1" || payload.Users[1].UserID != "2" {
-		t.Fatalf("expected users ordered by user_id, got %+v", payload.Users)
+	if payload.Targets[0].Type != targetTypeUser || payload.Targets[0].ID != "1" ||
+		payload.Targets[1].Type != targetTypeUser || payload.Targets[1].ID != "2" {
+		t.Fatalf("expected targets ordered by type and id, got %+v", payload.Targets)
+	}
+}
+
+func TestRunRootCmdJSONOutputPreservesMylistTargetType(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/mylists/847130") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[]}}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[{"video":{"id":"sm42","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origJSON := jsonOutput
+	origNoProgress := noProgress
+	origForceProgress := forceProgress
+	jsonOutput = true
+	noProgress = true
+	forceProgress = false
+	t.Cleanup(func() {
+		jsonOutput = origJSON
+		noProgress = origNoProgress
+		forceProgress = origForceProgress
+	})
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	if err := runRootCmd(cmd, []string{"nicovideo.jp/mylist/847130"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload struct {
+		Targets []struct {
+			Type  string   `json:"type"`
+			ID    string   `json:"id"`
+			Items []string `json:"items"`
+			Error string   `json:"error"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+	if len(payload.Targets) != 1 {
+		t.Fatalf("unexpected targets length: %d; output=%s", len(payload.Targets), out.String())
+	}
+	target := payload.Targets[0]
+	if target.Type != targetTypeMylist {
+		t.Errorf("unexpected target type: %s", target.Type)
+	}
+	if target.ID != "847130" {
+		t.Errorf("unexpected target id: %s", target.ID)
+	}
+	if got := strings.Join(target.Items, ","); got != "sm42" {
+		t.Errorf("unexpected target items: %v", target.Items)
+	}
+	if target.Error != "" {
+		t.Errorf("expected empty target error, got %q", target.Error)
+	}
+}
+
+func TestSortTargetResultsSortsByTypeAndNumericID(t *testing.T) {
+	results := []targetResult{
+		{Type: targetTypeUser, ID: "10"},
+		{Type: targetTypeMylist, ID: "2"},
+		{Type: targetTypeUser, ID: "1"},
+		{Type: targetTypeMylist, ID: "11"},
+	}
+
+	sortTargetResults(results)
+
+	got := make([]string, 0, len(results))
+	for _, result := range results {
+		got = append(got, result.Type+":"+result.ID)
+	}
+	if strings.Join(got, ",") != "mylist:2,mylist:11,user:1,user:10" {
+		t.Fatalf("unexpected target order: %v", got)
 	}
 }
 

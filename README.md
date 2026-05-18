@@ -89,7 +89,7 @@ Notes:
 - `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
 - `--dedupe` removes duplicate video IDs before sorting/output.
 - `--json` emits a single JSON object to stdout. `--tab`/`--url` do not affect JSON `items`, and the summary still prints to stderr.
-- In JSON output, `users` are sorted by numeric `user_id` in ascending order.
+- In JSON output, `targets` include `type` (`user` or `mylist`) and `id`, sorted by type and numeric id in ascending order.
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

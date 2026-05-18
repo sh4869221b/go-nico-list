@@ -149,7 +149,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	var fetchOKCount int64
 	var fetchErrCount int64
 	invalidInputsList := make([]string, 0)
-	userResults := make([]userResult, 0)
+	targetResults := make([]targetResult, 0)
 	errorsList := make([]string, 0)
 
 	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
@@ -239,10 +239,11 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 				atomic.AddInt64(&fetchErrCount, 1)
 				mu.Lock()
 				errorsList = append(errorsList, err.Error())
-				userResults = append(userResults, userResult{
-					UserID: target.ID,
-					Items:  newList,
-					Error:  err.Error(),
+				targetResults = append(targetResults, targetResult{
+					Type:  target.Type,
+					ID:    target.ID,
+					Items: newList,
+					Error: err.Error(),
 				})
 				idList = append(idList, newList...)
 				mu.Unlock()
@@ -251,10 +252,11 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			}
 			atomic.AddInt64(&fetchOKCount, 1)
 			mu.Lock()
-			userResults = append(userResults, userResult{
-				UserID: target.ID,
-				Items:  newList,
-				Error:  "",
+			targetResults = append(targetResults, targetResult{
+				Type:  target.Type,
+				ID:    target.ID,
+				Items: newList,
+				Error: "",
 			})
 			idList = append(idList, newList...)
 			mu.Unlock()
@@ -263,7 +265,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	wg.Wait()
 	close(errCh)
 	fetchErrRet := <-fetchErrCh
-	sortUserResultsByUserID(userResults)
+	sortTargetResults(targetResults)
 	if inputErr == nil {
 		for err := range inputErrCh {
 			if err != nil {
@@ -298,7 +300,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			validInputs,
 			invalidInputs,
 			invalidInputsList,
-			userResults,
+			targetResults,
 			errorsList,
 			outputCount,
 			outputIDs,

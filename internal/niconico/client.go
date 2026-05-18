@@ -241,7 +241,7 @@ func evaluateResponse(res *http.Response) (*http.Response, time.Duration, error)
 		return res, 0, nil
 	}
 	retryAfter := retryAfterDelay(res)
-	res.Body.Close()
+	_ = res.Body.Close()
 	return nil, retryAfter, fmt.Errorf("unexpected status: %d", res.StatusCode)
 }
 
@@ -274,12 +274,12 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				if res != nil {
-					res.Body.Close()
+					_ = res.Body.Close()
 				}
 				return nil, err
 			}
 			if res != nil {
-				res.Body.Close()
+				_ = res.Body.Close()
 			}
 			lastErr = err
 		} else {

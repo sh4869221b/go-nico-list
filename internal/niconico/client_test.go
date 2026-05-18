@@ -133,7 +133,7 @@ func TestRetriesRequest(t *testing.T) {
 	if len(headerErrs) > 0 {
 		t.Fatalf("header assertions failed: %v", headerErrs)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 }
 
 func TestRetriesRequestExhaustedReturnsError(t *testing.T) {

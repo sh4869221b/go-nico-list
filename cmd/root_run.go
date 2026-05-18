@@ -156,7 +156,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	var progressMu sync.Mutex
 	addProgress := func() {
 		progressMu.Lock()
-		bar.Add(1)
+		_ = bar.Add(1)
 		progressMu.Unlock()
 	}
 
@@ -294,6 +294,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		niconico.NiconicoSort(outputIDs)
 	}
 	out := outWriterFor(cmd)
+	var outputErr error
 	if jsonOutput {
 		jsonPayload := buildJSONOutput(
 			totalInputs,
@@ -307,16 +308,20 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		)
 		enc := json.NewEncoder(out)
 		if err := enc.Encode(jsonPayload); err != nil {
-			return err
+			outputErr = err
 		}
 	} else if outputCount > 0 {
 		formattedIDs := formatOutputIDs(outputIDs, tab, url)
-		fmt.Fprintln(out, strings.Join(formattedIDs, "\n"))
+		if _, err := fmt.Fprintln(out, strings.Join(formattedIDs, "\n")); err != nil {
+			outputErr = err
+		}
 	}
 	if shouldShowProgress(errWriter) {
-		fmt.Fprintln(errWriter)
+		if _, err := fmt.Fprintln(errWriter); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(
+	if _, err := fmt.Fprintf(
 		errWriter,
 		"summary inputs=%d valid=%d invalid=%d fetch_ok=%d fetch_err=%d output_count=%d\n",
 		atomic.LoadInt64(&totalInputs),
@@ -325,7 +330,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		atomic.LoadInt64(&fetchOKCount),
 		atomic.LoadInt64(&fetchErrCount),
 		outputCount,
-	)
+	); err != nil {
+		return err
+	}
+	if outputErr != nil {
+		return outputErr
+	}
 	if inputErr != nil {
 		return inputErr
 	}

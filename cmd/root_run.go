@@ -294,6 +294,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		niconico.NiconicoSort(outputIDs)
 	}
 	out := outWriterFor(cmd)
+	var outputErr error
 	if jsonOutput {
 		jsonPayload := buildJSONOutput(
 			totalInputs,
@@ -307,12 +308,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		)
 		enc := json.NewEncoder(out)
 		if err := enc.Encode(jsonPayload); err != nil {
-			return err
+			outputErr = err
 		}
 	} else if outputCount > 0 {
 		formattedIDs := formatOutputIDs(outputIDs, tab, url)
 		if _, err := fmt.Fprintln(out, strings.Join(formattedIDs, "\n")); err != nil {
-			return err
+			outputErr = err
 		}
 	}
 	if shouldShowProgress(errWriter) {
@@ -331,6 +332,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		outputCount,
 	); err != nil {
 		return err
+	}
+	if outputErr != nil {
+		return outputErr
 	}
 	if inputErr != nil {
 		return inputErr

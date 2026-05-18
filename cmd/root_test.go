@@ -1248,6 +1248,62 @@ func TestRunRootCmdReturnsLineOutputWriteError(t *testing.T) {
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("expected stdout error, got %v", err)
 	}
+	wantSummary := "summary inputs=1 valid=1 invalid=0 fetch_ok=1 fetch_err=0 output_count=1"
+	if got := errOut.String(); !strings.Contains(got, wantSummary) {
+		t.Fatalf("expected summary %q, got %q", wantSummary, got)
+	}
+}
+
+func TestRunRootCmdReturnsJSONOutputWriteError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	origJSON := jsonOutput
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = origJSON })
+
+	writeErr := errors.New("stdout failed")
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(errorWriter{err: writeErr})
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	err := runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("expected stdout error, got %v", err)
+	}
+	wantSummary := "summary inputs=1 valid=1 invalid=0 fetch_ok=1 fetch_err=0 output_count=1"
+	if got := errOut.String(); !strings.Contains(got, wantSummary) {
+		t.Fatalf("expected summary %q, got %q", wantSummary, got)
+	}
 }
 
 func TestRunRootCmdReturnsSummaryWriteError(t *testing.T) {

@@ -1167,6 +1167,129 @@ func (r blockingErrorReader) Read(p []byte) (int, error) {
 	return 0, r.err
 }
 
+type closeErrorReader struct {
+	*strings.Reader
+	err error
+}
+
+func (r closeErrorReader) Close() error {
+	return r.err
+}
+
+type errorWriter struct {
+	err error
+}
+
+func (w errorWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+func TestStreamLinesFromFileReturnsCloseError(t *testing.T) {
+	closeErr := errors.New("close failed")
+	oldOpenInputFile := openInputFile
+	openInputFile = func(string) (io.ReadCloser, error) {
+		return closeErrorReader{
+			Reader: strings.NewReader("nicovideo.jp/user/1\n"),
+			err:    closeErr,
+		}, nil
+	}
+	t.Cleanup(func() { openInputFile = oldOpenInputFile })
+
+	out := make(chan string, 1)
+	count, err := streamLinesFromFile("dummy", out)
+
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("expected close error, got %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("unexpected count: %d", count)
+	}
+}
+
+func TestRunRootCmdReturnsLineOutputWriteError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	writeErr := errors.New("stdout failed")
+	var errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(errorWriter{err: writeErr})
+	cmd.SetErr(&errOut)
+	cmd.SetContext(context.Background())
+
+	err := runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("expected stdout error, got %v", err)
+	}
+}
+
+func TestRunRootCmdReturnsSummaryWriteError(t *testing.T) {
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	dateafter = "10000101"
+	datebefore = "99991231"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	oldBaseURL := baseURL
+	baseURL = server.URL
+	t.Cleanup(func() { baseURL = oldBaseURL })
+
+	oldRetries := retries
+	retries = 1
+	t.Cleanup(func() { retries = oldRetries })
+
+	oldConcurrency := concurrency
+	concurrency = 1
+	t.Cleanup(func() { concurrency = oldConcurrency })
+
+	oldTimeout := httpClientTimeout
+	httpClientTimeout = time.Second
+	t.Cleanup(func() { httpClientTimeout = oldTimeout })
+
+	writeErr := errors.New("stderr failed")
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(errorWriter{err: writeErr})
+	cmd.SetContext(context.Background())
+
+	err := runRootCmd(cmd, []string{"nicovideo.jp/user/1"})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("expected stderr error, got %v", err)
+	}
+}
+
 func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	dateafter = "10000101"

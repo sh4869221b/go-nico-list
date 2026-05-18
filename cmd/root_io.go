@@ -115,8 +115,11 @@ func streamLinesFromFile(path string, out chan<- string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
-	return streamLines(file, out)
+	count, err := streamLines(file, out)
+	if closeErr := file.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
+	return count, err
 }
 
 // streamLines streams non-empty trimmed lines from a reader into out.

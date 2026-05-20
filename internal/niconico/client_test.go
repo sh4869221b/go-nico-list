@@ -149,6 +149,7 @@ func TestRetriesRequestExhaustedReturnsError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	if res != nil {
+		_ = res.Body.Close()
 		t.Errorf("expected nil response, got %v", res)
 	}
 	if count != retries {
@@ -173,7 +174,10 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := retriesRequest(ctx, server.URL, time.Second, retries, nil)
+		res, err := retriesRequest(ctx, server.URL, time.Second, retries, nil)
+		if res != nil {
+			_ = res.Body.Close()
+		}
 		errCh <- err
 	}()
 
@@ -206,6 +210,7 @@ func TestRetriesRequestContextCanceled(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 	if res != nil {
+		_ = res.Body.Close()
 		t.Errorf("expected nil response, got %v", res)
 	}
 }
@@ -227,6 +232,7 @@ func TestRetriesRequestTimeout(t *testing.T) {
 		t.Fatalf("expected context deadline exceeded, got %v", err)
 	}
 	if res != nil {
+		_ = res.Body.Close()
 		t.Errorf("expected nil response, got %v", res)
 	}
 

@@ -22,7 +22,7 @@ import (
 )
 
 func TestRetriesValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	retries = 0
 	t.Cleanup(func() { retries = defaultRetries })
 
@@ -34,7 +34,7 @@ func TestRetriesValidation(t *testing.T) {
 }
 
 func TestRateLimitValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	oldConcurrency := concurrency
@@ -55,7 +55,7 @@ func TestRateLimitValidation(t *testing.T) {
 }
 
 func TestTimeoutValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	oldTimeout := httpClientTimeout
@@ -70,7 +70,7 @@ func TestTimeoutValidation(t *testing.T) {
 }
 
 func TestDateRangeOrderValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	oldAfter := dateafter
 	oldBefore := datebefore
 	dateafter = "20250102"
@@ -86,7 +86,7 @@ func TestDateRangeOrderValidation(t *testing.T) {
 }
 
 func TestDateAfterFormatValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	oldAfter := dateafter
 	oldBefore := datebefore
 	dateafter = "2025-01-01"
@@ -102,7 +102,7 @@ func TestDateAfterFormatValidation(t *testing.T) {
 }
 
 func TestDateBeforeFormatValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	oldAfter := dateafter
 	oldBefore := datebefore
 	dateafter = "20250101"
@@ -118,7 +118,7 @@ func TestDateBeforeFormatValidation(t *testing.T) {
 }
 
 func TestDateRangeSameDayAllowed(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	oldAfter := dateafter
 	oldBefore := datebefore
 	oldRetries := retries
@@ -151,7 +151,7 @@ func TestDateRangeSameDayAllowed(t *testing.T) {
 }
 
 func TestMinIntervalValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	oldMinInterval := minInterval
@@ -164,7 +164,7 @@ func TestMinIntervalValidation(t *testing.T) {
 }
 
 func TestMaxPagesValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	oldMaxPages := maxPages
@@ -177,7 +177,7 @@ func TestMaxPagesValidation(t *testing.T) {
 }
 
 func TestMaxVideosValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	oldMaxVideos := maxVideos
@@ -208,7 +208,7 @@ func TestRunRootCmdInvalidInput(t *testing.T) {
 		isTerminal = origIsTerminal
 	})
 
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -221,7 +221,7 @@ func TestRunRootCmdInvalidInput(t *testing.T) {
 }
 
 func TestProgressAutoDisabledOnNonTTY(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -265,7 +265,7 @@ func TestProgressAutoDisabledOnNonTTY(t *testing.T) {
 }
 
 func TestProgressForcedOn(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -309,7 +309,7 @@ func TestProgressForcedOn(t *testing.T) {
 }
 
 func TestNoProgressOverridesForceProgress(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -353,7 +353,7 @@ func TestNoProgressOverridesForceProgress(t *testing.T) {
 }
 
 func TestRunRootCmdEmitsSummary(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -407,7 +407,7 @@ func TestRunRootCmdEmitsSummary(t *testing.T) {
 }
 
 func TestRunRootCmdStrictInvalidInputReturnsError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -439,7 +439,7 @@ func TestRunRootCmdStrictInvalidInputReturnsError(t *testing.T) {
 }
 
 func TestRunRootCmdStrictInvalidStillOutputsValidResults(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -498,7 +498,7 @@ func TestRunRootCmdStrictInvalidStillOutputsValidResults(t *testing.T) {
 }
 
 func TestRunRootCmdBestEffortReturnsNilOnFetchError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -549,7 +549,7 @@ func TestRunRootCmdBestEffortReturnsNilOnFetchError(t *testing.T) {
 }
 
 func TestRunRootCmdDedupeRemovesDuplicates(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -608,7 +608,7 @@ func TestRunRootCmdDedupeRemovesDuplicates(t *testing.T) {
 }
 
 func TestRunRootCmdJSONOutput(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -712,7 +712,7 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 }
 
 func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -819,7 +819,7 @@ func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
 }
 
 func TestRunRootCmdJSONOutputTargetsSortedByTypeAndID(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	user2Completed := make(chan struct{})
@@ -902,7 +902,7 @@ func TestRunRootCmdJSONOutputTargetsSortedByTypeAndID(t *testing.T) {
 }
 
 func TestRunRootCmdJSONOutputPreservesMylistTargetType(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1010,7 +1010,7 @@ func TestSortTargetResultsSortsByTypeAndNumericID(t *testing.T) {
 }
 
 func TestRunRootCmdStrictOverridesBestEffort(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1042,7 +1042,7 @@ func TestRunRootCmdStrictOverridesBestEffort(t *testing.T) {
 }
 
 func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1062,7 +1062,7 @@ func TestRunRootCmdInvalidInputNoOutput(t *testing.T) {
 }
 
 func TestRunRootCmdNoInputs(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 	inputFilePath = ""
@@ -1078,7 +1078,7 @@ func TestRunRootCmdNoInputs(t *testing.T) {
 }
 
 func TestRunRootCmdInputFileNoArgs(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1120,7 +1120,7 @@ func TestRunRootCmdInputFileNoArgs(t *testing.T) {
 }
 
 func TestRunRootCmdStdinNoArgs(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1207,7 +1207,7 @@ func TestStreamLinesFromFileReturnsCloseError(t *testing.T) {
 }
 
 func TestRunRootCmdReturnsLineOutputWriteError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1255,7 +1255,7 @@ func TestRunRootCmdReturnsLineOutputWriteError(t *testing.T) {
 }
 
 func TestRunRootCmdReturnsJSONOutputWriteError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1307,7 +1307,7 @@ func TestRunRootCmdReturnsJSONOutputWriteError(t *testing.T) {
 }
 
 func TestRunRootCmdReturnsSummaryWriteError(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1347,7 +1347,7 @@ func TestRunRootCmdReturnsSummaryWriteError(t *testing.T) {
 }
 
 func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1432,7 +1432,7 @@ func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
 }
 
 func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1524,7 +1524,7 @@ func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
 }
 
 func TestRunRootCmdPartialFailureOutputsResults(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1576,7 +1576,7 @@ func TestRunRootCmdPartialFailureOutputsResults(t *testing.T) {
 }
 
 func TestRunRootCmdLogFile(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1629,7 +1629,7 @@ func TestRunRootCmdLogFile(t *testing.T) {
 }
 
 func TestRunRootCmdLogFileMultipleErrors(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 
@@ -1682,7 +1682,7 @@ func TestRunRootCmdLogFileMultipleErrors(t *testing.T) {
 }
 
 func TestConcurrencyValidation(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	concurrency = 0
 	t.Cleanup(func() { concurrency = 3 })
 
@@ -1694,7 +1694,7 @@ func TestConcurrencyValidation(t *testing.T) {
 }
 
 func TestRunRootCmdMylistInput(t *testing.T) {
-	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger = slog.New(slog.DiscardHandler)
 	dateafter = "10000101"
 	datebefore = "99991231"
 

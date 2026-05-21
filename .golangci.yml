@@ -6,6 +6,14 @@ linters:
     - bodyclose
     - errcheck
     - copyloopvar
+    - durationcheck
+    - errorlint
+    - loggercheck
+    - makezero
+    - misspell
+    - nilerr
+    - nilnil
+    - noctx
     - ineffassign
     - staticcheck
     - unused

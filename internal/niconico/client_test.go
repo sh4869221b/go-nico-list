@@ -480,7 +480,7 @@ func TestRetryAfterDelay(t *testing.T) {
 
 func TestGetVideoList(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		logger := slog.New(slog.DiscardHandler)
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			page := r.URL.Query().Get("page")
 			var resp string
@@ -512,7 +512,7 @@ func TestGetVideoList(t *testing.T) {
 	})
 
 	t.Run("before date is inclusive and next day is excluded", func(t *testing.T) {
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		logger := slog.New(slog.DiscardHandler)
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			if r.URL.Query().Get("page") != "1" {
@@ -537,7 +537,7 @@ func TestGetVideoList(t *testing.T) {
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		logger := slog.New(slog.DiscardHandler)
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, "invalid")
@@ -556,7 +556,7 @@ func TestGetVideoList(t *testing.T) {
 }
 
 func TestGetVideoListContextCanceled(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
@@ -580,7 +580,7 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 }
 
 func TestGetVideoListHandleNotFound(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	count := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
@@ -606,7 +606,7 @@ func TestGetVideoListHandleNotFound(t *testing.T) {
 }
 
 func TestGetVideoListHandleServerError(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	count := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
@@ -629,7 +629,7 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 }
 
 func TestGetVideoListPartialOnError(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page := r.URL.Query().Get("page")
 		switch page {
@@ -657,7 +657,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 }
 
 func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	count := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
@@ -687,7 +687,7 @@ func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
 }
 
 func TestGetVideoListMaxVideosStopsEarly(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	count := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
@@ -740,7 +740,7 @@ func TestGetMylistVideoList(t *testing.T) {
 		nil,
 		0,
 		0,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		slog.New(slog.DiscardHandler),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

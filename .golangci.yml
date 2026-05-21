@@ -14,6 +14,7 @@ linters:
     - nilerr
     - nilnil
     - noctx
+    - sloglint
     - ineffassign
     - staticcheck
     - unused

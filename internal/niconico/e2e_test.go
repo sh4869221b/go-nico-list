@@ -30,7 +30,7 @@ func TestGetVideoListE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	ids, err := GetVideoList(
 		ctx,
 		userID,

@@ -232,8 +232,6 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 				newList, err = niconico.GetVideoList(ctx, target.ID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
 			case targetTypeMylist:
 				newList, err = niconico.GetMylistVideoList(ctx, target.ID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
-			default:
-				err = fmt.Errorf("unsupported input target: %s", target.Type)
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)

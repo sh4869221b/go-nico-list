@@ -1,6 +1,6 @@
 # go-nico-list
 
-niconico のユーザーページから動画IDを取得するコマンドラインツールです。
+niconico のユーザーページとマイリストから動画IDを取得するコマンドラインツールです。
 
 ## Overview
 `nicovideo.jp/user/<id>` または `nicovideo.jp/mylist/<id>` のページを1つ以上指定し、コメント数と日付範囲で絞り込み、結果をソートして stdout に出力します。

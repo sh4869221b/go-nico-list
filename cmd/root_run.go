@@ -19,27 +19,26 @@ import (
 
 const tabOutputPrefix = "\t\t\t\t\t\t\t\t\t"
 
-// validateFlags validates CLI flag values before execution.
-func validateFlags() error {
-	if concurrency < 1 {
+func validateFlagsFor(cfg *RootConfig) error {
+	if cfg.Concurrency < 1 {
 		return errors.New("concurrency must be at least 1")
 	}
-	if retries < 1 {
+	if cfg.Retries < 1 {
 		return errors.New("retries must be at least 1")
 	}
-	if httpClientTimeout <= 0 {
+	if cfg.HTTPClientTimeout <= 0 {
 		return errors.New("timeout must be greater than 0")
 	}
-	if rateLimit < 0 {
+	if cfg.RateLimit < 0 {
 		return errors.New("rate-limit must be at least 0")
 	}
-	if minInterval < 0 {
+	if cfg.MinInterval < 0 {
 		return errors.New("min-interval must be at least 0")
 	}
-	if maxPages < 0 {
+	if cfg.MaxPages < 0 {
 		return errors.New("max-pages must be at least 0")
 	}
-	if maxVideos < 0 {
+	if cfg.MaxVideos < 0 {
 		return errors.New("max-videos must be at least 0")
 	}
 	return nil
@@ -62,18 +61,17 @@ func parseDateRange(after, before string) (time.Time, time.Time, error) {
 	return parsedAfter, parsedBefore, nil
 }
 
-// setupLogger initializes a JSON logger and optional cleanup for log files.
-func setupLogger(path string) (*slog.Logger, func(), error) {
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+func setupLoggerFor(path string, deps RootDeps) (*slog.Logger, func() error, error) {
+	deps = normalizeRootDeps(deps)
 	if path == "" {
-		return logger, func() {}, nil
+		return deps.Logger, func() error { return nil }, nil
 	}
-	logFile, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	logFile, err := deps.OpenLogFile(path)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, func() error { return nil }, err
 	}
-	cleanup := func() { _ = logFile.Close() }
-	logger = slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{}))
+	cleanup := func() error { return logFile.Close() }
+	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{}))
 	return logger, cleanup, nil
 }
 
@@ -112,23 +110,25 @@ func formatOutputIDs(items []string, withTab bool, withURL bool) []string {
 	return formatted
 }
 
-// runRootCmd executes the main CLI workflow.
-func runRootCmd(cmd *cobra.Command, args []string) error {
-	if err := validateFlags(); err != nil {
+func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) (retErr error) {
+	if err := validateFlagsFor(cfg); err != nil {
 		return err
 	}
-	afterDate, beforeDate, err := parseDateRange(dateafter, datebefore)
+	afterDate, beforeDate, err := parseDateRange(cfg.DateAfter, cfg.DateBefore)
 	if err != nil {
 		return err
 	}
 
-	newLogger, cleanup, err := setupLogger(logFilePath)
+	newLogger, cleanup, err := setupLoggerFor(cfg.LogFilePath, deps)
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-	logger = newLogger
-	slog.SetDefault(logger)
+	defer func() {
+		if err := cleanup(); retErr == nil && err != nil {
+			retErr = err
+		}
+	}()
+	runLogger := newLogger
 
 	ctx := context.Background()
 	if cmd != nil {
@@ -141,8 +141,8 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 
 	var idList []string
 	var mu sync.Mutex
-	stream := streamInputs(cmd, args)
-	limiter := niconico.NewRateLimiter(rateLimit, minInterval)
+	stream := streamInputsWithConfig(cmd, args, cfg, deps)
+	limiter := niconico.NewRateLimiter(cfg.RateLimit, cfg.MinInterval)
 	var totalInputs int64
 	var validInputs int64
 	var invalidInputs int64
@@ -152,7 +152,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	targetResults := make([]targetResult, 0)
 	errorsList := make([]string, 0)
 
-	bar := newProgressBar(cmd, stream.totalKnown, stream.total)
+	bar := newProgressBarWithConfig(cmd, stream.totalKnown, stream.total, cfg, deps)
 	var progressMu sync.Mutex
 	addProgress := func() {
 		progressMu.Lock()
@@ -160,9 +160,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		progressMu.Unlock()
 	}
 
-	sem := make(chan struct{}, concurrency)
+	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
-	errCh := make(chan error, concurrency)
+	errCh := make(chan error, cfg.Concurrency)
 	fetchErrCh := make(chan error, 1)
 	go func() {
 		var firstErr error
@@ -170,7 +170,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			if err == nil {
 				continue
 			}
-			logger.Error("failed to get video list", "error", err)
+			runLogger.Error("failed to get video list", "error", err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -210,7 +210,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			mu.Lock()
 			invalidInputsList = append(invalidInputsList, input)
 			mu.Unlock()
-			logger.Warn("invalid user ID", "input", input)
+			runLogger.Warn("invalid input", "input", input)
 			addProgress()
 			continue
 		}
@@ -229,9 +229,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			var err error
 			switch target.Type {
 			case targetTypeUser:
-				newList, err = niconico.GetVideoList(ctx, target.ID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
+				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, runLogger)
 			case targetTypeMylist:
-				newList, err = niconico.GetMylistVideoList(ctx, target.ID, comment, afterDate, beforeDate, baseURL, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger)
+				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, runLogger)
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
@@ -273,9 +273,9 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 	close(sem)
-	logger.Info("video list", "count", len(idList))
+	runLogger.Info("video list", "count", len(idList))
 	outputIDs := idList
-	if dedupeOutput && len(outputIDs) > 0 {
+	if cfg.DedupeOutput && len(outputIDs) > 0 {
 		seen := make(map[string]struct{}, len(outputIDs))
 		unique := make([]string, 0, len(outputIDs))
 		for _, id := range outputIDs {
@@ -293,7 +293,7 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	}
 	out := outWriterFor(cmd)
 	var outputErr error
-	if jsonOutput {
+	if cfg.JSONOutput {
 		jsonPayload := buildJSONOutput(
 			totalInputs,
 			validInputs,
@@ -309,12 +309,12 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 			outputErr = err
 		}
 	} else if outputCount > 0 {
-		formattedIDs := formatOutputIDs(outputIDs, tab, url)
+		formattedIDs := formatOutputIDs(outputIDs, cfg.Tab, cfg.URL)
 		if _, err := fmt.Fprintln(out, strings.Join(formattedIDs, "\n")); err != nil {
 			outputErr = err
 		}
 	}
-	if shouldShowProgress(errWriter) {
+	if shouldShowProgressWithConfig(errWriter, cfg, deps) {
 		if _, err := fmt.Fprintln(errWriter); err != nil {
 			return err
 		}
@@ -337,10 +337,10 @@ func runRootCmd(cmd *cobra.Command, args []string) error {
 	if inputErr != nil {
 		return inputErr
 	}
-	if strictInput && atomic.LoadInt64(&invalidInputs) > 0 {
+	if cfg.StrictInput && atomic.LoadInt64(&invalidInputs) > 0 {
 		return errors.New("invalid input detected")
 	}
-	if bestEffort {
+	if cfg.BestEffort {
 		return nil
 	}
 	return fetchErrRet

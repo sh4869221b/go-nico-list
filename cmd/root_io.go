@@ -20,8 +20,8 @@ type inputStream struct {
 	total      int64
 }
 
-// newProgressBar creates a progress bar configured for the current run.
-func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressbar.ProgressBar {
+func newProgressBarWithConfig(cmd *cobra.Command, totalKnown bool, total int64, cfg *RootConfig, deps RootDeps) *progressbar.ProgressBar {
+	deps = normalizeRootDeps(deps)
 	if !totalKnown {
 		total = -1
 	}
@@ -29,21 +29,21 @@ func newProgressBar(cmd *cobra.Command, totalKnown bool, total int64) *progressb
 	if cmd != nil {
 		errWriter = cmd.ErrOrStderr()
 	}
-	visible := shouldShowProgress(errWriter)
+	visible := shouldShowProgressWithConfig(errWriter, cfg, deps)
 	writer := errWriter
 	if !visible {
 		writer = io.Discard
 	}
-	return progressBarNew(total, writer, visible)
+	return deps.ProgressBarNew(total, writer, visible)
 }
 
-// shouldShowProgress reports whether progress output should be visible.
-func shouldShowProgress(errWriter io.Writer) bool {
-	visible := isTerminal(errWriter)
-	if forceProgress {
+func shouldShowProgressWithConfig(errWriter io.Writer, cfg *RootConfig, deps RootDeps) bool {
+	deps = normalizeRootDeps(deps)
+	visible := deps.IsTerminal(errWriter)
+	if cfg.ForceProgress {
 		visible = true
 	}
-	if noProgress {
+	if cfg.NoProgress {
 		visible = false
 	}
 	return visible
@@ -57,11 +57,11 @@ func defaultIsTerminal(w io.Writer) bool {
 	return false
 }
 
-// streamInputs streams inputs from args, input files, and stdin.
-func streamInputs(cmd *cobra.Command, args []string) inputStream {
+func streamInputsWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) inputStream {
+	deps = normalizeRootDeps(deps)
 	out := make(chan string)
 	errCh := make(chan error, 1)
-	totalKnown := inputFilePath == "" && !readStdin
+	totalKnown := cfg.InputFilePath == "" && !cfg.ReadStdin
 	total := int64(len(args))
 
 	go func() {
@@ -74,8 +74,8 @@ func streamInputs(cmd *cobra.Command, args []string) inputStream {
 			count++
 		}
 
-		if inputFilePath != "" {
-			n, err := streamLinesFromFile(inputFilePath, out)
+		if cfg.InputFilePath != "" {
+			n, err := streamLinesFromFile(cfg.InputFilePath, out, deps)
 			count += n
 			if err != nil {
 				errCh <- err
@@ -83,7 +83,7 @@ func streamInputs(cmd *cobra.Command, args []string) inputStream {
 			}
 		}
 
-		if readStdin {
+		if cfg.ReadStdin {
 			var reader io.Reader = os.Stdin
 			if cmd != nil {
 				reader = cmd.InOrStdin()
@@ -110,8 +110,9 @@ func streamInputs(cmd *cobra.Command, args []string) inputStream {
 }
 
 // streamLinesFromFile streams trimmed lines from a file into out.
-func streamLinesFromFile(path string, out chan<- string) (int, error) {
-	file, err := openInputFile(path)
+func streamLinesFromFile(path string, out chan<- string, deps RootDeps) (int, error) {
+	deps = normalizeRootDeps(deps)
+	file, err := deps.OpenInputFile(path)
 	if err != nil {
 		return 0, err
 	}

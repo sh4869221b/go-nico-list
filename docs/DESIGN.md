@@ -12,8 +12,11 @@ This document summarizes the behavior required for a coding agent to reproduce t
 ```
 main.go
   └─ cmd.ExecuteContext(ctx)
-        └─ cmd/root_*.go (CLI: flags/run/IO/JSON helpers)
-              └─ internal/niconico (domain: fetch/retry/sort)
+        └─ NewRootCommand(cfg, deps)
+              ├─ RootConfig (flag values and defaults)
+              ├─ RootDeps (IO, logger, progress bar, file openers)
+              └─ runRootCmdWithConfig (runner)
+                    └─ internal/niconico (domain: fetch/retry/sort)
 ```
 
 ### Refactoring guardrails
@@ -27,7 +30,10 @@ main.go
   - Resolve version (build info / ldflags).
   - Create a cancelable context and pass it to `cmd.ExecuteContext`.
 - `cmd/`:
-  - Cobra commands/flags.
+  - `NewRootCommand(cfg, deps)` constructs the root command with injected `RootConfig` and `RootDeps`.
+  - `RootConfig` holds all flag values and runtime defaults.
+  - `RootDeps` provides external dependencies (stdout/stderr, logger, file openers, progress bar factory, terminal detection) for testability.
+  - `runRootCmdWithConfig` is the runnable entry point that uses the config and deps.
   - Input validation (`concurrency`, `retries`, dates).
   - Progress to stderr, results to stdout.
   - Output formatting (`--tab`/`--url`) and JSON payload assembly.
@@ -170,7 +176,14 @@ main.go
 - `ExecuteContext` sets `rootCmd.Version` before execution.
 
 ## Tests
-- CLI tests: `cmd/root_test.go` (validation, output, progress, logfile).
+- CLI tests are split into focused files with shared helpers in `cmd/root_test_helpers_test.go`:
+  - `cmd/root_validation_test.go` (flag validation).
+  - `cmd/root_output_test.go` (stdout output and formatting).
+  - `cmd/root_progress_test.go` (progress bar behavior).
+  - `cmd/root_log_test.go` (logfile and logger setup).
+  - `cmd/root_input_test.go` (input parsing and streaming).
+  - `cmd/root_json_test.go` (JSON output assembly).
+  - `cmd/root_characterization_test.go` (command isolation and side effects).
 - Domain tests: `internal/niconico/client_test.go` (fetch/retry/sort).
 - Contract test: `internal/niconico/nico_data_contract_test.go` validates fixture JSON decode into `NicoData`.
 - Fuzz tests: `internal/niconico/fuzz_test.go` and `cmd/root_fuzz_test.go` ensure sorting/JSON/url parsing paths do not panic.

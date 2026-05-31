@@ -1,6 +1,6 @@
 # go-nico-list
 
-Command line tool to fetch video IDs from a niconico user page.
+Command line tool to fetch video IDs from niconico user pages and mylists.
 
 [Japanese README](docs/README.ja.md)
 

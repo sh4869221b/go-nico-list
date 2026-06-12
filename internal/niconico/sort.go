@@ -36,7 +36,7 @@ func videoIDSortKeyFor(id string) videoIDSortKey {
 
 // normalizedUint64Text returns the canonical decimal text when text fits uint64.
 func normalizedUint64Text(text string) (string, bool) {
-	if len(text) == 0 || len(text) > len(maxUint64Text) {
+	if len(text) == 0 {
 		return text, false
 	}
 	for i := range text {
@@ -44,11 +44,14 @@ func normalizedUint64Text(text string) (string, bool) {
 			return text, false
 		}
 	}
-	if len(text) == len(maxUint64Text) && text > maxUint64Text {
-		return text, false
-	}
 	for len(text) > 1 && text[0] == '0' {
 		text = text[1:]
+	}
+	if len(text) > len(maxUint64Text) {
+		return text, false
+	}
+	if len(text) == len(maxUint64Text) && text > maxUint64Text {
+		return text, false
 	}
 	return text, true
 }

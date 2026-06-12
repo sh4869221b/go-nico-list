@@ -69,5 +69,6 @@ dist/
 WORKLOG.md
 
 # Local agent state
+.codex/
 .omo/
 

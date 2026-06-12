@@ -68,3 +68,7 @@ dist/
 # Local work log (keep untracked)
 WORKLOG.md
 
+# Local agent state
+.codex/
+.omo/
+

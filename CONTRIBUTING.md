@@ -99,7 +99,6 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 - CI checks `THIRD_PARTY_NOTICES.md` drift (`bash scripts/gen-third-party-notices.sh` + diff check).
 - CI runs gofmt, go vet, golangci-lint, go test, and go test -race.
 - Workflow actions are pinned by commit SHA. When upgrading action versions, update the pinned SHAs intentionally.
-- Include an auto-close keyword for related issues (e.g. `Closes #123`) in the PR body.
 - After addressing review feedback, request a Codex re-review in chat.
 - When using `gh pr create`, always use `--body-file` with `.github/PULL_REQUEST_TEMPLATE.md` to avoid literal `\n` in the description.
 

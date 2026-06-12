@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -89,25 +88,6 @@ func outWriterFor(cmd *cobra.Command) io.Writer {
 		return os.Stdout
 	}
 	return cmd.OutOrStdout()
-}
-
-// formatOutputIDs applies optional tab/url prefixes for line output.
-func formatOutputIDs(items []string, withTab bool, withURL bool) []string {
-	if !withTab && !withURL {
-		return items
-	}
-	prefix := ""
-	if withTab {
-		prefix += tabOutputPrefix
-	}
-	if withURL {
-		prefix += nicoWatchURLPrefix
-	}
-	formatted := make([]string, 0, len(items))
-	for _, item := range items {
-		formatted = append(formatted, prefix+item)
-	}
-	return formatted
 }
 
 func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) (retErr error) {
@@ -309,8 +289,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			outputErr = err
 		}
 	} else if outputCount > 0 {
-		formattedIDs := formatOutputIDs(outputIDs, cfg.Tab, cfg.URL)
-		if _, err := fmt.Fprintln(out, strings.Join(formattedIDs, "\n")); err != nil {
+		if err := writeLineOutput(out, outputIDs, cfg.Tab, cfg.URL); err != nil {
 			outputErr = err
 		}
 	}

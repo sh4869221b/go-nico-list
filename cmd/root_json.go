@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -77,16 +76,8 @@ func sortTargetResults(results []targetResult) {
 		if results[i].Type != results[j].Type {
 			return results[i].Type < results[j].Type
 		}
-		leftID, leftErr := strconv.ParseUint(results[i].ID, 10, 64)
-		rightID, rightErr := strconv.ParseUint(results[j].ID, 10, 64)
-		if leftErr == nil && rightErr == nil && leftID != rightID {
-			return leftID < rightID
-		}
-		if leftErr == nil && rightErr != nil {
-			return true
-		}
-		if leftErr != nil && rightErr == nil {
-			return false
+		if less, decided := targetIDLess(results[i].ID, results[j].ID); decided {
+			return less
 		}
 		if results[i].ID != results[j].ID {
 			return results[i].ID < results[j].ID
@@ -94,6 +85,46 @@ func sortTargetResults(results []targetResult) {
 		return results[i].Error < results[j].Error
 	})
 }
+
+// targetIDLess compares target IDs using numeric order when both fit uint64.
+func targetIDLess(leftID string, rightID string) (bool, bool) {
+	left, leftNumeric := normalizedTargetUint64Text(leftID)
+	right, rightNumeric := normalizedTargetUint64Text(rightID)
+	if leftNumeric && rightNumeric && left != right {
+		if len(left) != len(right) {
+			return len(left) < len(right), true
+		}
+		return left < right, true
+	}
+	if leftNumeric && !rightNumeric {
+		return true, true
+	}
+	if !leftNumeric && rightNumeric {
+		return false, true
+	}
+	return false, false
+}
+
+// normalizedTargetUint64Text returns canonical decimal text when text fits uint64.
+func normalizedTargetUint64Text(text string) (string, bool) {
+	if len(text) == 0 || len(text) > len(maxTargetUint64Text) {
+		return text, false
+	}
+	for i := range text {
+		if text[i] < '0' || text[i] > '9' {
+			return text, false
+		}
+	}
+	if len(text) == len(maxTargetUint64Text) && text > maxTargetUint64Text {
+		return text, false
+	}
+	for len(text) > 1 && text[0] == '0' {
+		text = text[1:]
+	}
+	return text, true
+}
+
+const maxTargetUint64Text = "18446744073709551615"
 
 // normalizeOutputID strips tab and URL prefixes from an output ID.
 func normalizeOutputID(id string) string {

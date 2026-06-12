@@ -3,12 +3,81 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestWriteLineOutputMatchesExistingFormatting(t *testing.T) {
+	tests := []struct {
+		name    string
+		tab     bool
+		url     bool
+		want    string
+		wantNil bool
+	}{
+		{name: "raw", want: "sm1\nsm2\n"},
+		{name: "tab", tab: true, want: tabOutputPrefix + "sm1\n" + tabOutputPrefix + "sm2\n"},
+		{name: "url", url: true, want: nicoWatchURLPrefix + "sm1\n" + nicoWatchURLPrefix + "sm2\n"},
+		{name: "tab and url", tab: true, url: true, want: tabOutputPrefix + nicoWatchURLPrefix + "sm1\n" + tabOutputPrefix + nicoWatchURLPrefix + "sm2\n"},
+		{name: "empty", wantNil: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			items := []string{"sm1", "sm2"}
+			if tt.wantNil {
+				items = nil
+			}
+
+			if err := writeLineOutput(&out, items, tt.tab, tt.url); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := out.String(); got != tt.want {
+				t.Fatalf("unexpected output: got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWriteLineOutputReturnsWriterError(t *testing.T) {
+	writeErr := errors.New("stdout failed")
+
+	err := writeLineOutput(errorWriter{err: writeErr}, []string{"sm1"}, false, false)
+
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("expected stdout error, got %v", err)
+	}
+}
+
+func TestWriteLineOutputBatchesWrites(t *testing.T) {
+	var out countingWriter
+	items := make([]string, 100)
+	for i := range items {
+		items[i] = fmt.Sprintf("sm%d", i)
+	}
+
+	if err := writeLineOutput(&out, items, true, true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.writes > 2 {
+		t.Fatalf("expected batched writes, got %d writes", out.writes)
+	}
+}
+
+type countingWriter struct {
+	buf    bytes.Buffer
+	writes int
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.writes++
+	return w.buf.Write(p)
+}
 
 func TestRunRootCmdEmitsSummary(t *testing.T) {
 	server := newEmptyAPIServer(t)

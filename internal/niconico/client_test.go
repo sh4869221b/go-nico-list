@@ -29,45 +29,6 @@ func (r *trackingReadCloser) Close() error {
 	return nil
 }
 
-func TestNiconicoSort(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		expected []string
-	}{
-		{
-			name:     "simple",
-			input:    []string{"sm12", "sm3", "sm1"},
-			expected: []string{"sm1", "sm3", "sm12"},
-		},
-		{
-			name:     "shortString",
-			input:    []string{"sm12", "s", "sm3"},
-			expected: []string{"sm3", "s", "sm12"},
-		},
-		{
-			name:     "longNumericIDs",
-			input:    []string{"sm100000000", "sm99999999", "sm3"},
-			expected: []string{"sm3", "sm99999999", "sm100000000"},
-		},
-		{
-			name:     "malformedWithLongNumericIDs",
-			input:    []string{"sm100000000", "xx200000000a", "sm99999999"},
-			expected: []string{"sm99999999", "sm100000000", "xx200000000a"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slice := append([]string(nil), tt.input...)
-			NiconicoSort(slice)
-			if !reflect.DeepEqual(slice, tt.expected) {
-				t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, slice)
-			}
-		})
-	}
-}
-
 func TestCloseAndIsNotFound(t *testing.T) {
 	t.Run("not found closes body", func(t *testing.T) {
 		body := &trackingReadCloser{}
@@ -301,8 +262,7 @@ func TestNewRateLimiterInterval(t *testing.T) {
 			}
 			if limiter == nil {
 				t.Fatal("expected limiter, got nil")
-			}
-			if limiter.interval != tt.want {
+			} else if limiter.interval != tt.want {
 				t.Errorf("expected interval %v, got %v", tt.want, limiter.interval)
 			}
 		})

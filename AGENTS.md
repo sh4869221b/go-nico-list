@@ -53,11 +53,10 @@ go-nico-list/
 | `RateLimiter.Wait` | method | `internal/niconico/client.go` | Global request pacing across concurrent fetches and retries. |
 
 ## DEVELOPMENT RULES
-- Before implementation, create or confirm a GitHub Issue. Keep one issue scoped to one fix or one feature.
 - Use `branch-helper` for repository-modifying tasks unless explicitly told otherwise.
 - Work on a short-lived branch and merge through a PR using squash merge. Never push implementation commits directly to `master`.
 - Create the PR right after the initial implementation commit so the fix log can be maintained in the PR body.
-- PR bodies must use `.github/PULL_REQUEST_TEMPLATE.md`, keep all sections, and include an auto-close keyword such as `Closes #123`.
+- PR bodies must use `.github/PULL_REQUEST_TEMPLATE.md` and keep all sections.
 - When editing PR bodies with `gh`, rewrite the full body with `-F <file>`.
 - Maintain the PR fix log after each correction pass.
 - For implementation work, follow Implement -> Test -> Review. If review findings need confirmation, ask numbered questions first; after answers, repeat Fix -> Test -> Review until there are no findings.
@@ -67,9 +66,9 @@ go-nico-list/
 - When handling multiple PRs, create all PRs first, then confirm CI and merge together at the end.
 
 ## CHANGE RULES
-- Keep changes atomic and limited to the issue scope.
+- Keep changes atomic and limited to the requested scope.
 - Do not mix CLI and domain logic. `cmd/` handles flags, IO, validation, output, concurrency, and exit behavior; `internal/niconico/` handles API fetch/retry/sort/types.
-- Refactors must preserve flags, stdout/stderr, log messages, summaries, exit codes, progress behavior, pagination, retry, and rate-limit semantics unless the issue explicitly changes them.
+- Refactors must preserve flags, stdout/stderr, log messages, summaries, exit codes, progress behavior, pagination, retry, and rate-limit semantics unless the requested change explicitly changes them.
 - Before user-facing behavior or responsibility-boundary changes, update `docs/DESIGN.md` as needed and get explicit OK before implementation.
 - For internal-only changes, such as CI, docs, or process-only updates, `docs/DESIGN.md` changes are not required.
 - If user-facing behavior changes, update `README.md` and `docs/README.ja.md` as appropriate.

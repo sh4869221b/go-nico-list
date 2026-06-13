@@ -16,6 +16,7 @@ type jsonInputs struct {
 
 // targetResult captures per-input-target results for JSON output.
 type targetResult struct {
+	Order int      `json:"-"`
 	Type  string   `json:"type"`
 	ID    string   `json:"id"`
 	Items []string `json:"items"`
@@ -84,6 +85,18 @@ func sortTargetResults(results []targetResult) {
 		}
 		return results[i].Error < results[j].Error
 	})
+}
+
+func flattenTargetItemsByInputOrder(results []targetResult) []string {
+	ordered := append([]targetResult{}, results...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].Order < ordered[j].Order
+	})
+	outputIDs := make([]string, 0)
+	for _, result := range ordered {
+		outputIDs = append(outputIDs, result.Items...)
+	}
+	return outputIDs
 }
 
 // targetIDLess compares target IDs using numeric order when both fit uint64.

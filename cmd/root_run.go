@@ -173,6 +173,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}()
 
 	var inputErr error
+	nextTargetOrder := 0
 	for input := range stream.inputs {
 		atomic.AddInt64(&totalInputs, 1)
 		if inputErr == nil {
@@ -199,9 +200,11 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			addProgress()
 			continue
 		}
+		targetOrder := nextTargetOrder
+		nextTargetOrder++
 		sem <- struct{}{}
 		wg.Add(1)
-		go func(target inputTarget) {
+		go func(target inputTarget, targetOrder int) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer addProgress()
@@ -218,6 +221,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 				mu.Lock()
 				errorsList = append(errorsList, err.Error())
 				targetResults = append(targetResults, targetResult{
+					Order: targetOrder,
 					Type:  target.Type,
 					ID:    target.ID,
 					Items: newList,
@@ -231,6 +235,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			atomic.AddInt64(&fetchOKCount, 1)
 			mu.Lock()
 			targetResults = append(targetResults, targetResult{
+				Order: targetOrder,
 				Type:  target.Type,
 				ID:    target.ID,
 				Items: newList,
@@ -238,7 +243,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			})
 			idList = append(idList, newList...)
 			mu.Unlock()
-		}(target)
+		}(target, targetOrder)
 	}
 	wg.Wait()
 	close(errCh)
@@ -255,6 +260,9 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	close(sem)
 	runLogger.Info("video list", "count", len(idList))
 	outputIDs := idList
+	if cfg.NoSortOutput {
+		outputIDs = flattenTargetItemsByInputOrder(targetResults)
+	}
 	if cfg.DedupeOutput && len(outputIDs) > 0 {
 		seen := make(map[string]struct{}, len(outputIDs))
 		unique := make([]string, 0, len(outputIDs))
@@ -268,7 +276,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		outputIDs = unique
 	}
 	outputCount := len(outputIDs)
-	if outputCount > 0 {
+	if outputCount > 0 && !cfg.NoSortOutput {
 		niconico.NiconicoSort(outputIDs)
 	}
 	out := outWriterFor(cmd)

@@ -52,28 +52,29 @@ func BenchmarkSortTargetResultsLarge(b *testing.B) {
 }
 
 func BenchmarkRunRootCmdLargeFanInLineOutput(b *testing.B) {
-	server := newBenchmarkAPIServer(b)
-	cfg := testFetchConfig(server.URL)
-	cfg.NoProgress = true
-	args := []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/847130"}
+	benchmarkRunRootCmdLargeFanIn(b, false, false)
+}
 
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		deps := newTestRootDeps()
-		deps.Stdout = io.Discard
-		deps.Stderr = io.Discard
-		err := executeBenchmarkRootCommand(cfg, deps, args...)
-		if err != nil {
-			b.Fatalf("command returned error: %v", err)
-		}
-	}
+func BenchmarkRunRootCmdLargeFanInLineOutputNoSort(b *testing.B) {
+	benchmarkRunRootCmdLargeFanIn(b, false, true)
 }
 
 func BenchmarkRunRootCmdLargeFanInJSONOutput(b *testing.B) {
+	benchmarkRunRootCmdLargeFanIn(b, true, false)
+}
+
+func BenchmarkRunRootCmdLargeFanInJSONOutputNoSort(b *testing.B) {
+	benchmarkRunRootCmdLargeFanIn(b, true, true)
+}
+
+func benchmarkRunRootCmdLargeFanIn(b *testing.B, jsonOutput bool, noSortOutput bool) {
+	b.Helper()
+
 	server := newBenchmarkAPIServer(b)
 	cfg := testFetchConfig(server.URL)
 	cfg.NoProgress = true
-	cfg.JSONOutput = true
+	cfg.JSONOutput = jsonOutput
+	cfg.NoSortOutput = noSortOutput
 	args := []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/847130"}
 
 	b.ReportAllocs()

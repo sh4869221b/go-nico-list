@@ -68,7 +68,8 @@ cat users.txt | go-nico-list --stdin
 | `--no-progress` | disable progress output | `false` |
 | `--strict` | return non-zero if any input is invalid | `false` |
 | `--best-effort` | always exit 0 while logging fetch errors | `false` |
-| `--dedupe` | remove duplicate output IDs before sorting | `false` |
+| `--dedupe` | remove duplicate output IDs before output | `false` |
+| `--no-sort` | skip sorting output IDs for faster output | `false` |
 | `--json` | emit JSON output to stdout | `false` |
 
 Notes:
@@ -88,6 +89,7 @@ Notes:
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
 - `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
 - `--dedupe` removes duplicate video IDs before sorting/output.
+- `--no-sort` skips sorting the flattened output ID list for speed; after optional dedupe, IDs remain in input target order, preserving each target's fetched order.
 - `--json` emits a single JSON object to stdout. `--tab`/`--url` do not affect JSON `items`, and the summary still prints to stderr.
 - In JSON output, `targets` include `type` (`user` or `mylist`) and `id`, sorted by type and numeric id in ascending order.
 
@@ -120,7 +122,7 @@ GitHub Actions runs on pull requests to `master` and pushes to `master`, and enf
 - Contract tests: `internal/niconico/nico_data_contract_test.go` (fixture decode from `internal/niconico/testdata/`).
 - Fuzz tests: `internal/niconico/fuzz_test.go`, `cmd/root_fuzz_test.go` (sorting/JSON/url-parse panic safety).
 - E2E tests (opt-in): `internal/niconico/e2e_test.go` with `-tags=e2e`.
-- Benchmarks (opt-in): `internal/niconico/benchmark_test.go`.
+- Benchmarks (opt-in): `cmd/root_benchmark_test.go`, `internal/niconico/benchmark_test.go`.
 
 Opt-in commands:
 
@@ -131,8 +133,19 @@ go test ./cmd -run=^$ -fuzz=FuzzSubmatchByNameNoPanic -fuzztime=10s
 go test ./internal/niconico -run=^$ -fuzz=FuzzNiconicoSortNoPanic -fuzztime=10s
 go test ./internal/niconico -run=^$ -fuzz=FuzzNicoDataUnmarshalNoPanic -fuzztime=10s
 GO_NICO_LIST_E2E_USER_ID=<user-id> go test -tags=e2e ./internal/niconico -run TestGetVideoListE2E -count=1
+go test ./cmd -run=^$ -bench='BenchmarkRunRootCmdLargeFanIn(LineOutput|JSONOutput)' -benchmem -count=5
 go test ./internal/niconico -run=^$ -bench=BenchmarkNiconicoSort -benchmem -count=1
 ```
+
+Latest local sort/no-sort benchmark sample:
+
+Environment: linux/amd64, AMD Ryzen 7 7700X 8-Core Processor, `go test ./cmd -run=^$ -bench='BenchmarkRunRootCmdLargeFanIn(LineOutput|JSONOutput)' -benchmem -count=5`.
+Numbers below use median `ns/op`; lower is better.
+
+| Benchmark | Sort | No sort | Change |
+| --- | ---: | ---: | ---: |
+| Line output large fan-in | 632,022 ns/op | 601,919 ns/op | 4.8% faster |
+| JSON output large fan-in | 653,449 ns/op | 618,076 ns/op | 5.4% faster |
 
 ## Contributing
 See `CONTRIBUTING.md`.

@@ -166,6 +166,50 @@ func TestRunRootCmdDedupeRemovesDuplicates(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdDefaultSortsFetchedIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testFetchConfig(server.URL)
+
+	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := out.String(); got != "sm1\nsm2\n" {
+		t.Errorf("unexpected stdout output: %q", got)
+	}
+}
+
+func TestRunRootCmdNoSortPreservesFetchOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testFetchConfig(server.URL)
+
+	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "--no-sort", "nicovideo.jp/user/1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := out.String(); got != "sm2\nsm1\n" {
+		t.Errorf("unexpected stdout output: %q", got)
+	}
+}
+
 func TestRunRootCmdStrictOverridesBestEffort(t *testing.T) {
 	cfg := newTestRootConfig()
 	cfg.BestEffort = true

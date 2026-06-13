@@ -28,6 +28,7 @@ type RootConfig struct {
 	StrictInput       bool
 	BestEffort        bool
 	DedupeOutput      bool
+	NoSortOutput      bool
 	JSONOutput        bool
 	RateLimit         float64
 	MinInterval       time.Duration
@@ -116,7 +117,8 @@ func NewRootCommand(cfg RootConfig, deps RootDeps) *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.NoProgress, "no-progress", cfg.NoProgress, "disable progress output")
 	cmd.Flags().BoolVar(&cfg.StrictInput, "strict", cfg.StrictInput, "return non-zero if any input is invalid")
 	cmd.Flags().BoolVar(&cfg.BestEffort, "best-effort", cfg.BestEffort, "always exit 0 while logging fetch errors")
-	cmd.Flags().BoolVar(&cfg.DedupeOutput, "dedupe", cfg.DedupeOutput, "remove duplicate output IDs before sorting")
+	cmd.Flags().BoolVar(&cfg.DedupeOutput, "dedupe", cfg.DedupeOutput, "remove duplicate output IDs before output")
+	cmd.Flags().BoolVar(&cfg.NoSortOutput, "no-sort", cfg.NoSortOutput, "skip sorting output IDs for faster output")
 	cmd.Flags().BoolVar(&cfg.JSONOutput, "json", cfg.JSONOutput, "emit JSON output to stdout")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runRootCmdWithConfig(cmd, args, &cfg, deps)

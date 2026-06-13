@@ -71,6 +71,7 @@ main.go
   - `--max-videos` (default `0`): maximum number of filtered IDs to collect (`0` disables).
   - `--timeout` (default `10s`): HTTP client timeout.
   - `--retries` (default `10`): retry count.
+  - `--no-sort` (default `false`): skip sorting the flattened output list for faster output.
   - `--logfile` (default `""`): log file path (empty = stderr, set = file output).
 
 ### Output
@@ -92,6 +93,7 @@ main.go
   - `--best-effort` exits 0 even when fetch errors occur, while still logging errors.
 - Output behavior:
   - `--dedupe` removes duplicate IDs **before** sorting/output.
+  - `--no-sort` skips sorting the flattened output list after optional dedupe for speed; per-target JSON ordering is unchanged.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
     - `output_count` uses the **deduped** count.
@@ -112,7 +114,7 @@ main.go
 ## Flow
 1. `cmd/root_*.go` extracts user or mylist targets using regex matching.
 2. For each target, a goroutine calls `internal/niconico.GetVideoList` (user) or `internal/niconico.GetMylistVideoList` (mylist).
-3. Aggregate and sort raw IDs, apply optional `tab/url` formatting, then print to stdout.
+3. Aggregate raw IDs, optionally dedupe and sort them, apply optional `tab/url` formatting, then print to stdout.
 
 ## Errors and Exit Codes
 - Validation errors (`concurrency`/`retries`/`timeout`/date format): **non-zero exit**.

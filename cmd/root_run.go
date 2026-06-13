@@ -268,7 +268,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		outputIDs = unique
 	}
 	outputCount := len(outputIDs)
-	if outputCount > 0 {
+	if outputCount > 0 && !cfg.NoSortOutput {
 		niconico.NiconicoSort(outputIDs)
 	}
 	out := outWriterFor(cmd)

@@ -66,7 +66,8 @@ cat users.txt | go-nico-list --stdin
 | `--no-progress` | disable progress output | `false` |
 | `--strict` | return non-zero if any input is invalid | `false` |
 | `--best-effort` | always exit 0 while logging fetch errors | `false` |
-| `--dedupe` | remove duplicate output IDs before sorting | `false` |
+| `--dedupe` | remove duplicate output IDs before output | `false` |
+| `--no-sort` | skip sorting output IDs for faster output | `false` |
 | `--json` | emit JSON output to stdout | `false` |
 
 Notes:
@@ -84,6 +85,7 @@ Notes:
 - `--strict` を指定すると、無効な入力がある場合に非0で終了します（有効な結果は出力されます）。
 - `--best-effort` を指定すると取得エラーがあっても終了コードは 0 になります（エラーはログに残ります）。
 - `--dedupe` を指定すると動画IDの重複を除外してからソート/出力します。
+- `--no-sort` を指定すると速度優先で出力ID一覧のソートを省略します。任意の重複除外後、IDは取得順のまま出力されます。
 - `--json` は stdout に単一の JSON オブジェクトを出力します。`--tab`/`--url` は JSON の `items` に影響せず、サマリは引き続き stderr に出力します。
 
 ## Design

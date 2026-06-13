@@ -67,6 +67,35 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdJSONNoSortPreservesOutputItems(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testFetchConfig(server.URL)
+	cfg.JSONOutput = true
+	cfg.NoSortOutput = true
+
+	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload jsonOutputPayload
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+	if got := strings.Join(payload.Items, ","); got != "sm2,sm1" {
+		t.Errorf("unexpected items: %v", payload.Items)
+	}
+}
+
 func TestRunRootCmdJSONOutputWithFetchError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/users/1/") {

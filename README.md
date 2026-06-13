@@ -144,8 +144,8 @@ Numbers below use median `ns/op`; lower is better.
 
 | Benchmark | Sort | No sort | Change |
 | --- | ---: | ---: | ---: |
-| Line output large fan-in | 631,796 ns/op | 599,128 ns/op | 5.2% faster |
-| JSON output large fan-in | 665,946 ns/op | 615,634 ns/op | 7.6% faster |
+| Line output large fan-in | 632,022 ns/op | 601,919 ns/op | 4.8% faster |
+| JSON output large fan-in | 653,449 ns/op | 618,076 ns/op | 5.4% faster |
 
 ## Contributing
 See `CONTRIBUTING.md`.

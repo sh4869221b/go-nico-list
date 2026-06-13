@@ -89,7 +89,7 @@ Notes:
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
 - `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
 - `--dedupe` removes duplicate video IDs before sorting/output.
-- `--no-sort` skips sorting the flattened output ID list for speed; after optional dedupe, IDs remain in fetched order.
+- `--no-sort` skips sorting the flattened output ID list for speed; after optional dedupe, IDs remain in input target order, preserving each target's fetched order.
 - `--json` emits a single JSON object to stdout. `--tab`/`--url` do not affect JSON `items`, and the summary still prints to stderr.
 - In JSON output, `targets` include `type` (`user` or `mylist`) and `id`, sorted by type and numeric id in ascending order.
 

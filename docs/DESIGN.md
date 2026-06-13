@@ -93,7 +93,7 @@ main.go
   - `--best-effort` exits 0 even when fetch errors occur, while still logging errors.
 - Output behavior:
   - `--dedupe` removes duplicate IDs **before** sorting/output.
-  - `--no-sort` skips sorting the flattened output list after optional dedupe for speed; per-target JSON ordering is unchanged.
+  - `--no-sort` skips sorting the flattened output list after optional dedupe for speed; flattened IDs are emitted in input target order while preserving each target's fetched order, and per-target JSON ordering is unchanged.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
     - `output_count` uses the **deduped** count.

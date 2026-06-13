@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -206,6 +207,44 @@ func TestRunRootCmdNoSortPreservesFetchOrder(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got := out.String(); got != "sm2\nsm1\n" {
+		t.Errorf("unexpected stdout output: %q", got)
+	}
+}
+
+func TestRunRootCmdNoSortPreservesInputOrderWhenTargetsCompleteOutOfOrder(t *testing.T) {
+	user2Completed := make(chan struct{})
+	var user2CompletedOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		isUser2 := strings.Contains(r.URL.Path, "/users/2/")
+		if r.URL.Query().Get("page") != "1" {
+			if isUser2 {
+				user2CompletedOnce.Do(func() { close(user2Completed) })
+			}
+			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/users/1/") {
+			select {
+			case <-user2Completed:
+			case <-r.Context().Done():
+				http.Error(w, "request canceled before user 2 completed", http.StatusGatewayTimeout)
+				return
+			}
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testFetchConfig(server.URL)
+	cfg.Concurrency = 2
+
+	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "--no-sort", "nicovideo.jp/user/1", "nicovideo.jp/user/2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := out.String(); got != "sm1\nsm2\n" {
 		t.Errorf("unexpected stdout output: %q", got)
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
 	"github.com/spf13/cobra"
@@ -89,7 +88,18 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 	}()
 
 	var inputErr error
-	for input := range stream.inputs {
+inputLoop:
+	for {
+		var input string
+		select {
+		case <-ctx.Done():
+			break inputLoop
+		case nextInput, ok := <-stream.inputs:
+			if !ok {
+				break inputLoop
+			}
+			input = nextInput
+		}
 		atomic.AddInt64(&totalInputs, 1)
 		if inputErr == nil {
 			select {
@@ -112,7 +122,11 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 			addProgress()
 			continue
 		}
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break inputLoop
+		}
 		wg.Add(1)
 		go func(target inputTarget) {
 			defer wg.Done()
@@ -139,7 +153,7 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 	close(errCh)
 	fetchErrRet := <-fetchErrCh
 	writeResult := <-writeDone
-	if inputErr == nil {
+	if inputErr == nil && (cfg.MaxVideos <= 0 || writeResult.count < cfg.MaxVideos) && writeResult.err == nil {
 		for err := range inputErrCh {
 			if err != nil {
 				inputErr = err
@@ -194,25 +208,6 @@ func collectFetchErrors(runLogger *slog.Logger, errCh <-chan error, fetchErrCh c
 	}
 	fetchErrCh <- firstErr
 	close(fetchErrCh)
-}
-
-func fetchTargetList(
-	ctx context.Context,
-	target inputTarget,
-	cfg *RootConfig,
-	afterDate time.Time,
-	beforeDate time.Time,
-	limiter *niconico.RateLimiter,
-	runLogger *slog.Logger,
-) ([]string, error) {
-	switch target.Type {
-	case targetTypeUser:
-		return niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, 0, cfg.PageConcurrency, runLogger)
-	case targetTypeMylist:
-		return niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, 0, cfg.PageConcurrency, runLogger)
-	default:
-		return nil, nil
-	}
 }
 
 func writeUnorderedOutput(ctx context.Context, out io.Writer, outputCh <-chan unorderedBatch, cfg *RootConfig, cancel context.CancelFunc, done chan<- unorderedWriteResult) {

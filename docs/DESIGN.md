@@ -93,11 +93,13 @@ main.go
   - If `--strict` and `--best-effort` are both set, **`--strict` takes precedence**.
   - `--best-effort` exits 0 even when fetch errors occur, while still logging errors.
 - Output behavior:
-  - `--dedupe` removes duplicate IDs **before** sorting/output.
-  - `--no-sort` skips sorting the flattened output list after optional dedupe for speed; flattened IDs are emitted in input target order while preserving each target's fetched order, and per-target JSON ordering is unchanged.
+  - Normal line output sorts IDs by numeric video ID.
+  - `--dedupe` removes duplicate IDs **before** sorting/output. In unordered `--no-sort` line output, the first occurrence that reaches the writer is kept.
+  - `--no-sort && !--json` uses an unordered streaming path: input target order, page order, and API item order are not guaranteed. Fetched batches are written by a single stdout writer as they arrive.
+  - `--no-sort --max-videos N` emits the first N IDs that reach the writer and cancels remaining fetches best-effort.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
-    - `output_count` uses the **deduped** count.
+    - `output_count` uses the actual emitted count.
   - `--json` emits a minimal schema to stdout (single JSON object; line output is disabled).
     - Summary still prints to stderr.
     - Schema:
@@ -115,7 +117,8 @@ main.go
 ## Flow
 1. `cmd/root_*.go` extracts user or mylist targets using regex matching.
 2. For each target, a goroutine calls `internal/niconico.GetVideoList` (user) or `internal/niconico.GetMylistVideoList` (mylist).
-3. Aggregate raw IDs, optionally dedupe and sort them, apply optional `tab/url` formatting, then print to stdout.
+3. For normal output, aggregate raw IDs, optionally dedupe and sort them, apply optional `tab/url` formatting, then print to stdout.
+4. For `--no-sort && !--json`, stream fetched batches through a single stdout writer and apply `--dedupe` / `--max-videos` there.
 
 ## Errors and Exit Codes
 - Validation errors (`concurrency`/`retries`/`timeout`/date format): **non-zero exit**.

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 		case "2":
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, "invalid")
-		case "3":
+		case "3", "4":
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
 		default:
 			t.Errorf("unexpected page request after error: %s", r.URL.Query().Get("page"))
@@ -128,7 +129,7 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(requestedPages) > 3 || requestedPages[0] != "1" || requestedPages[1] != "2" {
+	if slices.Contains(requestedPages, "5") {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
 }

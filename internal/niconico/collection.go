@@ -38,9 +38,6 @@ func collectRemainingSequentially(
 		if parsed.NotFound {
 			break
 		}
-		if parsed.Items == nil {
-			continue
-		}
 		if len(parsed.Items) == 0 {
 			break
 		}
@@ -66,8 +63,9 @@ func pageCountFor(totalCount int) int {
 }
 
 type pageResult struct {
-	ids []string
-	err error
+	page int
+	ids  []string
+	err  error
 }
 
 func collectPagesParallel(
@@ -87,6 +85,8 @@ func collectPagesParallel(
 ) ([]string, error) {
 	pages := make(chan int)
 	results := make(chan pageResult, pageConcurrency)
+	stopScheduling := make(chan struct{})
+	var stopOnce sync.Once
 	var wg sync.WaitGroup
 	for range pageConcurrency {
 		wg.Add(1)
@@ -95,13 +95,21 @@ func collectPagesParallel(
 			for page := range pages {
 				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
 				if err != nil {
-					results <- pageResult{err: err}
-					continue
+					select {
+					case results <- pageResult{page: page, err: err}:
+					case <-ctx.Done():
+					}
+					stopOnce.Do(func() { close(stopScheduling) })
+					return
 				}
 				if parsed.NotFound || len(parsed.Items) == 0 {
 					continue
 				}
-				results <- pageResult{ids: filterItems(parsed.Items, commentCount, afterDate, beforeDate)}
+				select {
+				case results <- pageResult{page: page, ids: filterItems(parsed.Items, commentCount, afterDate, beforeDate)}:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}()
 	}
@@ -114,6 +122,11 @@ func collectPagesParallel(
 				wg.Wait()
 				close(results)
 				return
+			case <-stopScheduling:
+				close(pages)
+				wg.Wait()
+				close(results)
+				return
 			}
 		}
 		close(pages)
@@ -121,7 +134,7 @@ func collectPagesParallel(
 		close(results)
 	}()
 
-	var ids []string
+	idsByPage := make(map[int][]string)
 	var firstErr error
 	for result := range results {
 		if result.err != nil {
@@ -130,7 +143,11 @@ func collectPagesParallel(
 			}
 			continue
 		}
-		ids = append(ids, result.ids...)
+		idsByPage[result.page] = result.ids
+	}
+	var ids []string
+	for page := startPage; page <= endPage; page++ {
+		ids = append(ids, idsByPage[page]...)
 	}
 	return ids, firstErr
 }

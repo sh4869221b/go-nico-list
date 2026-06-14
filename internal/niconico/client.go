@@ -102,8 +102,9 @@ func parseMylistPage(body []byte) (parsedPage, error) {
 		Data struct {
 			TotalCount *int `json:"totalCount"`
 			Mylist     struct {
-				TotalCount *int `json:"totalCount"`
-				Items      []struct {
+				TotalCount     *int `json:"totalCount"`
+				TotalItemCount *int `json:"totalItemCount"`
+				Items          []struct {
 					Video struct {
 						ID           string    `json:"id"`
 						RegisteredAt time.Time `json:"registeredAt"`
@@ -126,6 +127,9 @@ func parseMylistPage(body []byte) (parsedPage, error) {
 	totalCountKnown := false
 	if payload.Data.Mylist.TotalCount != nil {
 		totalCount = *payload.Data.Mylist.TotalCount
+		totalCountKnown = true
+	} else if payload.Data.Mylist.TotalItemCount != nil {
+		totalCount = *payload.Data.Mylist.TotalItemCount
 		totalCountKnown = true
 	} else if payload.Data.TotalCount != nil {
 		totalCount = *payload.Data.TotalCount

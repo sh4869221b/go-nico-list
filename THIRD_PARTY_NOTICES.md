@@ -18,4 +18,4 @@ Note: this is provided for convenience and is not legal advice.
 | github.com/spf13/cobra | v1.10.2 | Apache-2.0 | https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt |
 | github.com/spf13/pflag | v1.0.10 | BSD-3-Clause | https://github.com/spf13/pflag/blob/v1.0.10/LICENSE |
 | golang.org/x/sys/unix | v0.46.0 | BSD-3-Clause | https://cs.opensource.google/go/x/sys/+/v0.46.0:LICENSE |
-| golang.org/x/term | v0.43.0 | BSD-3-Clause | https://cs.opensource.google/go/x/term/+/v0.43.0:LICENSE |
+| golang.org/x/term | v0.44.0 | BSD-3-Clause | https://cs.opensource.google/go/x/term/+/v0.44.0:LICENSE |

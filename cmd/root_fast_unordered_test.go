@@ -189,7 +189,7 @@ func TestRunRootCmdNoSortMaxVideosCancelsRemainingFetches(t *testing.T) {
 	}
 	select {
 	case <-slowRequestCanceled:
-	default:
+	case <-time.After(500 * time.Millisecond):
 		t.Fatal("expected max-videos to cancel the slow request")
 	}
 	if got := strings.Fields(out.String()); !slices.Equal(got, []string{"sm1"}) {

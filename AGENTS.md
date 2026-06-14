@@ -32,7 +32,7 @@ go-nico-list/
 | Current behavior spec | `docs/DESIGN.md` | Update before user-facing/design-boundary implementation and get explicit OK. |
 | User docs | `README.md`, `docs/README.ja.md` | Update when user-facing behavior changes. |
 | PR shape | `.github/PULL_REQUEST_TEMPLATE.md` | Keep all sections; use `gh pr create --body-file`. |
-| CI parity | `.github/workflows/ci.yml` | Generated drift, notices, gofmt, vet, lint, test, race. |
+| CI parity | `.github/workflows/ci.yml` | Generated drift, gofmt, vet, lint, test, race. |
 
 ## CODE MAP
 | Symbol | Type | Location | Role |
@@ -93,10 +93,8 @@ git diff --exit-code
 - CI also runs:
 ```bash
 golangci-lint run ./...
-bash scripts/gen-third-party-notices.sh
-git diff --exit-code -- THIRD_PARTY_NOTICES.md
 ```
-- For local work, run `bash scripts/gen-third-party-notices.sh` when dependencies changed or when doing full PR parity verification.
+- `THIRD_PARTY_NOTICES.md` is a release-generated artifact. Do not commit it; the release flow creates it before packaging.
 - Optional targeted layers live in `CONTRIBUTING.md`: contract fixture decode, fuzz smoke, E2E with `GO_NICO_LIST_E2E_USER_ID`, and the sort benchmark.
 
 ## TEST PATTERNS

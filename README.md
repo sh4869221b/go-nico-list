@@ -109,7 +109,6 @@ This project separates the CLI layer from the domain logic so each part is easie
 GitHub Actions runs on pull requests to `master` and pushes to `master`, and enforces:
 - repository ruleset protection on `master` (PR-only updates with required `go-ci` status checks)
 - generated file checks (`go mod tidy`, `go generate ./...`, `git diff --exit-code`)
-- third-party notice sync (`bash scripts/gen-third-party-notices.sh`, `git diff --exit-code -- THIRD_PARTY_NOTICES.md`)
 - `gofmt` (format + diff check)
 - `go vet ./...`
 - `golangci-lint run ./...`
@@ -155,8 +154,8 @@ Releases are published by tagging a version and pushing it to GitHub.
 
 1. Create a tag like `vX.Y.Z`.
 2. Push the tag to GitHub.
-3. GitHub Actions runs the release workflow (verifies `go mod tidy`/`go generate ./...`, runs gofmt/go vet/golangci-lint/go test/go test -race, and checks third-party notices).
-4. GoReleaser publishes the GitHub Release and uploads artifacts.
+3. GitHub Actions runs the release workflow (verifies `go mod tidy`/`go generate ./...` and runs gofmt/go vet/golangci-lint/go test/go test -race).
+4. GoReleaser generates `THIRD_PARTY_NOTICES.md`, publishes the GitHub Release, and uploads artifacts.
 5. Close the milestone after the release workflow succeeds.
 
 Notes:

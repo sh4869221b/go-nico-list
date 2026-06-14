@@ -58,7 +58,8 @@ If your change updates dependencies (changes `go.mod` / `go.sum`), run:
 go mod tidy
 ```
 
-If your change updates dependencies (changes `go.mod` / `go.sum`), also update:
+`THIRD_PARTY_NOTICES.md` is generated during release packaging and is not committed.
+To inspect the release notice output locally, run:
 
 ```bash
 bash scripts/gen-third-party-notices.sh
@@ -67,9 +68,6 @@ bash scripts/gen-third-party-notices.sh
 The script uses `go-licenses` (pinned in the script) and excludes test-only dependencies by default.
 Set `GO_LICENSES_SAVE_PATH` when you also want to save license texts to a directory.
 Requires bash and network access.
-
-Same-repository Renovate module update PRs automatically refresh generated files with the
-`Renovate generated files` workflow before the required CI drift checks run.
 
 ## Project structure
 
@@ -96,7 +94,6 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 - CI runs on pull requests to `master` and pushes to `master`.
 - `master` is protected by a repository ruleset: changes must go through PRs, require conversation resolution, and pass the required `go-ci` status check.
 - CI checks generated-file drift (`go mod tidy`, `go generate ./...`, `git diff --exit-code`).
-- CI checks `THIRD_PARTY_NOTICES.md` drift (`bash scripts/gen-third-party-notices.sh` + diff check).
 - CI runs gofmt, go vet, golangci-lint, go test, and go test -race.
 - Workflow actions are pinned by commit SHA. When upgrading action versions, update the pinned SHAs intentionally.
 - After addressing review feedback, request a Codex re-review in chat.
@@ -109,9 +106,8 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 3. Create and push a version tag: `vX.Y.Z`.
    - Release tags are protected by a repository ruleset for `refs/tags/v*`.
 4. GitHub Actions runs the release workflow, verifying generated files (`go mod tidy`, `go generate ./...`) and running gofmt/go vet/golangci-lint/go test/go test -race.
-5. The workflow regenerates `THIRD_PARTY_NOTICES.md` and fails if it is out of date.
-6. GoReleaser publishes the GitHub Release and uploads artifacts.
-7. After the release workflow succeeds, close the milestone.
+5. GoReleaser generates `THIRD_PARTY_NOTICES.md` before packaging, publishes the GitHub Release, and uploads artifacts.
+6. After the release workflow succeeds, close the milestone.
 
 ## Branch strategy
 
@@ -121,10 +117,10 @@ Keep `WORKLOG.md` local-only (git-ignored); do not commit it.
 
 ## Review criteria
 
-- CI must be green (generated files, third-party notices, gofmt, go vet, golangci-lint, go test, go test -race).
+- CI must be green (generated files, gofmt, go vet, golangci-lint, go test, go test -race).
 - If behavior changes, add or update tests; otherwise explain why in the PR.
 - If user-facing behavior changes, update README.md and docs/DESIGN.md.
-- If dependencies change, run `go mod tidy` and update `THIRD_PARTY_NOTICES.md`.
+- If dependencies change, run `go mod tidy`.
 - Breaking changes must be called out in the PR and docs.
 
 ## Commit messages

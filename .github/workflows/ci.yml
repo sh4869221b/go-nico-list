@@ -34,7 +34,7 @@ jobs:
 
       - name: Check gofmt
         run: |
-          gofmt -w $(git ls-files '*.go')
+          git ls-files '*.go' | xargs gofmt -w
           git diff --exit-code
 
       - name: Go vet
@@ -50,8 +50,3 @@ jobs:
 
       - name: Go test (race)
         run: go test -race -count=1 ./...
-
-      - name: Verify third-party notices
-        run: |
-          bash scripts/gen-third-party-notices.sh
-          git diff --exit-code -- THIRD_PARTY_NOTICES.md

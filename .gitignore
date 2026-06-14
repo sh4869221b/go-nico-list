@@ -68,6 +68,9 @@ dist/
 # Local work log (keep untracked)
 WORKLOG.md
 
+# Release-generated artifact
+THIRD_PARTY_NOTICES.md
+
 # Local agent state
 .codex/
 .omo/

@@ -34,4 +34,4 @@
 - [ ] `golangci-lint run ./...`
 - [ ] `go test ./...`
 - [ ] Updated docs (`README.md` / `DESIGN.md`) if behavior changed
-- [ ] Updated `THIRD_PARTY_NOTICES.md` if dependencies changed
+- [ ] Checked release-generated third-party notices if dependencies changed

@@ -1,4 +1,4 @@
-name: Dependabot generated files
+name: Renovate generated files
 
 permissions:
   actions: write
@@ -16,11 +16,13 @@ on:
 jobs:
   refresh-generated-files:
     if: >-
-      github.actor == 'dependabot[bot]' &&
+      github.actor == 'renovate[bot]' &&
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'renovate/') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Dependabot branch
+      - name: Checkout Renovate branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}

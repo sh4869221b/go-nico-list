@@ -88,6 +88,7 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 	}()
 
 	var inputErr error
+	inputClosed := false
 inputLoop:
 	for {
 		var input string
@@ -96,6 +97,7 @@ inputLoop:
 			break inputLoop
 		case nextInput, ok := <-stream.inputs:
 			if !ok {
+				inputClosed = true
 				break inputLoop
 			}
 			input = nextInput
@@ -153,7 +155,16 @@ inputLoop:
 	close(errCh)
 	fetchErrRet := <-fetchErrCh
 	writeResult := <-writeDone
-	if inputErr == nil && (cfg.MaxVideos <= 0 || writeResult.count < cfg.MaxVideos) && writeResult.err == nil {
+	if inputErr == nil {
+		select {
+		case err, ok := <-inputErrCh:
+			if ok && err != nil {
+				inputErr = err
+			}
+		default:
+		}
+	}
+	if inputErr == nil && inputClosed && writeResult.err == nil {
 		for err := range inputErrCh {
 			if err != nil {
 				inputErr = err

@@ -53,6 +53,7 @@ cat users.txt | go-nico-list --stdin
 | `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
+| `--page-concurrency` | number of concurrent page requests per target | `1` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
 | `--max-pages` | maximum number of pages to fetch | `0` |
@@ -74,12 +75,13 @@ Notes:
 - 入力は引数、`--input-file`、`--stdin` で指定できます（改行区切り）。
 - 各入力は `nicovideo.jp/user/<id>` または `nicovideo.jp/mylist/<id>` を含む必要があります（スキームは任意）。数字のみやドメインなしのパスだけの入力は無効としてスキップされます。
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
-- `concurrency` または `retries` を 1 未満にすると実行時エラーになります。
+- `concurrency`、`page-concurrency`、`retries` を 1 未満にするか、`timeout` を 0 以下にすると実行時エラーになります。
 - `--max-pages` と `--max-videos` は安全制限で、`0` で無効化されます。
 - 上限に達した場合は取得を早期終了し、エラー扱いにせず best-effort の結果を返します。
 - 200/404 以外の HTTP ステータスがリトライ後も続く場合は取得エラー扱いになります。
 - HTTP 200 でも `meta.status != 200` の場合は警告ログを出しつつ処理を続行します。
-- すべてのリクエスト（リトライ含む）に対してレート制限が適用され、HTTP 429 の `Retry-After` は可能な限り尊重されます。
+- `--page-concurrency` は各入力ターゲット内のページ取得並列数を制御します。最大同時リクエスト数の目安は `--concurrency * --page-concurrency` です。
+- すべてのリクエスト（リトライ含む）に対してレート制限が適用され、HTTP 429 の `Retry-After` は可能な限り尊重されます。高い並列数を使う場合は API 負荷を抑えるため `--rate-limit` または `--min-interval` を併用してください。
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
 - 処理後に実行サマリを stderr に出力します（非0終了時も含む）。
 - `--strict` を指定すると、無効な入力がある場合に非0で終了します（有効な結果は出力されます）。

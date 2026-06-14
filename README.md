@@ -84,7 +84,8 @@ Notes:
 - When a safety cap is hit, fetching stops early and returns best-effort results without error.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
-- Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present.
+- `--page-concurrency` controls concurrent page requests inside each input target. The maximum in-flight request count is roughly `--concurrency * --page-concurrency`.
+- Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.

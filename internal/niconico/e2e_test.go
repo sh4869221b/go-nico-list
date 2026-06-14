@@ -43,6 +43,7 @@ func TestGetVideoListE2E(t *testing.T) {
 		nil,
 		2,
 		10,
+		1,
 		logger,
 	)
 	if err != nil {

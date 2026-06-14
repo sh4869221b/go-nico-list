@@ -107,7 +107,7 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 		case "2":
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, "invalid")
-		case "3", "4":
+		case "3":
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
 		default:
 			t.Errorf("unexpected page request after error: %s", r.URL.Query().Get("page"))
@@ -129,7 +129,58 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if slices.Contains(requestedPages, "5") {
+	if slices.Contains(requestedPages, "4") {
+		t.Fatalf("unexpected requested pages: %v", requestedPages)
+	}
+}
+
+func TestGetVideoListPageConcurrencyStopsAtEmptyPage(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	releasePage3 := make(chan struct{})
+	var releaseOnce sync.Once
+	var requestedPages []string
+	var mu sync.Mutex
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		mu.Lock()
+		requestedPages = append(requestedPages, page)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch page {
+		case "1":
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":500,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+		case "2":
+			releaseOnce.Do(func() { close(releasePage3) })
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
+		case "3":
+			select {
+			case <-releasePage3:
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
+		default:
+			t.Errorf("unexpected page request after empty page: %s", page)
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
+		}
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { releaseOnce.Do(func() { close(releasePage3) }) })
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"sm1"}) {
+		t.Fatalf("unexpected ids: %v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if slices.Contains(requestedPages, "4") {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
 }

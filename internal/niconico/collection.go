@@ -63,9 +63,10 @@ func pageCountFor(totalCount int) int {
 }
 
 type pageResult struct {
-	page int
-	ids  []string
-	err  error
+	page      int
+	ids       []string
+	err       error
+	terminate bool
 }
 
 func collectPagesParallel(
@@ -93,17 +94,27 @@ func collectPagesParallel(
 		go func() {
 			defer wg.Done()
 			for page := range pages {
+				select {
+				case <-stopScheduling:
+					return
+				default:
+				}
 				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
 				if err != nil {
+					stopOnce.Do(func() { close(stopScheduling) })
 					select {
 					case results <- pageResult{page: page, err: err}:
 					case <-ctx.Done():
 					}
-					stopOnce.Do(func() { close(stopScheduling) })
 					return
 				}
 				if parsed.NotFound || len(parsed.Items) == 0 {
-					continue
+					stopOnce.Do(func() { close(stopScheduling) })
+					select {
+					case results <- pageResult{page: page, terminate: true}:
+					case <-ctx.Done():
+					}
+					return
 				}
 				select {
 				case results <- pageResult{page: page, ids: filterItems(parsed.Items, commentCount, afterDate, beforeDate)}:
@@ -116,17 +127,25 @@ func collectPagesParallel(
 	go func() {
 		for page := startPage; page <= endPage; page++ {
 			select {
-			case pages <- page:
-			case <-ctx.Done():
-				close(pages)
-				wg.Wait()
-				close(results)
-				return
 			case <-stopScheduling:
 				close(pages)
 				wg.Wait()
 				close(results)
 				return
+			default:
+			}
+			select {
+			case <-stopScheduling:
+				close(pages)
+				wg.Wait()
+				close(results)
+				return
+			case <-ctx.Done():
+				close(pages)
+				wg.Wait()
+				close(results)
+				return
+			case pages <- page:
 			}
 		}
 		close(pages)
@@ -136,17 +155,27 @@ func collectPagesParallel(
 
 	idsByPage := make(map[int][]string)
 	var firstErr error
+	stopAtPage := endPage + 1
 	for result := range results {
 		if result.err != nil {
 			if firstErr == nil {
 				firstErr = result.err
+			}
+			if result.page < stopAtPage {
+				stopAtPage = result.page
+			}
+			continue
+		}
+		if result.terminate {
+			if result.page < stopAtPage {
+				stopAtPage = result.page
 			}
 			continue
 		}
 		idsByPage[result.page] = result.ids
 	}
 	var ids []string
-	for page := startPage; page <= endPage; page++ {
+	for page := startPage; page < stopAtPage; page++ {
 		ids = append(ids, idsByPage[page]...)
 	}
 	return ids, firstErr

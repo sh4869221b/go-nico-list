@@ -71,7 +71,7 @@ func BenchmarkGetVideoListLargeUserPayload(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		ids, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+		ids, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 		if err != nil {
 			b.Fatalf("GetVideoList returned error: %v", err)
 		}
@@ -98,7 +98,7 @@ func BenchmarkGetMylistVideoListLargePayload(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		ids, err := GetMylistVideoList(context.Background(), "847130", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+		ids, err := GetMylistVideoList(context.Background(), "847130", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 		if err != nil {
 			b.Fatalf("GetMylistVideoList returned error: %v", err)
 		}

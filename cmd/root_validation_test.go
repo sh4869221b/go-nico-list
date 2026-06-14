@@ -104,3 +104,24 @@ func TestConcurrencyValidation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestPageConcurrencyValidation(t *testing.T) {
+	_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "--page-concurrency=0", "12345")
+	if err == nil || err.Error() != "page-concurrency must be at least 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPageConcurrencyFlagDocumentsPerTargetScope(t *testing.T) {
+	cmd, _, _ := newTestRootCommand(t, newTestRootConfig(), newTestRootDeps())
+	flag := cmd.Flags().Lookup("page-concurrency")
+	if flag == nil {
+		t.Fatalf("expected page-concurrency flag")
+	}
+	if flag.DefValue != "1" {
+		t.Fatalf("expected default 1, got %q", flag.DefValue)
+	}
+	if got := flag.Usage; got != "number of concurrent page requests per target" {
+		t.Fatalf("unexpected usage: %q", got)
+	}
+}

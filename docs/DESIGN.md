@@ -65,6 +65,7 @@ main.go
     - `dateafter` must be on or before `datebefore`.
   - `--tab` (default `false`), `--url` (default `false`): output formatting.
   - `--concurrency` (default `3`): concurrent requests.
+  - `--page-concurrency` (default `1`): concurrent page requests per target.
   - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
   - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
   - `--max-pages` (default `0`): maximum number of pages to fetch (`0` disables).

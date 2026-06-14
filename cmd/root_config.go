@@ -18,6 +18,7 @@ type RootConfig struct {
 	Tab               bool
 	URL               bool
 	Concurrency       int
+	PageConcurrency   int
 	Retries           int
 	HTTPClientTimeout time.Duration
 	InputFilePath     string
@@ -55,6 +56,7 @@ func DefaultConfig() RootConfig {
 		DateAfter:         "10000101",
 		DateBefore:        "99991231",
 		Concurrency:       3,
+		PageConcurrency:   1,
 		Retries:           defaultRetries,
 		HTTPClientTimeout: defaultHTTPTimeout,
 		BaseURL:           defaultBaseURL,
@@ -104,6 +106,7 @@ func NewRootCommand(cfg RootConfig, deps RootDeps) *cobra.Command {
 	cmd.Flags().BoolVarP(&cfg.Tab, "tab", "t", cfg.Tab, "id tab Separated flag")
 	cmd.Flags().BoolVarP(&cfg.URL, "url", "u", cfg.URL, "output id add url")
 	cmd.Flags().IntVarP(&cfg.Concurrency, "concurrency", "n", cfg.Concurrency, "number of concurrent requests")
+	cmd.Flags().IntVar(&cfg.PageConcurrency, "page-concurrency", cfg.PageConcurrency, "number of concurrent page requests per target")
 	cmd.Flags().DurationVar(&cfg.HTTPClientTimeout, "timeout", cfg.HTTPClientTimeout, "HTTP client timeout")
 	cmd.Flags().IntVar(&cfg.Retries, "retries", cfg.Retries, "number of retries for requests")
 	cmd.Flags().Float64Var(&cfg.RateLimit, "rate-limit", cfg.RateLimit, "maximum requests per second (0 disables)")
@@ -136,6 +139,9 @@ func normalizeRootConfig(cfg RootConfig) RootConfig {
 	}
 	if cfg.Concurrency == 0 {
 		cfg.Concurrency = defaults.Concurrency
+	}
+	if cfg.PageConcurrency == 0 {
+		cfg.PageConcurrency = defaults.PageConcurrency
 	}
 	if cfg.Retries == 0 {
 		cfg.Retries = defaults.Retries

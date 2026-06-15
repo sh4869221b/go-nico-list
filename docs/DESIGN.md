@@ -65,6 +65,7 @@ main.go
     - `dateafter` must be on or before `datebefore`.
   - `--tab` (default `false`), `--url` (default `false`): output formatting.
   - `--concurrency` (default `3`): concurrent requests.
+  - `--page-concurrency` (default `1`): concurrent page requests per target; total in-flight requests are roughly `--concurrency * --page-concurrency`.
   - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
   - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
   - `--max-pages` (default `0`): maximum number of pages to fetch (`0` disables).
@@ -137,6 +138,8 @@ main.go
   - `X-Frontend-Id: 6`
   - `Accept: */*`
 - Pagination: fetch until API page end.
+- When `totalCount` is present, page 1 determines the bounded page range and later pages may be fetched concurrently up to `--page-concurrency`.
+- If `totalCount` is unavailable or `--max-videos` is set, fetching uses the sequential empty/404 termination path for compatibility.
 - `max-pages` stops after the given number of pages (best-effort, no error).
 - `max-videos` stops after collecting the given number of filtered IDs (best-effort, no error).
 - Filters:

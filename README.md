@@ -55,6 +55,7 @@ cat users.txt | go-nico-list --stdin
 | `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
+| `--page-concurrency` | number of concurrent page requests per target | `1` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
 | `--max-pages` | maximum number of pages to fetch | `0` |
@@ -77,13 +78,14 @@ Notes:
 - Input lines from `--input-file` and `--stdin` are limited to 1 MiB per line; longer lines fail with an input read error.
 - Each input must contain `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` (scheme optional). Plain digits or paths without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
-- Setting `concurrency` or `retries` to a value less than 1, or `timeout` to a value less than or equal to 0, will cause a runtime error.
+- Setting `concurrency`, `page-concurrency`, or `retries` to a value less than 1, or `timeout` to a value less than or equal to 0, will cause a runtime error.
 - `--dateafter` must be on or before `--datebefore`; inverted ranges return a validation error.
 - `--max-pages` and `--max-videos` are safety caps; `0` disables them.
 - When a safety cap is hit, fetching stops early and returns best-effort results without error.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
-- Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present.
+- `--page-concurrency` controls concurrent page requests inside each input target. The maximum in-flight request count is roughly `--concurrency * --page-concurrency`.
+- Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.

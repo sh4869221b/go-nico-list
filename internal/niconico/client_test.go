@@ -20,6 +20,14 @@ type trackingReadCloser struct {
 	closed bool
 }
 
+func sameStringSet(got []string, want []string) bool {
+	gotCopy := append([]string{}, got...)
+	wantCopy := append([]string{}, want...)
+	slices.Sort(gotCopy)
+	slices.Sort(wantCopy)
+	return slices.Equal(gotCopy, wantCopy)
+}
+
 func (r *trackingReadCloser) Read(_ []byte) (int, error) {
 	return 0, io.EOF
 }
@@ -461,7 +469,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 5, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+		got, err := GetVideoList(context.Background(), "12345", 5, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -487,7 +495,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+		got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -508,7 +516,7 @@ func TestGetVideoList(t *testing.T) {
 		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-		_, err := GetVideoList(context.Background(), "12345", 5, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+		_, err := GetVideoList(context.Background(), "12345", 5, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -530,7 +538,7 @@ func TestGetVideoListContextCanceled(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+	got, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -553,7 +561,7 @@ func TestGetVideoListHandleNotFound(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -579,7 +587,7 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	_, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 2, time.Second, nil, 0, 0, logger)
+	_, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 2, time.Second, nil, 0, 0, 1, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -607,7 +615,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -634,7 +642,7 @@ func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, 0, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, 0, 1, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -643,6 +651,74 @@ func TestGetVideoListMaxPagesStopsEarly(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 attempt, got %d", count)
+	}
+}
+
+func TestGetVideoListPageConcurrencyAppliesMaxPagesBeforeScheduling(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	var requestedPages []string
+	var mu sync.Mutex
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requestedPages = append(requestedPages, r.URL.Query().Get("page"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+		case "2":
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+		default:
+			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[]}}`)
+		}
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, 0, 2, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sameStringSet(got, []string{"sm1", "sm2"}) {
+		t.Fatalf("unexpected ids: %v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
+		t.Fatalf("unexpected requested pages: %v", requestedPages)
+	}
+}
+
+func TestGetVideoListPageConcurrencyReturnsPartialIDsOnFetchError(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+		case "2":
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, "invalid")
+		}
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !sameStringSet(got, []string{"sm1", "sm2"}) {
+		t.Fatalf("unexpected partial ids: %v", got)
 	}
 }
 
@@ -660,7 +736,7 @@ func TestGetVideoListMaxVideosStopsEarly(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 2, 1, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -696,11 +772,7 @@ func TestGetMylistVideoList(t *testing.T) {
 		time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC),
 		server.URL,
 		1,
-		time.Second,
-		nil,
-		0,
-		0,
-		slog.New(slog.DiscardHandler),
+		time.Second, nil, 0, 0, 1, slog.New(slog.DiscardHandler),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

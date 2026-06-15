@@ -5,24 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"strconv"
-	"strings"
-	"sync"
 	"time"
 )
 
-const (
-	retryBaseDelay = 100 * time.Millisecond
-	retryMaxDelay  = 30 * time.Second
-)
-
-var (
-	timeNow = time.Now
-	sleepFn = sleepWithContext
-)
+const pageSize = 100
 
 type videoItem struct {
 	ID           string
@@ -43,23 +30,14 @@ func GetVideoList(
 	limiter *RateLimiter,
 	maxPages int,
 	maxVideos int,
+	pageConcurrency int,
 	logger *slog.Logger,
 ) ([]string, error) {
-	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger,
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, pageConcurrency, logger,
 		func(page int) string {
-			return fmt.Sprintf("%s/users/%s/videos?pageSize=100&page=%d", baseURL, userID, page)
+			return fmt.Sprintf("%s/users/%s/videos?pageSize=%d&page=%d", baseURL, userID, pageSize, page)
 		},
-		func(body []byte) ([]videoItem, int, error) {
-			var nicoData NicoData
-			if err := json.Unmarshal(body, &nicoData); err != nil {
-				return nil, 0, err
-			}
-			items := make([]videoItem, 0, len(nicoData.Data.Items))
-			for _, s := range nicoData.Data.Items {
-				items = append(items, videoItem{ID: s.Essential.ID, CommentCount: s.Essential.Count.Comment, RegisteredAt: s.Essential.RegisteredAt})
-			}
-			return items, nicoData.Meta.Status, nil
-		},
+		parseUserVideoPage,
 	)
 }
 
@@ -76,41 +54,93 @@ func GetMylistVideoList(
 	limiter *RateLimiter,
 	maxPages int,
 	maxVideos int,
+	pageConcurrency int,
 	logger *slog.Logger,
 ) ([]string, error) {
-	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger,
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, pageConcurrency, logger,
 		func(page int) string {
-			return fmt.Sprintf("%s/mylists/%s?pageSize=100&page=%d", baseURL, mylistID, page)
+			return fmt.Sprintf("%s/mylists/%s?pageSize=%d&page=%d", baseURL, mylistID, pageSize, page)
 		},
-		func(body []byte) ([]videoItem, int, error) {
-			var payload struct {
-				Meta struct {
-					Status int `json:"status"`
-				} `json:"meta"`
-				Data struct {
-					Mylist struct {
-						Items []struct {
-							Video struct {
-								ID           string    `json:"id"`
-								RegisteredAt time.Time `json:"registeredAt"`
-								Count        struct {
-									Comment int `json:"comment"`
-								} `json:"count"`
-							} `json:"video"`
-						} `json:"items"`
-					} `json:"mylist"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(body, &payload); err != nil {
-				return nil, 0, err
-			}
-			items := make([]videoItem, 0, len(payload.Data.Mylist.Items))
-			for _, it := range payload.Data.Mylist.Items {
-				items = append(items, videoItem{ID: it.Video.ID, CommentCount: it.Video.Count.Comment, RegisteredAt: it.Video.RegisteredAt})
-			}
-			return items, payload.Meta.Status, nil
-		},
+		parseMylistPage,
 	)
+}
+
+func parseUserVideoPage(body []byte) (parsedPage, error) {
+	var nicoData NicoData
+	if err := json.Unmarshal(body, &nicoData); err != nil {
+		return parsedPage{}, err
+	}
+	var countPayload struct {
+		Data struct {
+			TotalCount *int `json:"totalCount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &countPayload); err != nil {
+		return parsedPage{}, err
+	}
+	items := make([]videoItem, 0, len(nicoData.Data.Items))
+	for _, s := range nicoData.Data.Items {
+		items = append(items, videoItem{ID: s.Essential.ID, CommentCount: s.Essential.Count.Comment, RegisteredAt: s.Essential.RegisteredAt})
+	}
+	totalCount := 0
+	if countPayload.Data.TotalCount != nil {
+		totalCount = *countPayload.Data.TotalCount
+	}
+	return parsedPage{
+		Items:           items,
+		Status:          nicoData.Meta.Status,
+		TotalCount:      totalCount,
+		TotalCountKnown: countPayload.Data.TotalCount != nil,
+	}, nil
+}
+
+func parseMylistPage(body []byte) (parsedPage, error) {
+	var payload struct {
+		Meta struct {
+			Status int `json:"status"`
+		} `json:"meta"`
+		Data struct {
+			TotalCount *int `json:"totalCount"`
+			Mylist     struct {
+				TotalCount     *int `json:"totalCount"`
+				TotalItemCount *int `json:"totalItemCount"`
+				Items          []struct {
+					Video struct {
+						ID           string    `json:"id"`
+						RegisteredAt time.Time `json:"registeredAt"`
+						Count        struct {
+							Comment int `json:"comment"`
+						} `json:"count"`
+					} `json:"video"`
+				} `json:"items"`
+			} `json:"mylist"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return parsedPage{}, err
+	}
+	items := make([]videoItem, 0, len(payload.Data.Mylist.Items))
+	for _, it := range payload.Data.Mylist.Items {
+		items = append(items, videoItem{ID: it.Video.ID, CommentCount: it.Video.Count.Comment, RegisteredAt: it.Video.RegisteredAt})
+	}
+	totalCount := 0
+	totalCountKnown := false
+	if payload.Data.Mylist.TotalCount != nil {
+		totalCount = *payload.Data.Mylist.TotalCount
+		totalCountKnown = true
+	} else if payload.Data.Mylist.TotalItemCount != nil {
+		totalCount = *payload.Data.Mylist.TotalItemCount
+		totalCountKnown = true
+	} else if payload.Data.TotalCount != nil {
+		totalCount = *payload.Data.TotalCount
+		totalCountKnown = true
+	}
+	return parsedPage{
+		Items:           items,
+		Status:          payload.Meta.Status,
+		TotalCount:      totalCount,
+		TotalCountKnown: totalCountKnown,
+	}, nil
 }
 
 func collectVideoList(
@@ -123,233 +153,46 @@ func collectVideoList(
 	limiter *RateLimiter,
 	maxPages int,
 	maxVideos int,
+	pageConcurrency int,
 	logger *slog.Logger,
 	requestURL func(page int) string,
-	parseItems func(body []byte) ([]videoItem, int, error),
+	parsePage parsePageFunc,
 ) ([]string, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	var resStr []string
-
-	for page := 1; ; page++ {
-		if maxPages > 0 && page > maxPages {
-			break
-		}
-		res, err := retriesRequest(ctx, requestURL(page), httpClientTimeout, retries, limiter)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, nil
-			}
-			return resStr, err
-		}
-		if res == nil {
-			continue
-		}
-		if closeAndIsNotFound(res) {
-			break
-		}
-		body, err := io.ReadAll(res.Body)
-		_ = res.Body.Close()
-		if err != nil {
-			logger.Error("failed to read response body", "error", err)
-			return resStr, err
-		}
-		items, status, err := parseItems(body)
-		if err != nil {
-			logger.Error("failed to unmarshal response body", "error", err)
-			return resStr, err
-		}
-		if status != http.StatusOK {
-			logger.Warn("unexpected meta status", "status", status)
-		}
-		if len(items) == 0 {
-			break
-		}
-		for _, item := range items {
-			if item.CommentCount <= commentCount {
-				continue
-			}
-			if item.RegisteredAt.Before(afterDate) {
-				continue
-			}
-			if !item.RegisteredAt.Before(beforeDate.AddDate(0, 0, 1)) {
-				continue
-			}
-			resStr = append(resStr, item.ID)
-			if maxVideos > 0 && len(resStr) >= maxVideos {
-				return resStr, nil
-			}
-		}
-	}
-	return resStr, nil
-}
-
-// closeAndIsNotFound closes the response body and reports whether the status is 404.
-func closeAndIsNotFound(res *http.Response) bool {
-	if res == nil || res.StatusCode != http.StatusNotFound {
-		return false
-	}
-	_ = res.Body.Close()
-	return true
-}
-
-// evaluateResponse validates HTTP responses and returns any retry delay needed.
-func evaluateResponse(res *http.Response) (*http.Response, time.Duration, error) {
-	if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
-		return res, 0, nil
-	}
-	retryAfter := retryAfterDelay(res)
-	_ = res.Body.Close()
-	return nil, retryAfter, fmt.Errorf("unexpected status: %d", res.StatusCode)
-}
-
-// nextRetryDelay calculates the next backoff delay, honoring Retry-After when larger.
-func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
-	wait := min(retryBaseDelay*time.Duration(1<<uint(attempt-1)), retryMaxDelay)
-	return max(retryAfter, wait)
-}
-
-// retriesRequest issues a GET request with retries and rate limiting.
-func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	firstPage, err := fetchPage(ctx, requestURL(1), httpClientTimeout, retries, limiter, logger, parsePage)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	req.Header.Set("X-Frontend-Id", "6")
-	req.Header.Set("Accept", "*/*")
-	client := &http.Client{Timeout: httpClientTimeout}
-
-	var lastErr error
-
-	delay := time.Duration(0)
-	for attempt := 1; attempt <= retries; attempt++ {
-		if err := waitBeforeAttempt(ctx, limiter, delay); err != nil {
-			return nil, err
+	if firstPage.NotFound || len(firstPage.Items) == 0 {
+		return nil, nil
+	}
+	resStr := filterItems(firstPage.Items, commentCount, afterDate, beforeDate)
+	if maxVideos > 0 && len(resStr) >= maxVideos {
+		return resStr[:maxVideos], nil
+	}
+	if shouldCollectSequentially(firstPage, pageConcurrency, maxVideos) {
+		return collectRemainingSequentially(ctx, resStr, 2, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger, requestURL, parsePage)
+	}
+	totalPages := pageCountFor(firstPage.TotalCount)
+	if maxPages > 0 && totalPages > maxPages {
+		totalPages = maxPages
+	}
+	if totalPages <= 1 {
+		return resStr, nil
+	}
+	parallelIDs, err := collectPagesParallel(ctx, 2, totalPages, pageConcurrency, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage)
+	resStr = append(resStr, parallelIDs...)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, nil
 		}
-		delay = 0
-
-		res, err := client.Do(req)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				if res != nil {
-					_ = res.Body.Close()
-				}
-				return nil, err
-			}
-			if res != nil {
-				_ = res.Body.Close()
-			}
-			lastErr = err
-		} else {
-			var retryAfter time.Duration
-			res, retryAfter, err = evaluateResponse(res)
-			if err == nil {
-				return res, nil
-			}
-			lastErr = err
-			delay = retryAfter
-		}
-
-		if attempt == retries {
-			return nil, lastErr
-		}
-
-		delay = nextRetryDelay(delay, attempt)
+		return resStr, err
 	}
-
-	return nil, lastErr
-}
-
-// sleepWithContext waits for the duration or returns early on context cancellation.
-func sleepWithContext(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-// waitBeforeAttempt applies any delay and rate limiting before a request attempt.
-func waitBeforeAttempt(ctx context.Context, limiter *RateLimiter, delay time.Duration) error {
-	if limiter == nil {
-		return sleepFn(ctx, delay)
-	}
-	return limiter.Wait(ctx, delay)
-}
-
-// retryAfterDelay parses Retry-After for 429 responses and returns a delay.
-func retryAfterDelay(res *http.Response) time.Duration {
-	if res == nil || res.StatusCode != http.StatusTooManyRequests {
-		return 0
-	}
-	value := strings.TrimSpace(res.Header.Get("Retry-After"))
-	if value == "" {
-		return 0
-	}
-	if seconds, err := strconv.Atoi(value); err == nil {
-		if seconds <= 0 {
-			return 0
-		}
-		return time.Duration(seconds) * time.Second
-	}
-	if parsed, err := http.ParseTime(value); err == nil {
-		if delay := parsed.Sub(timeNow()); delay > 0 {
-			return delay
-		}
-	}
-	return 0
-}
-
-// RateLimiter enforces a minimum interval between requests.
-type RateLimiter struct {
-	mu       sync.Mutex
-	interval time.Duration
-	nextTime time.Time
-}
-
-// NewRateLimiter builds a RateLimiter from rate and minimum interval settings.
-func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
-	interval := time.Duration(0)
-	if rateLimit > 0 {
-		seconds := float64(time.Second) / rateLimit
-		if seconds < float64(time.Nanosecond) {
-			interval = time.Nanosecond
-		} else {
-			interval = time.Duration(seconds)
-		}
-	}
-	if minInterval > interval {
-		interval = minInterval
-	}
-	if interval <= 0 {
-		return nil
-	}
-	return &RateLimiter{interval: interval}
-}
-
-// Wait blocks until the next request slot is available.
-func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
-	if l == nil {
-		return sleepFn(ctx, minDelay)
-	}
-	if minDelay < 0 {
-		minDelay = 0
-	}
-	now := timeNow()
-	readyAt := now.Add(minDelay)
-	l.mu.Lock()
-	if l.nextTime.After(readyAt) {
-		readyAt = l.nextTime
-	}
-	l.nextTime = readyAt.Add(l.interval)
-	l.mu.Unlock()
-	return sleepFn(ctx, readyAt.Sub(now))
+	return resStr, nil
 }

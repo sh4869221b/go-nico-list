@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -69,6 +70,19 @@ type pageResult struct {
 	terminate bool
 }
 
+func lowerStopBefore(stopBefore *atomic.Int64, page int) {
+	newStop := int64(page)
+	for {
+		current := stopBefore.Load()
+		if newStop >= current {
+			return
+		}
+		if stopBefore.CompareAndSwap(current, newStop) {
+			return
+		}
+	}
+}
+
 func collectPagesParallel(
 	ctx context.Context,
 	startPage int,
@@ -88,32 +102,28 @@ func collectPagesParallel(
 	results := make(chan pageResult, pageConcurrency)
 	stopScheduling := make(chan struct{})
 	var stopOnce sync.Once
+	var stopBefore atomic.Int64
+	stopBefore.Store(int64(endPage + 1))
 	var wg sync.WaitGroup
 	for range pageConcurrency {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for page := range pages {
-				select {
-				case <-stopScheduling:
+				if int64(page) >= stopBefore.Load() {
 					return
-				default:
 				}
 				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
 				if err != nil {
+					lowerStopBefore(&stopBefore, page)
 					stopOnce.Do(func() { close(stopScheduling) })
-					select {
-					case results <- pageResult{page: page, err: err}:
-					case <-ctx.Done():
-					}
+					results <- pageResult{page: page, err: err}
 					return
 				}
 				if parsed.NotFound || len(parsed.Items) == 0 {
+					lowerStopBefore(&stopBefore, page)
 					stopOnce.Do(func() { close(stopScheduling) })
-					select {
-					case results <- pageResult{page: page, terminate: true}:
-					case <-ctx.Done():
-					}
+					results <- pageResult{page: page, terminate: true}
 					return
 				}
 				select {
@@ -158,21 +168,23 @@ func collectPagesParallel(
 	stopAtPage := endPage + 1
 	for result := range results {
 		if result.err != nil {
-			if firstErr == nil {
-				firstErr = result.err
-			}
 			if result.page < stopAtPage {
 				stopAtPage = result.page
+				firstErr = result.err
 			}
 			continue
 		}
 		if result.terminate {
 			if result.page < stopAtPage {
 				stopAtPage = result.page
+				firstErr = nil
 			}
 			continue
 		}
 		idsByPage[result.page] = result.ids
+	}
+	if firstErr == nil && ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	var ids []string
 	for page := startPage; page < stopAtPage; page++ {

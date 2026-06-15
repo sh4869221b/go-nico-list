@@ -15,6 +15,9 @@ import (
 const tabOutputPrefix = "\t\t\t\t\t\t\t\t\t"
 
 func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) (retErr error) {
+	if cfg.NoSortOutput && !cfg.JSONOutput {
+		return runRootCmdFastUnordered(cmd, args, cfg, deps)
+	}
 	if err := validateFlagsFor(cfg); err != nil {
 		return err
 	}

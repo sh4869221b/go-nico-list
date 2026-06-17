@@ -18,16 +18,30 @@ func fetchTargetListFastUnordered(
 	limiter *niconico.RateLimiter,
 	runLogger *slog.Logger,
 ) ([]string, error) {
-	maxVideos := maxVideosForFastUnorderedFetch(cfg)
-	return fetchTargetListWithMaxVideos(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger, maxVideos)
+	if cfg.DedupeOutput && cfg.MaxVideos > 0 {
+		return fetchTargetUniqueList(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger)
+	}
+	return fetchTargetListWithMaxVideos(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger, cfg.MaxVideos)
 }
 
-// maxVideosForFastUnorderedFetch returns the per-target fetch cap for fast unordered output.
-func maxVideosForFastUnorderedFetch(cfg *RootConfig) int {
-	if cfg.DedupeOutput && cfg.MaxVideos > 0 {
-		return 0
+// fetchTargetUniqueList fetches a target until it has enough unique filtered IDs.
+func fetchTargetUniqueList(
+	ctx context.Context,
+	target inputTarget,
+	cfg *RootConfig,
+	afterDate time.Time,
+	beforeDate time.Time,
+	limiter *niconico.RateLimiter,
+	runLogger *slog.Logger,
+) ([]string, error) {
+	switch target.Type {
+	case targetTypeUser:
+		return niconico.GetUniqueVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, runLogger)
+	case targetTypeMylist:
+		return niconico.GetUniqueMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, runLogger)
+	default:
+		return nil, nil
 	}
-	return cfg.MaxVideos
 }
 
 // fetchTargetListWithMaxVideos fetches a target with an explicit per-target video cap.

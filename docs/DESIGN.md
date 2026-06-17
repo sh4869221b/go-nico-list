@@ -96,7 +96,9 @@ main.go
   - Normal line output sorts IDs by numeric video ID.
   - `--dedupe` removes duplicate IDs **before** sorting/output. In unordered `--no-sort` line output, the first occurrence that reaches the writer is kept.
   - `--no-sort && !--json` uses an unordered streaming path: input target order, page order, and API item order are not guaranteed. Fetched batches are written by a single stdout writer as they arrive.
-  - `--no-sort --max-videos N` emits the first N IDs that reach the writer and cancels remaining fetches best-effort.
+  - For normal line output and JSON output, `--max-videos N` is a per-target fetch cap: each input target may collect up to N filtered IDs before output formatting, dedupe, sorting, or JSON flattening.
+  - For unordered line output (`--no-sort && !--json`), `--max-videos N` is a global emitted-output cap: the first N IDs that reach the writer are emitted and remaining fetches are canceled best-effort.
+  - With `--no-sort --dedupe --max-videos N`, the global cap counts emitted unique IDs. The fetch side may read more than N raw IDs to find N unique IDs.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
     - `output_count` uses the actual emitted count.
@@ -142,9 +144,9 @@ main.go
   - `Accept: */*`
 - Pagination: fetch until API page end.
 - When `totalCount` is present, page 1 determines the bounded page range and later pages may be fetched concurrently up to `--page-concurrency`.
-- If `totalCount` is unavailable or `--max-videos` is set, fetching uses the sequential empty/404 termination path for compatibility.
+- If `totalCount` is unavailable or `--max-videos` is set, fetching uses the sequential empty/404 termination path for compatibility, so page-level concurrency does not apply.
 - `max-pages` stops after the given number of pages (best-effort, no error).
-- `max-videos` stops after collecting the given number of filtered IDs (best-effort, no error).
+- In normal line output and JSON output, `max-videos` stops each target after collecting the given number of filtered IDs (best-effort, no error). The unordered line-output writer owns the global emitted cap described above.
 - Filters:
   - `comment > commentCount`
   - `registeredAt` >= `dateafter`

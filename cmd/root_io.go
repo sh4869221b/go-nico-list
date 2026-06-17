@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
@@ -18,6 +21,30 @@ type inputStream struct {
 	errs       <-chan error
 	totalKnown bool
 	total      int64
+}
+
+// onceReadCloser ensures shared cancellation and cleanup paths close a reader once.
+type onceReadCloser struct {
+	io.Reader
+	closeOnce sync.Once
+	closer    io.Closer
+	closeErr  error
+}
+
+// newOnceReadCloser wraps reader with idempotent close behavior.
+func newOnceReadCloser(reader io.ReadCloser) *onceReadCloser {
+	return &onceReadCloser{
+		Reader: reader,
+		closer: reader,
+	}
+}
+
+// Close closes the wrapped reader once and returns the first close error.
+func (r *onceReadCloser) Close() error {
+	r.closeOnce.Do(func() {
+		r.closeErr = r.closer.Close()
+	})
+	return r.closeErr
 }
 
 func newProgressBarWithConfig(cmd *cobra.Command, totalKnown bool, total int64, cfg *RootConfig, deps RootDeps) *progressbar.ProgressBar {
@@ -57,7 +84,7 @@ func defaultIsTerminal(w io.Writer) bool {
 	return false
 }
 
-func streamInputsWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) inputStream {
+func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) inputStream {
 	deps = normalizeRootDeps(deps)
 	out := make(chan string)
 	errCh := make(chan error, 1)
@@ -70,12 +97,14 @@ func streamInputsWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, 
 
 		count := 0
 		for _, arg := range args {
-			out <- arg
+			if !sendInput(ctx, out, arg) {
+				return
+			}
 			count++
 		}
 
 		if cfg.InputFilePath != "" {
-			n, err := streamLinesFromFile(cfg.InputFilePath, out, deps)
+			n, err := streamLinesFromFile(ctx, cfg.InputFilePath, out, deps)
 			count += n
 			if err != nil {
 				errCh <- err
@@ -88,7 +117,7 @@ func streamInputsWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, 
 			if cmd != nil {
 				reader = cmd.InOrStdin()
 			}
-			n, err := streamLines(reader, out)
+			n, err := streamLines(ctx, reader, out)
 			count += n
 			if err != nil {
 				errCh <- err
@@ -109,22 +138,40 @@ func streamInputsWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, 
 	}
 }
 
+// sendInput sends input unless ctx is canceled.
+func sendInput(ctx context.Context, out chan<- string, input string) bool {
+	select {
+	case out <- input:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // streamLinesFromFile streams trimmed lines from a file into out.
-func streamLinesFromFile(path string, out chan<- string, deps RootDeps) (int, error) {
+func streamLinesFromFile(ctx context.Context, path string, out chan<- string, deps RootDeps) (int, error) {
 	deps = normalizeRootDeps(deps)
-	file, err := deps.OpenInputFile(path)
+	openedFile, err := deps.OpenInputFile(path)
 	if err != nil {
 		return 0, err
 	}
-	count, err := streamLines(file, out)
-	if closeErr := file.Close(); err == nil && closeErr != nil {
+	file := newOnceReadCloser(openedFile)
+	count, err := streamLines(ctx, file, out)
+	if closeErr := file.Close(); err == nil && closeErr != nil && ctx.Err() == nil {
 		err = closeErr
 	}
 	return count, err
 }
 
 // streamLines streams non-empty trimmed lines from a reader into out.
-func streamLines(reader io.Reader, out chan<- string) (int, error) {
+func streamLines(ctx context.Context, reader io.Reader, out chan<- string) (int, error) {
+	done := make(chan struct{})
+	var closedOnCancel atomic.Bool
+	if closer, ok := reader.(io.Closer); ok {
+		go closeReaderOnCancel(ctx, closer, done, &closedOnCancel)
+		defer close(done)
+	}
+
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	count := 0
@@ -133,11 +180,26 @@ func streamLines(reader io.Reader, out chan<- string) (int, error) {
 		if line == "" {
 			continue
 		}
-		out <- line
+		if !sendInput(ctx, out, line) {
+			return count, nil
+		}
 		count++
 	}
 	if err := scanner.Err(); err != nil {
+		if closedOnCancel.Load() {
+			return count, nil
+		}
 		return count, err
 	}
 	return count, nil
+}
+
+// closeReaderOnCancel closes closer when ctx is canceled before scanning finishes.
+func closeReaderOnCancel(ctx context.Context, closer io.Closer, done <-chan struct{}, closedOnCancel *atomic.Bool) {
+	select {
+	case <-ctx.Done():
+		closedOnCancel.Store(true)
+		_ = closer.Close()
+	case <-done:
+	}
 }

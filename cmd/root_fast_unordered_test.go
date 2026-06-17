@@ -127,6 +127,33 @@ func TestRunRootCmdNoSortDedupeOutputsEachIDOnce(t *testing.T) {
 	}
 }
 
+func TestRunRootCmdNoSortDedupeMaxVideosEmitsEnoughUniqueIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testFetchConfig(server.URL)
+	cfg.NoSortOutput = true
+	cfg.DedupeOutput = true
+	cfg.MaxVideos = 2
+
+	out, errOut, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := sortedLines(out.String()); !sameStringSet(got, []string{"sm1", "sm2"}) {
+		t.Fatalf("expected sm1 and sm2 stdout output, got %q", out.String())
+	}
+	if got := errOut.String(); !strings.Contains(got, "output_count=2") {
+		t.Fatalf("expected output_count=2 summary, got %q", got)
+	}
+}
+
 func TestRunRootCmdNoSortMaxVideosCapsOutputAndSummary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

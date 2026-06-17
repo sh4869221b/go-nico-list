@@ -48,7 +48,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 
 	var idList []string
 	var mu sync.Mutex
-	stream := streamInputsWithConfig(cmd, args, cfg, deps)
+	stream := streamInputsWithConfig(ctx, cmd, args, cfg, deps)
 	limiter := niconico.NewRateLimiter(cfg.RateLimit, cfg.MinInterval)
 	var totalInputs int64
 	var validInputs int64

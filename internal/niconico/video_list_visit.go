@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// GetUniqueVideoList retrieves unique video IDs for a user.
-func GetUniqueVideoList(
+// VisitVideoList visits filtered raw video IDs for each user page until the visitor stops.
+func VisitVideoList(
 	ctx context.Context,
 	userID string,
 	commentCount int,
@@ -20,10 +20,10 @@ func GetUniqueVideoList(
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
 	maxPages int,
-	maxVideos int,
+	visitor func([]string) bool,
 	logger *slog.Logger,
-) ([]string, error) {
-	return collectUniqueVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger,
+) error {
+	return visitVideoListPages(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, visitor, logger,
 		func(page int) string {
 			return fmt.Sprintf("%s/users/%s/videos?pageSize=%d&page=%d", baseURL, userID, pageSize, page)
 		},
@@ -31,8 +31,8 @@ func GetUniqueVideoList(
 	)
 }
 
-// GetUniqueMylistVideoList retrieves unique video IDs for a mylist.
-func GetUniqueMylistVideoList(
+// VisitMylistVideoList visits filtered raw video IDs for each mylist page until the visitor stops.
+func VisitMylistVideoList(
 	ctx context.Context,
 	mylistID string,
 	commentCount int,
@@ -43,10 +43,10 @@ func GetUniqueMylistVideoList(
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
 	maxPages int,
-	maxVideos int,
+	visitor func([]string) bool,
 	logger *slog.Logger,
-) ([]string, error) {
-	return collectUniqueVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger,
+) error {
+	return visitVideoListPages(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, visitor, logger,
 		func(page int) string {
 			return fmt.Sprintf("%s/mylists/%s?pageSize=%d&page=%d", baseURL, mylistID, pageSize, page)
 		},
@@ -54,7 +54,8 @@ func GetUniqueMylistVideoList(
 	)
 }
 
-func collectUniqueVideoList(
+// visitVideoListPages visits filtered raw IDs in page order.
+func visitVideoListPages(
 	ctx context.Context,
 	commentCount int,
 	afterDate time.Time,
@@ -63,40 +64,29 @@ func collectUniqueVideoList(
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
 	maxPages int,
-	maxVideos int,
+	visitor func([]string) bool,
 	logger *slog.Logger,
 	requestURL func(page int) string,
 	parsePage parsePageFunc,
-) ([]string, error) {
+) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
-
-	ids := make([]string, 0, maxVideos)
-	seen := make(map[string]struct{}, maxVideos)
-	for page := 1; ; page++ {
-		if maxPages > 0 && page > maxPages {
-			return ids, nil
-		}
+	for page := 1; maxPages == 0 || page <= maxPages; page++ {
 		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, nil
+				return nil
 			}
-			return ids, err
+			return err
 		}
 		if parsed.NotFound || len(parsed.Items) == 0 {
-			return ids, nil
+			return nil
 		}
-		for _, id := range filterItems(parsed.Items, commentCount, afterDate, beforeDate) {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-			if maxVideos > 0 && len(ids) >= maxVideos {
-				return ids, nil
-			}
+		ids := filterItems(parsed.Items, commentCount, afterDate, beforeDate)
+		if len(ids) > 0 && !visitor(ids) {
+			return nil
 		}
 	}
+	return nil
 }

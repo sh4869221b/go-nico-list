@@ -34,14 +34,17 @@ func fetchTargetUniqueList(
 	limiter *niconico.RateLimiter,
 	runLogger *slog.Logger,
 ) ([]string, error) {
+	collector := newUniqueIDCollector(cfg.MaxVideos)
+	var err error
 	switch target.Type {
 	case targetTypeUser:
-		return niconico.GetUniqueVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, runLogger)
+		err = niconico.VisitVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, collector.add, runLogger)
 	case targetTypeMylist:
-		return niconico.GetUniqueMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, runLogger)
+		err = niconico.VisitMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, collector.add, runLogger)
 	default:
 		return nil, nil
 	}
+	return collector.ids, err
 }
 
 // fetchTargetListWithMaxVideos fetches a target with an explicit per-target video cap.

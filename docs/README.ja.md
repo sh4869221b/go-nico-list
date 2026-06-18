@@ -77,10 +77,13 @@ Notes:
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `concurrency`、`page-concurrency`、`retries` を 1 未満にするか、`timeout` を 0 以下にすると実行時エラーになります。
 - `--max-pages` と `--max-videos` は安全制限で、`0` で無効化されます。
+- 通常の行出力と JSON 出力では、`--max-videos N` は入力ターゲットごとの取得上限です。各ターゲットで最大 N 件のフィルタ済み ID を集めてから、出力整形、重複除外、ソート、JSON flattening を行います。
+- unordered 行出力（`--json` なしの `--no-sort`）では、`--max-videos N` は出力全体の上限です。writer に先に到着した N 件を出力し、残りの取得を best-effort でキャンセルします。
+- `--no-sort --dedupe --max-videos N` では、出力される unique ID の件数に上限がかかります。N 件の unique ID を見つけるために、N 件を超える raw ID を読む場合があります。
 - 上限に達した場合は取得を早期終了し、エラー扱いにせず best-effort の結果を返します。
 - 200/404 以外の HTTP ステータスがリトライ後も続く場合は取得エラー扱いになります。
 - HTTP 200 でも `meta.status != 200` の場合は警告ログを出しつつ処理を続行します。
-- `--page-concurrency` は各入力ターゲット内のページ取得並列数を制御します。最大同時リクエスト数の目安は `--concurrency * --page-concurrency` です。
+- `--page-concurrency` は、API が `totalCount` を返し、かつ `--max-videos` が未指定の場合にのみ、各入力ターゲット内のページ取得並列数を制御します。その bounded-page path での最大同時リクエスト数の目安は `--concurrency * --page-concurrency` です。
 - すべてのリクエスト（リトライ含む）に対してレート制限が適用され、HTTP 429 の `Retry-After` は可能な限り尊重されます。高い並列数を使う場合は API 負荷を抑えるため `--rate-limit` または `--min-interval` を併用してください。
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
 - 処理後に実行サマリを stderr に出力します（非0終了時も含む）。
@@ -89,7 +92,6 @@ Notes:
 - 通常の行出力は、`--no-sort` を指定しない限り動画IDの数値順にソートします。
 - `--dedupe` を指定すると動画IDの重複を除外してからソート/出力します。`--no-sort` 併用時は writer に先に到着した occurrence を採用します。
 - `--no-sort` は行出力向けの unordered fast mode です。入力ターゲット順、ページ順、API items 順は保証されず、取得完了した結果から出力されます。
-- `--no-sort --max-videos N` では writer に先に到着した N 件を出力し、残りの取得を best-effort でキャンセルします。
 - `--json` は stdout に単一の JSON オブジェクトを出力します。`--tab`/`--url` は JSON の `items` に影響せず、サマリは引き続き stderr に出力します。
 
 ## Design

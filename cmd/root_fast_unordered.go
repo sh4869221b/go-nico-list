@@ -48,7 +48,7 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 	defer cancel()
 
 	errWriter := errWriterFor(cmd)
-	stream := streamInputsWithConfig(cmd, args, cfg, deps)
+	stream := streamInputsWithConfig(ctx, cmd, args, cfg, deps)
 	limiter := niconico.NewRateLimiter(cfg.RateLimit, cfg.MinInterval)
 	var totalInputs int64
 	var validInputs int64
@@ -134,7 +134,7 @@ inputLoop:
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer addProgress()
-			newList, err := fetchTargetList(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger)
+			newList, err := fetchTargetListFastUnordered(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger)
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
 				errCh <- err

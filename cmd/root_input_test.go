@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -54,12 +55,43 @@ func TestStreamLinesFromFileReturnsCloseError(t *testing.T) {
 		return closeErrorReader{Reader: strings.NewReader("nicovideo.jp/user/1\n"), err: closeErr}, nil
 	}
 	out := make(chan string, 1)
-	count, err := streamLinesFromFile("dummy", out, deps)
+	count, err := streamLinesFromFile(context.Background(), "dummy", out, deps)
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("expected close error, got %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("unexpected count: %d", count)
+	}
+}
+
+func TestRunRootCmdInputFileOpenError(t *testing.T) {
+	openErr := errors.New("open failed")
+	cfg := newTestRootConfig()
+	cfg.InputFilePath = "dummy"
+	deps := newTestRootDeps()
+	deps.OpenInputFile = func(string) (io.ReadCloser, error) {
+		return nil, openErr
+	}
+
+	_, _, err := executeTestRootCommand(t, cfg, deps)
+	if !errors.Is(err, openErr) {
+		t.Fatalf("expected open error, got %v", err)
+	}
+}
+
+func TestRunRootCmdInputFileCloseError(t *testing.T) {
+	closeErr := errors.New("close failed")
+	server := newEmptyAPIServer(t)
+	cfg := testFetchConfig(server.URL)
+	cfg.InputFilePath = "dummy"
+	deps := newTestRootDeps()
+	deps.OpenInputFile = func(string) (io.ReadCloser, error) {
+		return closeErrorReader{Reader: strings.NewReader("nicovideo.jp/user/1\n"), err: closeErr}, nil
+	}
+
+	_, _, err := executeTestRootCommand(t, cfg, deps)
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("expected close error, got %v", err)
 	}
 }
 
@@ -108,6 +140,29 @@ func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
 	case <-canceled:
 	case <-time.After(waitTimeout):
 		t.Fatal("expected request to be canceled")
+	}
+}
+
+func TestRunRootCmdJSONStdinReadError(t *testing.T) {
+	stdinErr := errors.New("stdin read error")
+	cfg := newTestRootConfig()
+	cfg.JSONOutput = true
+	cfg.ReadStdin = true
+	cmd, _, _ := newTestRootCommand(t, cfg, newTestRootDeps())
+	wait := make(chan struct{})
+	cmd.SetIn(blockingErrorReader{wait: wait, err: stdinErr})
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- cmd.Execute() }()
+
+	close(wait)
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, stdinErr) {
+			t.Fatalf("expected stdin error, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected command to finish after stdin error")
 	}
 }
 

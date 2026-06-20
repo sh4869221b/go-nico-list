@@ -44,7 +44,7 @@ func TestGetVideoListPageConcurrencyIgnoresErrorAfterEmptyPage(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestGetVideoListPageConcurrencyReturnsEarlierPageBeforeLaterEmptyPage(t *te
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +97,12 @@ func TestGetVideoListPageConcurrencyCancelsToEmptyResult(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	page2Started := make(chan struct{})
 	var page2StartedOnce sync.Once
+	var requestedPages []string
+	var requestedPagesMu sync.Mutex
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPagesMu.Lock()
+		requestedPages = append(requestedPages, r.URL.Query().Get("page"))
+		requestedPagesMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("page") {
 		case "1":
@@ -125,7 +130,7 @@ func TestGetVideoListPageConcurrencyCancelsToEmptyResult(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		ids, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+		ids, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 		resultCh <- struct {
 			ids []string
 			err error
@@ -145,6 +150,9 @@ func TestGetVideoListPageConcurrencyCancelsToEmptyResult(t *testing.T) {
 		if len(result.ids) != 0 {
 			t.Fatalf("expected empty result after cancellation, got %v", result.ids)
 		}
+		requestedPagesMu.Lock()
+		t.Logf("cancellation: requested pages=%v ids=%v error=%v", requestedPages, result.ids, result.err)
+		requestedPagesMu.Unlock()
 	case <-time.After(time.Second):
 		t.Fatal("expected canceled fetch to finish")
 	}

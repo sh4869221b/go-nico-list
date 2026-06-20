@@ -19,16 +19,11 @@ func collectRemainingSequentially(
 	retries int,
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
-	maxPages int,
-	maxVideos int,
 	logger *slog.Logger,
 	requestURL func(page int) string,
 	parsePage parsePageFunc,
 ) ([]string, error) {
 	for page := startPage; ; page++ {
-		if maxPages > 0 && page > maxPages {
-			break
-		}
 		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -42,18 +37,13 @@ func collectRemainingSequentially(
 		if len(parsed.Items) == 0 {
 			break
 		}
-		for _, id := range filterItems(parsed.Items, commentCount, afterDate, beforeDate) {
-			resStr = append(resStr, id)
-			if maxVideos > 0 && len(resStr) >= maxVideos {
-				return resStr, nil
-			}
-		}
+		resStr = append(resStr, filterItems(parsed.Items, commentCount, afterDate, beforeDate)...)
 	}
 	return resStr, nil
 }
 
-func shouldCollectSequentially(firstPage parsedPage, pageConcurrency int, maxVideos int) bool {
-	return pageConcurrency <= 1 || maxVideos > 0 || !firstPage.TotalCountKnown
+func shouldCollectSequentially(firstPage parsedPage, pageConcurrency int) bool {
+	return pageConcurrency <= 1 || !firstPage.TotalCountKnown
 }
 
 func pageCountFor(totalCount int) int {

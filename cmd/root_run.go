@@ -137,9 +137,9 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			var err error
 			switch target.Type {
 			case targetTypeUser:
-				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, 0, 0, cfg.PageConcurrency, runLogger)
+				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
 			case targetTypeMylist:
-				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, 0, 0, cfg.PageConcurrency, runLogger)
+				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)

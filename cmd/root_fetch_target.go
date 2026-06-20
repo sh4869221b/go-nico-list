@@ -20,9 +20,9 @@ func fetchTargetListFastUnordered(
 ) ([]string, error) {
 	switch target.Type {
 	case targetTypeUser:
-		return niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, 0, 0, cfg.PageConcurrency, runLogger)
+		return niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
 	case targetTypeMylist:
-		return niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, 0, 0, cfg.PageConcurrency, runLogger)
+		return niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
 	default:
 		return nil, nil
 	}

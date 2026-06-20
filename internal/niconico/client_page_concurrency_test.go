@@ -38,7 +38,7 @@ func TestGetVideoListSequentialNilItemsStopsPagination(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 1, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,6 +50,41 @@ func TestGetVideoListSequentialNilItemsStopsPagination(t *testing.T) {
 	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
+	t.Logf("unknown total empty termination: requested pages=%v ids=%v error=%v", requestedPages, got, err)
+}
+
+func TestGetVideoListSequentialNotFoundStopsPagination(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	var requestedPages []string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPages = append(requestedPages, r.URL.Query().Get("page"))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+		case "2":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
+		}
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"sm1"}) {
+		t.Fatalf("unexpected ids: %v", got)
+	}
+	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
+		t.Fatalf("unexpected requested pages: %v", requestedPages)
+	}
+	t.Logf("unknown total 404 termination: requested pages=%v ids=%v error=%v", requestedPages, got, err)
 }
 
 func TestGetVideoListPageConcurrencyPreservesPageOrder(t *testing.T) {
@@ -83,7 +118,7 @@ func TestGetVideoListPageConcurrencyPreservesPageOrder(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,7 +155,7 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err == nil {
 		t.Fatal("expected fetch error")
 	}
@@ -172,7 +207,7 @@ func TestGetVideoListPageConcurrencyStopsAtEmptyPage(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -212,7 +247,7 @@ func TestGetMylistVideoListPageConcurrencyUsesTotalItemCount(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetMylistVideoList(context.Background(), "847130", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetMylistVideoList(context.Background(), "847130", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,4 +259,5 @@ func TestGetMylistVideoListPageConcurrencyUsesTotalItemCount(t *testing.T) {
 	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
+	t.Logf("known total=200: requested pages=%v ids=%v error=%v", requestedPages, got, err)
 }

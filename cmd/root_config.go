@@ -15,7 +15,6 @@ type RootConfig struct {
 	Comment           int
 	DateAfter         string
 	DateBefore        string
-	Tab               bool
 	URL               bool
 	Concurrency       int
 	PageConcurrency   int
@@ -33,8 +32,6 @@ type RootConfig struct {
 	JSONOutput        bool
 	RateLimit         float64
 	MinInterval       time.Duration
-	MaxPages          int
-	MaxVideos         int
 	BaseURL           string
 	Version           string
 }
@@ -103,7 +100,6 @@ func NewRootCommand(cfg RootConfig, deps RootDeps) *cobra.Command {
 	cmd.Flags().IntVarP(&cfg.Comment, "comment", "c", cfg.Comment, "lower comment limit `number`")
 	cmd.Flags().StringVarP(&cfg.DateAfter, "dateafter", "a", cfg.DateAfter, "date `YYYYMMDD` after")
 	cmd.Flags().StringVarP(&cfg.DateBefore, "datebefore", "b", cfg.DateBefore, "date `YYYYMMDD` before")
-	cmd.Flags().BoolVarP(&cfg.Tab, "tab", "t", cfg.Tab, "id tab Separated flag")
 	cmd.Flags().BoolVarP(&cfg.URL, "url", "u", cfg.URL, "output id add url")
 	cmd.Flags().IntVarP(&cfg.Concurrency, "concurrency", "n", cfg.Concurrency, "number of concurrent requests")
 	cmd.Flags().IntVar(&cfg.PageConcurrency, "page-concurrency", cfg.PageConcurrency, "number of concurrent page requests per target")
@@ -111,8 +107,6 @@ func NewRootCommand(cfg RootConfig, deps RootDeps) *cobra.Command {
 	cmd.Flags().IntVar(&cfg.Retries, "retries", cfg.Retries, "number of retries for requests")
 	cmd.Flags().Float64Var(&cfg.RateLimit, "rate-limit", cfg.RateLimit, "maximum requests per second (0 disables)")
 	cmd.Flags().DurationVar(&cfg.MinInterval, "min-interval", cfg.MinInterval, "minimum interval between requests (0 disables)")
-	cmd.Flags().IntVar(&cfg.MaxPages, "max-pages", cfg.MaxPages, "maximum number of pages to fetch (0 disables)")
-	cmd.Flags().IntVar(&cfg.MaxVideos, "max-videos", cfg.MaxVideos, "maximum number of filtered IDs to collect (0 disables)")
 	cmd.Flags().StringVar(&cfg.InputFilePath, "input-file", cfg.InputFilePath, "read inputs from file (newline-separated)")
 	cmd.Flags().BoolVar(&cfg.ReadStdin, "stdin", cfg.ReadStdin, "read inputs from stdin (newline-separated)")
 	cmd.Flags().StringVar(&cfg.LogFilePath, "logfile", cfg.LogFilePath, "log output file path")

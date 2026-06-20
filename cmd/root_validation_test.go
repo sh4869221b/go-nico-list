@@ -80,24 +80,6 @@ func TestMinIntervalValidation(t *testing.T) {
 	}
 }
 
-func TestMaxPagesValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.MaxPages = -1
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "max-pages must be at least 0" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestMaxVideosValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.MaxVideos = -1
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "max-videos must be at least 0" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestConcurrencyValidation(t *testing.T) {
 	_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "--concurrency=0", "12345")
 	if err == nil || err.Error() != "concurrency must be at least 1" {

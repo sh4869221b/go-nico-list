@@ -36,7 +36,7 @@ main.go
   - `runRootCmdWithConfig` is the runnable entry point that uses the config and deps.
   - Input validation (`concurrency`, `retries`, dates).
   - Progress to stderr, results to stdout.
-  - Output formatting (`--tab`/`--url`) and JSON payload assembly.
+  - Output formatting (`--url`) and JSON payload assembly.
   - Call into `internal/niconico` and aggregate results.
 - `internal/niconico/`:
   - API response types (`nico_data.go`).
@@ -63,22 +63,18 @@ main.go
   - `--dateafter` (default `10000101`) / `--datebefore` (default `99991231`): `YYYYMMDD`.
     - Parsed by `time.Parse("20060102", ...)` (UTC).
     - `dateafter` must be on or before `datebefore`.
-  - `--tab` (default `false`), `--url` (default `false`): output formatting.
+  - `--url` (default `false`): output formatting.
   - `--concurrency` (default `3`): concurrent requests.
   - `--page-concurrency` (default `1`): concurrent page requests per target; total in-flight requests are roughly `--concurrency * --page-concurrency`.
   - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
   - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
-  - `--max-pages` (default `0`): maximum number of pages to fetch (`0` disables).
-  - `--max-videos` (default `0`): maximum number of filtered IDs to collect (`0` disables).
   - `--timeout` (default `10s`): HTTP client timeout.
   - `--retries` (default `10`): retry count.
   - `--no-sort` (default `false`): skip sorting the flattened output list for faster output.
   - `--logfile` (default `""`): log file path (empty = stderr, set = file output).
 
 ### Output
-- stdout: list of video IDs (with prefixes based on `tab`/`url`).
-  - `tabStr` is **9 tabs**, `urlStr` is `https://www.nicovideo.jp/watch/`.
-  - Prefix order is **tab → url**.
+- stdout: list of video IDs, optionally prefixed by `https://www.nicovideo.jp/watch/` when `--url` is set.
   - Lines are joined by `"\n"` and printed with a trailing newline (`fmt.Fprintln`).
   - If no IDs are retrieved, stdout prints **nothing**.
   - Duplicate IDs are **not deduplicated**.
@@ -96,9 +92,8 @@ main.go
   - Normal line output sorts IDs by numeric video ID.
   - `--dedupe` removes duplicate IDs **before** sorting/output. In unordered `--no-sort` line output, the first occurrence that reaches the writer is kept.
   - `--no-sort && !--json` uses an unordered streaming path: input target order, page order, and API item order are not guaranteed. Fetched batches are written by a single stdout writer as they arrive.
-  - For normal line output and JSON output, `--max-videos N` is a per-target fetch cap: each input target may collect up to N filtered IDs before output formatting, dedupe, sorting, or JSON flattening.
-  - For unordered line output (`--no-sort && !--json`), `--max-videos N` is a global emitted-output cap: the first N IDs that reach the writer are emitted and remaining fetches are canceled best-effort.
-  - With `--no-sort --dedupe --max-videos N`, the global cap counts emitted unique IDs. The fetch side may read more than N raw IDs to find N unique IDs.
+  - Each target is fetched without a user-configurable page or video cap and continues to the API's natural termination condition.
+  - Uncapped collection preserves the filtering, ordering, JSON, summary, error, partial-result, retry/rate-limit, and cancellation contracts described below.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
     - `output_count` uses the actual emitted count.
@@ -110,7 +105,7 @@ main.go
       - `targets`: list of `{ "type": "user|mylist", "id": "<id>", "items": ["sm1"], "error": "" }`, sorted by `type` then numeric `id` ascending
       - `errors`: list of fetch error messages (order is nondeterministic)
       - `output_count`: count of `items` after dedupe (if enabled)
-      - `items`: flattened list of IDs (raw `sm*` IDs; `--url`/`--tab` do not affect JSON)
+      - `items`: flattened list of IDs (raw `sm*` IDs; `--url` does not affect JSON)
 - Progress:
   - Progress output is auto-disabled on non-TTY stderr.
   - `--progress` forces progress on even when stderr is not a TTY.
@@ -119,8 +114,8 @@ main.go
 ## Flow
 1. `cmd/root_*.go` extracts user or mylist targets using regex matching.
 2. For each target, a goroutine calls `internal/niconico.GetVideoList` (user) or `internal/niconico.GetMylistVideoList` (mylist).
-3. For normal output, aggregate raw IDs, optionally dedupe and sort them, apply optional `tab/url` formatting, then print to stdout.
-4. For `--no-sort && !--json`, stream fetched batches through a single stdout writer and apply `--dedupe` / `--max-videos` there.
+3. For normal output, aggregate raw IDs, optionally dedupe and sort them, apply optional URL formatting, then print to stdout.
+4. For `--no-sort && !--json`, stream fetched batches through a single stdout writer and apply `--dedupe` there.
 
 ## Errors and Exit Codes
 - Validation errors (`concurrency`/`retries`/`timeout`/date format): **non-zero exit**.
@@ -142,19 +137,17 @@ main.go
 - Request headers:
   - `X-Frontend-Id: 6`
   - `Accept: */*`
-- Pagination: fetch until API page end.
-- When `totalCount` is present, page 1 determines the bounded page range and later pages may be fetched concurrently up to `--page-concurrency`.
-- If `totalCount` is unavailable or `--max-videos` is set, fetching uses the sequential empty/404 termination path for compatibility, so page-level concurrency does not apply.
-- `max-pages` stops after the given number of pages (best-effort, no error).
-- In normal line output and JSON output, `max-videos` stops each target after collecting the given number of filtered IDs (best-effort, no error). The unordered line-output writer owns the global emitted cap described above.
+- Pagination is uncapped and follows the API's natural termination conditions.
+- When `totalCount` is present, page 1 determines the bounded page range and later pages use bounded page concurrency up to `--page-concurrency`.
+- When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404; page-level concurrency does not apply.
 - Filters:
   - `comment > commentCount`
   - `registeredAt` >= `dateafter`
   - `registeredAt` <= `datebefore` (inclusive via an exclusive upper bound: `registeredAt < beforeDate.AddDate(0,0,1)`)
-- `StatusNotFound` stops fetching.
+- An empty page or HTTP 404 stops fetching and returns the IDs accumulated so far.
 - `context.Canceled/DeadlineExceeded` returns empty result without error.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings and treated as successful responses.
-- Returned IDs are raw `sm*` values (no tab/url prefix).
+- Returned IDs are raw `sm*` values (no output-formatting prefix).
 - On errors during fetch, return partial results plus error (caller logs and continues).
 
 ### Retry (`internal/niconico.retriesRequest`)

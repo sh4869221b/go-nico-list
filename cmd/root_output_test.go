@@ -15,15 +15,12 @@ import (
 func TestWriteLineOutputMatchesExistingFormatting(t *testing.T) {
 	tests := []struct {
 		name    string
-		tab     bool
 		url     bool
 		want    string
 		wantNil bool
 	}{
 		{name: "raw", want: "sm1\nsm2\n"},
-		{name: "tab", tab: true, want: tabOutputPrefix + "sm1\n" + tabOutputPrefix + "sm2\n"},
 		{name: "url", url: true, want: nicoWatchURLPrefix + "sm1\n" + nicoWatchURLPrefix + "sm2\n"},
-		{name: "tab and url", tab: true, url: true, want: tabOutputPrefix + nicoWatchURLPrefix + "sm1\n" + tabOutputPrefix + nicoWatchURLPrefix + "sm2\n"},
 		{name: "empty", wantNil: true},
 	}
 
@@ -35,7 +32,7 @@ func TestWriteLineOutputMatchesExistingFormatting(t *testing.T) {
 				items = nil
 			}
 
-			if err := writeLineOutput(&out, items, tt.tab, tt.url); err != nil {
+			if err := writeLineOutput(&out, items, tt.url); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got := out.String(); got != tt.want {
@@ -48,7 +45,7 @@ func TestWriteLineOutputMatchesExistingFormatting(t *testing.T) {
 func TestWriteLineOutputReturnsWriterError(t *testing.T) {
 	writeErr := errors.New("stdout failed")
 
-	err := writeLineOutput(errorWriter{err: writeErr}, []string{"sm1"}, false, false)
+	err := writeLineOutput(errorWriter{err: writeErr}, []string{"sm1"}, false)
 
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("expected stdout error, got %v", err)
@@ -62,7 +59,7 @@ func TestWriteLineOutputBatchesWrites(t *testing.T) {
 		items[i] = fmt.Sprintf("sm%d", i)
 	}
 
-	if err := writeLineOutput(&out, items, true, true); err != nil {
+	if err := writeLineOutput(&out, items, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if out.writes > 2 {

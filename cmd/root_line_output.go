@@ -6,17 +6,12 @@ import (
 )
 
 // writeLineOutput writes line output directly without building a joined string.
-func writeLineOutput(out io.Writer, items []string, withTab bool, withURL bool) error {
+func writeLineOutput(out io.Writer, items []string, withURL bool) error {
 	if len(items) == 0 {
 		return nil
 	}
 	writer := bufio.NewWriter(out)
 	for _, item := range items {
-		if withTab {
-			if _, err := io.WriteString(writer, tabOutputPrefix); err != nil {
-				return err
-			}
-		}
 		if withURL {
 			if _, err := io.WriteString(writer, nicoWatchURLPrefix); err != nil {
 				return err

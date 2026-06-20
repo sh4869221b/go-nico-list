@@ -29,12 +29,6 @@ func validateFlagsFor(cfg *RootConfig) error {
 	if cfg.MinInterval < 0 {
 		return errors.New("min-interval must be at least 0")
 	}
-	if cfg.MaxPages < 0 {
-		return errors.New("max-pages must be at least 0")
-	}
-	if cfg.MaxVideos < 0 {
-		return errors.New("max-videos must be at least 0")
-	}
 	return nil
 }
 

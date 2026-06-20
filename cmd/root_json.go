@@ -139,9 +139,8 @@ func normalizedTargetUint64Text(text string) (string, bool) {
 
 const maxTargetUint64Text = "18446744073709551615"
 
-// normalizeOutputID strips tab and URL prefixes from an output ID.
+// normalizeOutputID strips the URL prefix from an output ID.
 func normalizeOutputID(id string) string {
-	id = strings.TrimLeft(id, "\t")
 	return strings.TrimPrefix(id, nicoWatchURLPrefix)
 }
 

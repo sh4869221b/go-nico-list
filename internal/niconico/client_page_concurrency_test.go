@@ -50,7 +50,6 @@ func TestGetVideoListSequentialNilItemsStopsPagination(t *testing.T) {
 	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
-	t.Logf("unknown total empty termination: requested pages=%v ids=%v error=%v", requestedPages, got, err)
 }
 
 func TestGetVideoListSequentialNotFoundStopsPagination(t *testing.T) {
@@ -84,7 +83,6 @@ func TestGetVideoListSequentialNotFoundStopsPagination(t *testing.T) {
 	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
-	t.Logf("unknown total 404 termination: requested pages=%v ids=%v error=%v", requestedPages, got, err)
 }
 
 func TestGetVideoListPageConcurrencyPreservesPageOrder(t *testing.T) {
@@ -248,5 +246,4 @@ func TestGetMylistVideoListPageConcurrencyUsesTotalItemCount(t *testing.T) {
 	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
-	t.Logf("known total=200: requested pages=%v ids=%v error=%v", requestedPages, got, err)
 }

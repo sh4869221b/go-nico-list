@@ -20,8 +20,9 @@ Scope: files under `internal/niconico/`.
 - User endpoint format is `<baseURL>/users/<userID>/videos?pageSize=100&page=<n>`.
 - Mylist endpoint format is `<baseURL>/mylists/<mylistID>?pageSize=100&page=<n>`.
 - Requests must set `X-Frontend-Id: 6` and `Accept: */*`.
-- Pagination starts at page 1 and stops on 404, empty items, `maxPages`, or `maxVideos`.
-- `maxPages` and `maxVideos` are best-effort caps and should not produce errors by themselves.
+- Pagination starts at page 1 and has no user-configurable page or video limit.
+- When `totalCount` is known, page 1 defines a bounded page range and remaining pages use bounded page concurrency while preserving page order.
+- When `totalCount` is unknown, fetch pages sequentially until empty items or HTTP 404; do not schedule speculative pages.
 - Context cancellation or deadline during fetch is treated by collection as a clean empty result.
 - HTTP 200 with non-200 `meta.status` logs a warning and continues as a successful response.
 - Returned IDs stay raw `sm*` values; formatting is a `cmd` concern.

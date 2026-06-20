@@ -26,7 +26,7 @@ go-nico-list/
 | Flags and defaults | `cmd/root_config.go` | `RootConfig`, `RootDeps`, `NewRootCommand`, normalization. |
 | Runtime flow | `cmd/root_run.go` | validation, input stream, goroutines, summary, output, error selection. |
 | Input parsing | `cmd/input_target.go`, `cmd/root_io.go` | URL regexes, stdin/input-file scanner, progress gating. |
-| JSON output | `cmd/root_json.go` | target ordering, flattened items, `--tab`/`--url` exclusion from JSON. |
+| JSON output | `cmd/root_json.go` | target ordering, flattened items, and `--url` exclusion from JSON. |
 | API/domain logic | `internal/niconico/client.go` | fetch, pagination, retry, rate limit, response evaluation, sorting. |
 | API schema | `internal/niconico/nico_data.go` | `NicoData` decode target for fixtures and live API responses. |
 | Current behavior spec | `docs/DESIGN.md` | Update before user-facing/design-boundary implementation and get explicit OK. |
@@ -47,7 +47,7 @@ go-nico-list/
 | `parseInputTarget` | function | `cmd/input_target.go` | Extracts first matching niconico user/mylist target. |
 | `GetVideoList` | function | `internal/niconico/client.go` | Fetches filtered user video IDs. |
 | `GetMylistVideoList` | function | `internal/niconico/client.go` | Fetches filtered mylist video IDs. |
-| `collectVideoList` | function | `internal/niconico/client.go` | Shared pagination/filter/cap loop. |
+| `collectVideoList` | function | `internal/niconico/client.go` | Shared uncapped pagination and filtering loop. |
 | `retriesRequest` | function | `internal/niconico/client.go` | HTTP retry, rate-limit, timeout, and retry-after handling. |
 | `NiconicoSort` | function | `internal/niconico/client.go` | Sorts raw `sm*` IDs by numeric part. |
 | `RateLimiter.Wait` | method | `internal/niconico/client.go` | Global request pacing across concurrent fetches and retries. |
@@ -112,7 +112,7 @@ golangci-lint run ./...
 - Do not write progress, logs, summaries, or errors to stdout. Data output belongs on stdout; operational output belongs on stderr or the logfile.
 - Do not assume fetch/log order is deterministic; concurrency makes first error and log order nondeterministic.
 - Do not leave response bodies unclosed on early HTTP-status handling paths.
-- Do not bypass `Retry-After`, global rate limiting, context cancellation, or safety caps when touching fetch logic.
+- Do not bypass natural empty/404 termination, known-total bounded page concurrency, `Retry-After`, global rate limiting, or context cancellation when touching fetch logic.
 - Do not update release tags or push directly to `master`; both are protected by repository rulesets.
 - When a versioned milestone is completed, release using the same version number and close the milestone after the release workflow succeeds.
 

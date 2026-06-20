@@ -24,7 +24,7 @@
 ## OUTPUT RULES
 - stdout is only data: line output or one JSON object.
 - stderr is for progress, warnings, summaries, Cobra error text, and logs unless `--logfile` is set.
-- `--json` disables line output; `--tab` and `--url` do not alter JSON `items`.
+- `--json` disables line output; `--url` does not alter JSON `items`.
 - `--strict` takes precedence over `--best-effort`.
 - Fetch errors can still produce partial stdout results.
 - Invalid inputs are skipped by default; `--strict` makes them non-zero while preserving valid results.

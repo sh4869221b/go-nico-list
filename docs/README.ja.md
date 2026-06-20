@@ -34,7 +34,6 @@ cat users.txt | go-nico-list --stdin
 ## Output
 - 1行に1つの動画IDを出力します（例: `sm123`）。
 - `--url` 指定時は各行に `https://www.nicovideo.jp/watch/` を付与します。
-- `--tab` 指定時は各行にタブを付与します。
 - `--json` 指定時は stdout に単一の JSON オブジェクトを出力します（行出力は無効化）。
 
 ## Exit status
@@ -50,14 +49,11 @@ cat users.txt | go-nico-list --stdin
 | `-c, --comment` | lower comment limit number | `0` |
 | `-a, --dateafter` | date `YYYYMMDD` after | `10000101` |
 | `-b, --datebefore` | date `YYYYMMDD` before | `99991231` |
-| `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
-| `--max-pages` | maximum number of pages to fetch | `0` |
-| `--max-videos` | maximum number of filtered IDs to collect | `0` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
 | `--input-file` | read inputs from file (newline-separated) | `""` |
@@ -76,14 +72,12 @@ Notes:
 - 各入力は `nicovideo.jp/user/<id>` または `nicovideo.jp/mylist/<id>` を含む必要があります（スキームは任意）。数字のみやドメインなしのパスだけの入力は無効としてスキップされます。
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `concurrency`、`page-concurrency`、`retries` を 1 未満にするか、`timeout` を 0 以下にすると実行時エラーになります。
-- `--max-pages` と `--max-videos` は安全制限で、`0` で無効化されます。
-- 通常の行出力と JSON 出力では、`--max-videos N` は入力ターゲットごとの取得上限です。各ターゲットで最大 N 件のフィルタ済み ID を集めてから、出力整形、重複除外、ソート、JSON flattening を行います。
-- unordered 行出力（`--json` なしの `--no-sort`）では、`--max-videos N` は出力全体の上限です。writer に先に到着した N 件を出力し、残りの取得を best-effort でキャンセルします。
-- `--no-sort --dedupe --max-videos N` では、出力される unique ID の件数に上限がかかります。N 件の unique ID を見つけるために、N 件を超える raw ID を読む場合があります。
-- 上限に達した場合は取得を早期終了し、エラー扱いにせず best-effort の結果を返します。
+- 各ターゲットは、ユーザーが設定できるページ数・動画数の上限なしで、API の自然な終了条件まで取得されます。
+- API が `totalCount` を返す場合は、1ページ目から取得対象ページ範囲を確定し、残りのページを `--page-concurrency` の範囲で並列取得します。`totalCount` がない場合は、空ページまたは HTTP 404 まで逐次取得します。
+- 代替の取得上限はありません。そのため、大規模なターゲットでは実行時間、リクエスト数、出力量が増える可能性があります。グローバルなレート制限、リトライ処理、コンテキストキャンセルは引き続き適用されます。
 - 200/404 以外の HTTP ステータスがリトライ後も続く場合は取得エラー扱いになります。
 - HTTP 200 でも `meta.status != 200` の場合は警告ログを出しつつ処理を続行します。
-- `--page-concurrency` は、API が `totalCount` を返し、かつ `--max-videos` が未指定の場合にのみ、各入力ターゲット内のページ取得並列数を制御します。その bounded-page path での最大同時リクエスト数の目安は `--concurrency * --page-concurrency` です。
+- `--page-concurrency` は、API が `totalCount` を返す場合にのみ、各入力ターゲット内のページ取得並列数を制御します。その bounded-page path での最大同時リクエスト数の目安は `--concurrency * --page-concurrency` です。
 - すべてのリクエスト（リトライ含む）に対してレート制限が適用され、HTTP 429 の `Retry-After` は可能な限り尊重されます。高い並列数を使う場合は API 負荷を抑えるため `--rate-limit` または `--min-interval` を併用してください。
 - stderr が TTY でない場合は進捗表示を自動で無効化します。`--progress` で強制表示、`--no-progress` で無効化します（優先）。
 - 処理後に実行サマリを stderr に出力します（非0終了時も含む）。
@@ -92,7 +86,7 @@ Notes:
 - 通常の行出力は、`--no-sort` を指定しない限り動画IDの数値順にソートします。
 - `--dedupe` を指定すると動画IDの重複を除外してからソート/出力します。`--no-sort` 併用時は writer に先に到着した occurrence を採用します。
 - `--no-sort` は行出力向けの unordered fast mode です。入力ターゲット順、ページ順、API items 順は保証されず、取得完了した結果から出力されます。
-- `--json` は stdout に単一の JSON オブジェクトを出力します。`--tab`/`--url` は JSON の `items` に影響せず、サマリは引き続き stderr に出力します。
+- `--json` は stdout に単一の JSON オブジェクトを出力します。`--url` は JSON の `items` に影響せず、サマリは引き続き stderr に出力します。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

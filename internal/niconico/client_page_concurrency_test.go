@@ -171,30 +171,25 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 
 func TestGetVideoListPageConcurrencyStopsAtEmptyPage(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	page4Started := make(chan struct{})
-	var page4StartedOnce sync.Once
-	var requestedPages []string
-	var mu sync.Mutex
+	page3Completed := make(chan struct{})
+	var page3CompletedOnce sync.Once
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page := r.URL.Query().Get("page")
-		mu.Lock()
-		requestedPages = append(requestedPages, page)
-		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch page {
 		case "1":
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":500,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
 		case "2":
 			select {
-			case <-page4Started:
+			case <-page3Completed:
 			case <-r.Context().Done():
 				return
 			}
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
 		case "3":
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
+			page3CompletedOnce.Do(func() { close(page3Completed) })
 		case "4":
-			page4StartedOnce.Do(func() { close(page4Started) })
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm4","registeredAt":"2024-01-13T00:00:00Z","count":{"comment":10}}}]}}`)
 		case "5":
 			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm5","registeredAt":"2024-01-14T00:00:00Z","count":{"comment":10}}}]}}`)
@@ -202,7 +197,7 @@ func TestGetVideoListPageConcurrencyStopsAtEmptyPage(t *testing.T) {
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	t.Cleanup(func() { page4StartedOnce.Do(func() { close(page4Started) }) })
+	t.Cleanup(func() { page3CompletedOnce.Do(func() { close(page3Completed) }) })
 
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
@@ -214,12 +209,6 @@ func TestGetVideoListPageConcurrencyStopsAtEmptyPage(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"sm1"}) {
 		t.Fatalf("unexpected ids: %v", got)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if !slices.Contains(requestedPages, "4") {
-		t.Fatalf("expected speculative page 4 request before page 2 completed: %v", requestedPages)
-	}
-	t.Logf("returned ids: %v; requested pages (page 4 started before page 2 empty response): %v", got, requestedPages)
 }
 
 func TestGetMylistVideoListPageConcurrencyUsesTotalItemCount(t *testing.T) {

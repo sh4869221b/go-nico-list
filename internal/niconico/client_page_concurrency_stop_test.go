@@ -97,12 +97,7 @@ func TestGetVideoListPageConcurrencyCancelsToEmptyResult(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	page2Started := make(chan struct{})
 	var page2StartedOnce sync.Once
-	var requestedPages []string
-	var requestedPagesMu sync.Mutex
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestedPagesMu.Lock()
-		requestedPages = append(requestedPages, r.URL.Query().Get("page"))
-		requestedPagesMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("page") {
 		case "1":
@@ -150,9 +145,6 @@ func TestGetVideoListPageConcurrencyCancelsToEmptyResult(t *testing.T) {
 		if len(result.ids) != 0 {
 			t.Fatalf("expected empty result after cancellation, got %v", result.ids)
 		}
-		requestedPagesMu.Lock()
-		t.Logf("cancellation: requested pages=%v ids=%v error=%v", requestedPages, result.ids, result.err)
-		requestedPagesMu.Unlock()
 	case <-time.After(time.Second):
 		t.Fatal("expected canceled fetch to finish")
 	}

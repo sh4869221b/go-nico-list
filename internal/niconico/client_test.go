@@ -598,10 +598,8 @@ func TestGetVideoListHandleServerError(t *testing.T) {
 
 func TestGetVideoListPartialOnError(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	var requestedPages []string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page := r.URL.Query().Get("page")
-		requestedPages = append(requestedPages, page)
 		switch page {
 		case "1":
 			w.Header().Set("Content-Type", "application/json")
@@ -624,7 +622,6 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"sm1"}) {
 		t.Errorf("expected partial result, got %v", got)
 	}
-	t.Logf("partial error: requested pages=%v ids=%v error=%v", requestedPages, got, err)
 }
 
 func TestGetVideoListPageConcurrencyReturnsPartialIDsOnFetchError(t *testing.T) {

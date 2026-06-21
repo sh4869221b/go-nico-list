@@ -66,7 +66,7 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 
 	outputCh := make(chan unorderedBatch, cfg.Concurrency)
 	writeDone := make(chan unorderedWriteResult, 1)
-	go writeUnorderedOutput(ctx, outWriterFor(cmd), outputCh, cfg, cancel, writeDone)
+	go writeUnorderedOutput(outWriterFor(cmd), outputCh, cfg, cancel, writeDone)
 
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
@@ -221,7 +221,7 @@ func collectFetchErrors(runLogger *slog.Logger, errCh <-chan error, fetchErrCh c
 	close(fetchErrCh)
 }
 
-func writeUnorderedOutput(ctx context.Context, out io.Writer, outputCh <-chan unorderedBatch, cfg *RootConfig, cancel context.CancelFunc, done chan<- unorderedWriteResult) {
+func writeUnorderedOutput(out io.Writer, outputCh <-chan unorderedBatch, cfg *RootConfig, cancel context.CancelFunc, done chan<- unorderedWriteResult) {
 	seen := make(map[string]struct{})
 	if !cfg.DedupeOutput {
 		seen = nil
@@ -232,19 +232,13 @@ func writeUnorderedOutput(ctx context.Context, out io.Writer, outputCh <-chan un
 		if seen != nil {
 			items = dedupeStreamingItems(items, seen)
 		}
-		if cfg.MaxVideos > 0 && outputCount+len(items) > cfg.MaxVideos {
-			items = items[:cfg.MaxVideos-outputCount]
-		}
 		if len(items) > 0 {
-			if err := writeLineOutput(out, items, cfg.Tab, cfg.URL); err != nil {
+			if err := writeLineOutput(out, items, cfg.URL); err != nil {
 				cancel()
 				done <- unorderedWriteResult{count: outputCount, err: err}
 				return
 			}
 			outputCount += len(items)
-		}
-		if cfg.MaxVideos > 0 && outputCount >= cfg.MaxVideos {
-			cancel()
 		}
 	}
 	done <- unorderedWriteResult{count: outputCount}

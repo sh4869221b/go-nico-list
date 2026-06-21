@@ -28,12 +28,10 @@ func GetVideoList(
 	retries int,
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
-	maxPages int,
-	maxVideos int,
 	pageConcurrency int,
 	logger *slog.Logger,
 ) ([]string, error) {
-	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, pageConcurrency, logger,
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger,
 		func(page int) string {
 			return fmt.Sprintf("%s/users/%s/videos?pageSize=%d&page=%d", baseURL, userID, pageSize, page)
 		},
@@ -52,12 +50,10 @@ func GetMylistVideoList(
 	retries int,
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
-	maxPages int,
-	maxVideos int,
 	pageConcurrency int,
 	logger *slog.Logger,
 ) ([]string, error) {
-	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, pageConcurrency, logger,
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger,
 		func(page int) string {
 			return fmt.Sprintf("%s/mylists/%s?pageSize=%d&page=%d", baseURL, mylistID, pageSize, page)
 		},
@@ -151,8 +147,6 @@ func collectVideoList(
 	retries int,
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
-	maxPages int,
-	maxVideos int,
 	pageConcurrency int,
 	logger *slog.Logger,
 	requestURL func(page int) string,
@@ -173,16 +167,10 @@ func collectVideoList(
 		return nil, nil
 	}
 	resStr := filterItems(firstPage.Items, commentCount, afterDate, beforeDate)
-	if maxVideos > 0 && len(resStr) >= maxVideos {
-		return resStr[:maxVideos], nil
-	}
-	if shouldCollectSequentially(firstPage, pageConcurrency, maxVideos) {
-		return collectRemainingSequentially(ctx, resStr, 2, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, maxPages, maxVideos, logger, requestURL, parsePage)
+	if shouldCollectSequentially(firstPage, pageConcurrency) {
+		return collectRemainingSequentially(ctx, resStr, 2, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage)
 	}
 	totalPages := pageCountFor(firstPage.TotalCount)
-	if maxPages > 0 && totalPages > maxPages {
-		totalPages = maxPages
-	}
 	if totalPages <= 1 {
 		return resStr, nil
 	}

@@ -44,7 +44,7 @@ func TestGetVideoListPageConcurrencyIgnoresErrorAfterEmptyPage(t *testing.T) {
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestGetVideoListPageConcurrencyReturnsEarlierPageBeforeLaterEmptyPage(t *te
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestGetVideoListPageConcurrencyCancelsToEmptyResult(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		ids, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 0, 0, 2, logger)
+		ids, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger)
 		resultCh <- struct {
 			ids []string
 			err error

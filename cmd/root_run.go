@@ -12,8 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const tabOutputPrefix = "\t\t\t\t\t\t\t\t\t"
-
 func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) (retErr error) {
 	if cfg.NoSortOutput && !cfg.JSONOutput {
 		return runRootCmdFastUnordered(cmd, args, cfg, deps)
@@ -139,9 +137,9 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			var err error
 			switch target.Type {
 			case targetTypeUser:
-				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, cfg.PageConcurrency, runLogger)
+				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
 			case targetTypeMylist:
-				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.MaxPages, cfg.MaxVideos, cfg.PageConcurrency, runLogger)
+				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
@@ -224,7 +222,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			outputErr = err
 		}
 	} else if outputCount > 0 {
-		if err := writeLineOutput(out, outputIDs, cfg.Tab, cfg.URL); err != nil {
+		if err := writeLineOutput(out, outputIDs, cfg.URL); err != nil {
 			outputErr = err
 		}
 	}

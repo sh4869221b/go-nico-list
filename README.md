@@ -36,7 +36,6 @@ cat users.txt | go-nico-list --stdin
 ## Output
 - One video ID per line (example: `sm123`).
 - With `--url`, each line is prefixed with `https://www.nicovideo.jp/watch/`.
-- With `--tab`, each line is prefixed with tabs.
 - With `--json`, stdout is a single JSON object (line output is disabled).
 
 ## Exit status
@@ -52,14 +51,11 @@ cat users.txt | go-nico-list --stdin
 | `-c, --comment` | lower comment limit number | `0` |
 | `-a, --dateafter` | date `YYYYMMDD` after | `10000101` |
 | `-b, --datebefore` | date `YYYYMMDD` before | `99991231` |
-| `-t, --tab` | id tab separated flag | `false` |
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
-| `--max-pages` | maximum number of pages to fetch | `0` |
-| `--max-videos` | maximum number of filtered IDs to collect | `0` |
 | `--timeout` | HTTP client timeout | `10s` |
 | `--retries` | number of retries for requests | `10` |
 | `--input-file` | read inputs from file (newline-separated) | `""` |
@@ -80,14 +76,12 @@ Notes:
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `concurrency`, `page-concurrency`, or `retries` to a value less than 1, or `timeout` to a value less than or equal to 0, will cause a runtime error.
 - `--dateafter` must be on or before `--datebefore`; inverted ranges return a validation error.
-- `--max-pages` and `--max-videos` are safety caps; `0` disables them.
-- For normal line output and JSON output, `--max-videos N` is a per-target fetch cap: each input target may collect up to N filtered IDs before output formatting, dedupe, sorting, or JSON flattening.
-- For unordered line output (`--no-sort` without `--json`), `--max-videos N` is a global emitted-output cap: the first N IDs that reach the writer are emitted, then remaining fetches are canceled best-effort.
-- With `--no-sort --dedupe --max-videos N`, the cap applies to emitted unique IDs. The command may read more than N raw IDs to find N unique IDs.
-- When a safety cap is hit, fetching stops early and returns best-effort results without error.
+- Each target is fetched without a user-configurable page or video limit until the API's natural termination condition.
+- When the API reports `totalCount`, page 1 defines a bounded page range and `--page-concurrency` controls concurrent requests for the remaining pages. When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404.
+- There are no replacement fetch limits. Large targets can therefore take longer, issue more requests, and produce more output; global rate limiting, retry handling, and context cancellation still apply.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
-- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount` and `--max-videos` is not set. The maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
+- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount`. The maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
 - Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
@@ -96,7 +90,7 @@ Notes:
 - Normal line output sorts IDs by numeric video ID unless `--no-sort` is set.
 - `--dedupe` removes duplicate video IDs before sorting/output. With `--no-sort`, the first occurrence that reaches the writer is kept.
 - `--no-sort` is an unordered fast mode for line output: input target order, page order, and API item order are not guaranteed. Results are written as soon as target fetches finish.
-- `--json` emits a single JSON object to stdout. `--tab`/`--url` do not affect JSON `items`, and the summary still prints to stderr.
+- `--json` emits a single JSON object to stdout. `--url` does not affect JSON `items`, and the summary still prints to stderr.
 - In JSON output, `targets` include `type` (`user` or `mylist`) and `id`, sorted by type and numeric id in ascending order.
 
 ## Design

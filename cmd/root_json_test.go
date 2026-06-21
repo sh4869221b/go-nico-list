@@ -24,7 +24,6 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 	t.Cleanup(server.Close)
 	cfg := testFetchConfig(server.URL)
 	cfg.JSONOutput = true
-	cfg.Tab = true
 	cfg.URL = true
 	cfg.DedupeOutput = true
 

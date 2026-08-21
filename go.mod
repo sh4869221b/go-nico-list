@@ -2,6 +2,8 @@ module github.com/sh4869221b/go-nico-list
 
 go 1.26.1
 
+toolchain go1.26.6
+
 require (
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.45.0

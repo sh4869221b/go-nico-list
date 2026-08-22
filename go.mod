@@ -2,7 +2,7 @@ module github.com/sh4869221b/go-nico-list
 
 go 1.26.1
 
-toolchain go1.26.6
+toolchain go1.27.0
 
 require (
 	github.com/spf13/cobra v1.10.2

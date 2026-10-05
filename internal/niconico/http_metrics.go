@@ -27,7 +27,7 @@ var httpCounterNames = [...]string{
 }
 
 var httpDurationNames = [...]string{
-	"semaphore_wait", "rate_wait", "backoff_wait", "service", "body_read", "body_close", "decode",
+	"semaphore_wait", "rate_wait", "backoff_wait", "adaptive_wait", "service", "body_read", "body_close", "decode",
 	"connection_acquire", "dns", "connect", "tls", "ttfb",
 }
 

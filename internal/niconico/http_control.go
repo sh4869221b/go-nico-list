@@ -18,6 +18,9 @@ type HTTPControl struct {
 	peakPending  int
 	queue        list.List
 	metrics      *HTTPMetrics
+	adaptive     *adaptiveController
+	inFlight     int
+	pauseEpoch   uint64
 }
 
 type httpWaiter struct {
@@ -40,6 +43,7 @@ type HTTPAdmissionSnapshot struct {
 type HTTPControlSnapshot struct {
 	Admission HTTPAdmissionSnapshot `json:"admission"`
 	Metrics   HTTPMetricsSnapshot   `json:"metrics"`
+	Adaptive  *AdaptiveSnapshot     `json:"adaptive,omitempty"`
 }
 
 // NewHTTPControl builds command-wide admission. Callers validate nonnegative limits.
@@ -54,6 +58,21 @@ func NewHTTPControl(limit int, metrics bool) *HTTPControl {
 	return c
 }
 
+// NewAdaptiveHTTPControl adds opt-in adaptive admission. Zero means no configured
+// hard maximum; admission still begins at a finite, positive controller limit.
+func NewAdaptiveHTTPControl(limit int, metrics bool) *HTTPControl {
+	if limit < 0 {
+		return nil
+	}
+	c := &HTTPControl{hardMax: limit}
+	if metrics {
+		c.metrics = NewHTTPMetrics()
+	}
+	c.adaptive = newAdaptiveController(limit, timeNow())
+	c.limit = c.adaptive.limit
+	return c
+}
+
 // Snapshot returns an independent copy suitable for structured logging.
 func (c *HTTPControl) Snapshot() HTTPControlSnapshot {
 	if c == nil {
@@ -61,8 +80,14 @@ func (c *HTTPControl) Snapshot() HTTPControlSnapshot {
 	}
 	c.mu.Lock()
 	admission := HTTPAdmissionSnapshot{HardMax: c.hardMax, Limit: c.limit, Reserved: c.reserved, PeakReserved: c.peakReserved, Pending: c.queue.Len(), PeakPending: c.peakPending}
+	var adaptive *AdaptiveSnapshot
+	if c.adaptive != nil {
+		state := c.adaptive.snapshot(timeNow())
+		state.Pending, state.InFlight = c.queue.Len(), c.inFlight
+		adaptive = &state
+	}
 	c.mu.Unlock()
-	return HTTPControlSnapshot{Admission: admission, Metrics: c.metrics.Snapshot()}
+	return HTTPControlSnapshot{Admission: admission, Metrics: c.metrics.Snapshot(), Adaptive: adaptive}
 }
 
 func (c *HTTPControl) acquire(ctx context.Context) error {

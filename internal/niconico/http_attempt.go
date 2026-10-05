@@ -69,6 +69,10 @@ func waitForHTTPAttempt(ctx context.Context, limiter *RateLimiter, delay time.Du
 }
 
 func doHTTPAttempt(client *http.Client, req *http.Request, retry bool, control *HTTPControl) (*http.Response, error) {
+	return performHTTPAttempt(client, req, retry, control, nil, 0)
+}
+
+func performHTTPAttempt(client *http.Client, req *http.Request, retry bool, control *HTTPControl, adaptive *adaptiveAttempt, attempt int) (*http.Response, error) {
 	if control == nil {
 		return client.Do(req)
 	}
@@ -104,10 +108,17 @@ func doHTTPAttempt(client *http.Client, req *http.Request, retry bool, control *
 		if metrics != nil {
 			metrics.endAttempt(status, err, time.Since(started))
 		}
-		control.release()
+		control.finishAdaptive(adaptive, req.Context(), status, err, nil, false, nil)
 		return nil, err
 	}
-	res.Body = &controlledBody{ReadCloser: res.Body, control: control, started: started, status: res.StatusCode, stopTrace: stopTrace}
+	if adaptive != nil && res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound {
+		delay := nextRetryDelay(retryAfterDelay(res), attempt)
+		adaptive.retryAt = timeNow().Add(delay)
+		if res.StatusCode == http.StatusTooManyRequests {
+			control.throttleAdaptive(adaptive, delay)
+		}
+	}
+	res.Body = &controlledBody{ReadCloser: res.Body, control: control, started: started, status: res.StatusCode, stopTrace: stopTrace, adaptive: adaptive, ctx: req.Context()}
 	return res, nil
 }
 
@@ -119,6 +130,25 @@ type controlledBody struct {
 	stopTrace func()
 	once      sync.Once
 	closeErr  error
+	adaptive  *adaptiveAttempt
+	ctx       context.Context
+	readMu    sync.Mutex
+	readErr   error
+	eof       bool
+}
+
+func (b *controlledBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if b.adaptive != nil && err != nil {
+		b.readMu.Lock()
+		if err == io.EOF {
+			b.eof = true
+		} else {
+			b.readErr = err
+		}
+		b.readMu.Unlock()
+	}
+	return n, err
 }
 
 func (b *controlledBody) Close() error {
@@ -139,7 +169,10 @@ func (b *controlledBody) Close() error {
 			}
 			metrics.endAttempt(b.status, nil, time.Since(b.started))
 		}
-		b.control.release()
+		b.readMu.Lock()
+		readErr, eof := b.readErr, b.eof
+		b.readMu.Unlock()
+		b.control.finishAdaptive(b.adaptive, b.ctx, b.status, nil, readErr, eof, b.closeErr)
 	})
 	return b.closeErr
 }

@@ -58,13 +58,20 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	var lastErr error
 
 	delay := time.Duration(0)
+	var adaptiveRetryAt time.Time
 	for attempt := 1; attempt <= retries; attempt++ {
-		if err := waitForHTTPAttempt(ctx, limiter, delay, control); err != nil {
-			return nil, err
+		var res *http.Response
+		var err error
+		if control != nil && control.adaptive != nil {
+			res, err = adaptiveHTTPAttempt(client, req, attempt, adaptiveRetryAt, limiter, control)
+			adaptiveRetryAt = time.Time{}
+		} else {
+			if err := waitForHTTPAttempt(ctx, limiter, delay, control); err != nil {
+				return nil, err
+			}
+			res, err = doHTTPAttempt(client, req, attempt > 1, control)
 		}
 		delay = 0
-
-		res, err := doHTTPAttempt(client, req, attempt > 1, control)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				if res != nil {
@@ -77,6 +84,9 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			}
 			lastErr = err
 		} else {
+			if body, ok := res.Body.(*controlledBody); ok && body.adaptive != nil {
+				adaptiveRetryAt = body.adaptive.retryAt
+			}
 			var retryAfter time.Duration
 			res, retryAfter, err = evaluateResponse(res)
 			if err == nil {
@@ -91,6 +101,9 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 		}
 
 		delay = nextRetryDelay(delay, attempt)
+		if control != nil && control.adaptive != nil && adaptiveRetryAt.IsZero() {
+			adaptiveRetryAt = timeNow().Add(delay)
+		}
 	}
 
 	return nil, lastErr

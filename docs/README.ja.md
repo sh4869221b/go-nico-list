@@ -52,7 +52,8 @@ cat users.txt | go-nico-list --stdin
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
-| `--http-concurrency` | maximum command-wide HTTP requests (0 disables) | `0` |
+| `--http-concurrency` | コマンド全体の HTTP 同時数の上限（0 は追加上限なし） | `0` |
+| `--adaptive-http-concurrency` | HTTP 同時数を自動調整（`--http-concurrency` の上限指定は任意） | `false` |
 | `--http-metrics` | log aggregate HTTP performance metrics | `false` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
@@ -101,11 +102,28 @@ go-nico-list --input-file users.txt -n 8 --page-concurrency 4 \
   --http-concurrency 8 --http-metrics --logfile run.jsonl
 ```
 
-`--http-concurrency 0` は追加上限なし、正数は HTTP の共有上限、負数はエラーです。本文の読み取りと close が終わるまで枠を保持し、リトライの待機前に解放します。既存のレート制限も維持します。自動調整ではなく固定上限で、ターゲット・ページの並列設定を自動的に増やすものではありません。
+`--http-concurrency 0` は追加上限なし、正数は HTTP の共有上限、負数はエラーです。本文の読み取りと close が終わるまで枠を保持し、リトライの待機前に解放します。既存のレート制限も維持します。`--adaptive-http-concurrency` を指定しない場合は固定上限です。ターゲット・ページの並列設定を自動的に増やすものではありません。
 
 `--http-metrics` は初期化済みの実行終了時に `http_metrics` の集約ログを1件出力します。出力先は stderr、または既存の `--logfile` です。試行・実送信した再試行・ステータス・エラー・接続再利用・同時数・待機・通信・本文・decode の時間を確認できます。stdout、結果 JSON、summary、終了コードは変更しません。計測ログに URL、対象ID、本文は含めません（既存のエラーログは従来どおりです）。
 
 分位点は各計測の直近最大1024件から求めます。p95 は20件以上、p99 は100件以上の場合のみ表示します。区間は重なるため合計して実行時間として扱わないでください。[計測定義・ローカルベンチマーク](HTTP_METRICS.md)も参照してください。
+
+## 実験的な HTTP 同時数の自動調整
+
+```bash
+go-nico-list --input-file users.txt -n 16 --page-concurrency 8 \
+  --adaptive-http-concurrency --http-metrics
+```
+
+自動調整では `--http-concurrency` を省略するか `0` にすると、設定上の上限なしで動作します。同時数は8から開始し、その時点の正数の同時実行制限を自動調整します。正数を指定すれば任意の厳格な上限として機能し、8未満ならその値から開始します。十分な待機リクエストがあり正常な応答が続く場合は徐々に増やし、遅延やリトライ対象のエラーが継続する場合は減らします。ターゲット・ページの並列数、レート制限、最小間隔は変更しません。ワーカーが少ない場合、レート制限がある場合、短い実行では同時数が増えないことがあります。実行時間の短縮を保証する機能ではありません。
+
+設定上の上限を外しても、代わりの隠れた上限やメモリ・ファイルディスクリプタの保護機構は追加しません。実際の同時数は利用可能なワーカーにも制限されますが、メモリ不足やファイルディスクリプタ枯渇の防止を保証するものではありません。
+
+自動調整時に 429 を受けると、適用される `Retry-After` とリトライ期限に従いコマンド全体の新規送信を一時停止します。送信済みの処理は中断せず、再開時は送信間隔を設けて徐々に回復します。固定モードのリクエスト単位のリトライ動作は維持します。出力、フィルタ、部分結果、終了動作は変更しません。
+
+`--http-metrics` なしでも自動調整は動作します。調整状態や判断理由を最終 `http_metrics` ログに追加するのは、この計測フラグを指定した場合だけです。状態は実行ごとに独立し、バックグラウンドの試験リクエストや学習状態の永続化は行いません。実験的なオプトイン機能であり、ローカルの合成ベンチマークから実 API の最適値を判断することはできません。
+
+自動調整の詳細・評価・制約は [ADAPTIVE_HTTP.md](ADAPTIVE_HTTP.md) を参照してください。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

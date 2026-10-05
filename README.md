@@ -54,7 +54,8 @@ cat users.txt | go-nico-list --stdin
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
-| `--http-concurrency` | maximum command-wide HTTP requests (0 disables) | `0` |
+| `--http-concurrency` | maximum command-wide HTTP requests (0 means no additional maximum) | `0` |
+| `--adaptive-http-concurrency` | adapt HTTP concurrency with an optional `--http-concurrency` maximum | `false` |
 | `--http-metrics` | log aggregate HTTP performance metrics | `false` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
@@ -106,11 +107,26 @@ go-nico-list --input-file users.txt -n 8 --page-concurrency 4 \
   --http-concurrency 8 --http-metrics --logfile run.jsonl
 ```
 
-`--http-concurrency 0` preserves the existing uncapped behavior; negative values are invalid. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. This is a fixed cap, not automatic tuning, and it does not increase the supply of target/page workers.
+`--http-concurrency 0` means no additional maximum; negative values are invalid. Without adaptive mode, zero preserves the existing uncapped behavior. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. Without `--adaptive-http-concurrency`, this is a fixed cap. It does not increase the supply of target/page workers.
 
 `--http-metrics` adds one `http_metrics` structured log event at the end of an initialized execution. It contains attempts, dispatched retries, status/error counts, connection reuse, in-flight/reservation peaks, elapsed time and wait/network/body/decode timings. It does not change stdout, JSON results, the summary or exit status. The metrics event contains no request URLs, target IDs or response content; ordinary existing error logs are unchanged.
 
 Timing percentiles use the most recent 1024 samples per metric, with sample counts; p95 requires at least 20 samples and p99 at least 100. Trace intervals overlap and must not be added to obtain elapsed time. See [measurement definitions and reproducible local benchmarks](docs/HTTP_METRICS.md).
+
+## Experimental adaptive HTTP concurrency
+
+```bash
+go-nico-list --input-file users.txt -n 16 --page-concurrency 8 \
+  --adaptive-http-concurrency --http-metrics
+```
+
+Adaptive mode works without a configured ceiling: omit `--http-concurrency` or set it to `0`. It starts at 8 and retains a positive, automatically adjusted admission limit. A positive `--http-concurrency` remains an optional hard ceiling and lowers the initial limit if it is below 8. The controller grows gradually with healthy, sufficiently supplied work and decreases after sustained latency or retry pressure. It never changes target/page concurrency or your rate/min-interval settings. Low worker supply, explicit rate limits and short runs can leave the limit unchanged; automatic tuning is not a promise of faster completion.
+
+Removing the configured ceiling adds no hidden replacement cap or memory/file-descriptor resource guard. Available workers still bound actual work; unlimited adaptive mode does not guarantee prevention of out-of-memory or file-descriptor exhaustion.
+
+A 429 in adaptive mode pauses new requests command-wide for the applicable `Retry-After`/retry deadline, lets existing requests finish, and resumes with paced recovery. Fixed mode keeps the existing per-request retry policy. Output, filtering, partial results and exit behavior stay unchanged.
+
+The controller runs even without `--http-metrics`. Only that diagnostics flag adds adaptive state and decision reasons to the final `http_metrics` event; adaptive mode alone adds no diagnostic output. State is per command, with no background probes or persisted learning. This feature is experimental and opt-in; local synthetic comparisons do not establish the best setting for the live API. See [policy, evaluation and limitations](docs/ADAPTIVE_HTTP.md).
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

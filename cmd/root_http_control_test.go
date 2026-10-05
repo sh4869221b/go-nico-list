@@ -23,10 +23,11 @@ import (
 )
 
 type httpCommandOutputMode struct {
-	name   string
-	json   bool
-	noSort bool
-	url    bool
+	name     string
+	json     bool
+	noSort   bool
+	url      bool
+	adaptive bool
 }
 
 var httpCommandOutputModes = []httpCommandOutputMode{
@@ -38,24 +39,32 @@ var httpCommandOutputModes = []httpCommandOutputMode{
 
 func TestHTTPControlFlagDefaultsAndValidation(t *testing.T) {
 	cfg := newTestRootConfig()
-	if cfg.HTTPConcurrency != 0 || cfg.HTTPMetrics {
+	if cfg.HTTPConcurrency != 0 || cfg.HTTPMetrics || cfg.AdaptiveHTTPConcurrency {
 		t.Fatalf("HTTP controls should be opt-in, got concurrency=%d metrics=%t", cfg.HTTPConcurrency, cfg.HTTPMetrics)
 	}
 	cmd, _, _ := newTestRootCommand(t, cfg, newTestRootDeps())
-	for name, want := range map[string]string{"http-concurrency": "0", "http-metrics": "false"} {
+	for name, want := range map[string]string{"http-concurrency": "0", "http-metrics": "false", "adaptive-http-concurrency": "false"} {
 		flag := cmd.Flags().Lookup(name)
 		if flag == nil || flag.DefValue != want {
 			t.Fatalf("flag %s: got %v, want default %q", name, flag, want)
 		}
 	}
-	for _, unordered := range []bool{false, true} {
-		t.Run(fmt.Sprintf("unordered=%t", unordered), func(t *testing.T) {
+	if usage := cmd.Flags().Lookup("http-concurrency").Usage; !strings.Contains(usage, "0 means no additional maximum") {
+		t.Fatalf("HTTP concurrency help does not describe zero: %q", usage)
+	}
+	if usage := cmd.Flags().Lookup("adaptive-http-concurrency").Usage; !strings.Contains(usage, "optional") {
+		t.Fatalf("adaptive help does not describe the optional maximum: %q", usage)
+	}
+	for _, mode := range httpCommandOutputModes {
+		t.Run(mode.name, func(t *testing.T) {
 			for _, test := range []struct {
 				name string
 				args []string
 				edit func(*RootConfig, *RootDeps)
 			}{
 				{name: "negative_flag", args: []string{"--http-concurrency=-1"}},
+				{name: "adaptive_negative_ceiling", args: []string{"--adaptive-http-concurrency", "--http-concurrency=-1"}},
+				{name: "adaptive_config_negative", edit: func(c *RootConfig, _ *RootDeps) { c.AdaptiveHTTPConcurrency, c.HTTPConcurrency = true, -1 }},
 				{name: "negative_config", edit: func(c *RootConfig, _ *RootDeps) { c.HTTPConcurrency = -1 }},
 				{name: "invalid_date", edit: func(c *RootConfig, _ *RootDeps) { c.DateAfter = "invalid" }},
 				{name: "logger_failure", edit: func(c *RootConfig, d *RootDeps) {
@@ -65,7 +74,7 @@ func TestHTTPControlFlagDefaultsAndValidation(t *testing.T) {
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					cfg := newTestRootConfig()
-					cfg.NoSortOutput = unordered
+					cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
 					cfg.HTTPMetrics = true
 					var logs bytes.Buffer
 					deps := newTestRootDeps()
@@ -77,7 +86,7 @@ func TestHTTPControlFlagDefaultsAndValidation(t *testing.T) {
 					if err == nil {
 						t.Fatal("expected initialization error")
 					}
-					if strings.HasPrefix(test.name, "negative") && !strings.Contains(err.Error(), "http-concurrency") {
+					if (strings.HasPrefix(test.name, "negative") || strings.HasPrefix(test.name, "adaptive")) && !strings.Contains(err.Error(), "http-concurrency") {
 						t.Fatalf("expected HTTP concurrency validation error, got %v", err)
 					}
 					if out.Len() != 0 || strings.Contains(errOut.String(), "Usage:") || logs.Len() != 0 {
@@ -101,15 +110,24 @@ func TestHTTPControlsPreserveOutputContracts(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/dedupe=%t", mode.name, dedupe), func(t *testing.T) {
 				var baselineOut, baselineSummary string
 				for _, flags := range []struct {
-					name    string
-					args    []string
-					metrics bool
+					name     string
+					args     []string
+					metrics  bool
+					adaptive bool
+					max      int
 				}{
 					{name: "default"},
 					{name: "explicit_off", args: []string{"--http-concurrency=0", "--http-metrics=false"}},
 					{name: "cap", args: []string{"--http-concurrency=2"}},
 					{name: "metrics", args: []string{"--http-metrics"}, metrics: true},
 					{name: "cap_and_metrics", args: []string{"--http-concurrency=2", "--http-metrics"}, metrics: true},
+					{name: "adaptive", args: []string{"--http-concurrency=2", "--adaptive-http-concurrency"}, adaptive: true, max: 2},
+					{name: "adaptive_and_metrics", args: []string{"--http-concurrency=2", "--adaptive-http-concurrency", "--http-metrics"}, metrics: true, adaptive: true, max: 2},
+					{name: "adaptive_default_max", args: []string{"--adaptive-http-concurrency"}, adaptive: true},
+					{name: "adaptive_default_max_and_metrics", args: []string{"--adaptive-http-concurrency", "--http-metrics"}, metrics: true, adaptive: true},
+					{name: "adaptive_explicit_zero", args: []string{"--adaptive-http-concurrency", "--http-concurrency=0"}, adaptive: true},
+					{name: "adaptive_explicit_zero_and_metrics", args: []string{"--adaptive-http-concurrency", "--http-concurrency=0", "--http-metrics"}, metrics: true, adaptive: true},
+					{name: "explicit_fixed", args: []string{"--http-concurrency=2", "--adaptive-http-concurrency=false"}},
 				} {
 					t.Run(flags.name, func(t *testing.T) {
 						cfg := testFetchConfig(server.URL)
@@ -148,6 +166,11 @@ func TestHTTPControlsPreserveOutputContracts(t *testing.T) {
 							}
 							assertHTTPMetricCounter(t, events[0], "attempts", 9)
 							assertHTTPMetricCounter(t, events[0], "pages", 9)
+							if flags.adaptive {
+								assertAdaptiveHTTPMetric(t, events[0], flags.max)
+							} else if events[0].HTTP.Adaptive != nil {
+								t.Fatal("fixed/unlimited mode emitted adaptive state")
+							}
 						} else if len(events) != 0 {
 							t.Fatalf("metrics disabled but got %d events", len(events))
 						}
@@ -159,7 +182,7 @@ func TestHTTPControlsPreserveOutputContracts(t *testing.T) {
 }
 
 func TestHTTPConcurrencySharedAcrossMixedTargetsAndKnownPages(t *testing.T) {
-	for _, mode := range httpCommandOutputModes {
+	for _, mode := range httpCommandAdmissionModes() {
 		t.Run(mode.name, func(t *testing.T) {
 			const cap = 2
 			started := make(chan struct{}, 9)
@@ -198,6 +221,7 @@ func TestHTTPConcurrencySharedAcrossMixedTargetsAndKnownPages(t *testing.T) {
 			cfg := testFetchConfig(server.URL)
 			cfg.Concurrency, cfg.PageConcurrency = 3, 3
 			cfg.HTTPConcurrency, cfg.HTTPMetrics = cap, true
+			cfg.AdaptiveHTTPConcurrency = mode.adaptive
 			cfg.JSONOutput, cfg.NoSortOutput = mode.json, mode.noSort
 			cfg.HTTPClientTimeout = 10 * time.Second
 			var logs bytes.Buffer
@@ -272,24 +296,28 @@ func TestHTTPControlsPreserveStrictBestEffortAndPartialResults(t *testing.T) {
 		} {
 			t.Run(mode.name+"/"+behavior.name, func(t *testing.T) {
 				var baseline, summary, errorText string
-				for _, enabled := range []bool{false, true} {
+				for _, controlMode := range []string{"disabled", "fixed", "adaptive", "adaptive_unlimited"} {
 					cfg := testFetchConfig(server.URL)
 					cfg.Concurrency, cfg.PageConcurrency = 3, 3
 					cfg.JSONOutput, cfg.NoSortOutput = mode.json, mode.noSort
 					cfg.StrictInput, cfg.BestEffort = behavior.strict, behavior.bestEffort
-					if enabled {
+					if controlMode != "disabled" {
 						cfg.HTTPConcurrency, cfg.HTTPMetrics = 2, true
+						cfg.AdaptiveHTTPConcurrency = strings.HasPrefix(controlMode, "adaptive")
+						if controlMode == "adaptive_unlimited" {
+							cfg.HTTPConcurrency = 0
+						}
 					}
 					var logs bytes.Buffer
 					deps := newTestRootDeps()
 					deps.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 					out, errOut, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1", "nicovideo.jp/mylist/2", "invalid")
 					if (err != nil) != behavior.wantError {
-						t.Fatalf("enabled=%t: error=%v, wantError=%t", enabled, err, behavior.wantError)
+						t.Fatalf("mode=%s: error=%v, wantError=%t", controlMode, err, behavior.wantError)
 					}
 					assertHTTPCommandIDs(t, out.String(), mode, []string{"sm7"})
 					gotError := fmt.Sprint(err)
-					if !enabled {
+					if controlMode == "disabled" {
 						baseline, summary, errorText = out.String(), errOut.String(), gotError
 					} else {
 						if out.String() != baseline || errOut.String() != summary || gotError != errorText {
@@ -305,36 +333,41 @@ func TestHTTPControlsPreserveStrictBestEffortAndPartialResults(t *testing.T) {
 }
 
 func TestHTTPMetricsRetryAndNaturalTermination(t *testing.T) {
-	var firstPageAttempts atomic.Int64
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("page") == "2" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if firstPageAttempts.Add(1) == 1 {
-			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm8","registeredAt":"2024-01-02T03:04:05Z","count":{"comment":12}}}]}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.Retries, cfg.HTTPConcurrency, cfg.HTTPMetrics = 2, 1, true
-	var logs bytes.Buffer
-	deps := newTestRootDeps()
-	deps.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
-	out, _, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1")
-	if err != nil || out.String() != "sm8\n" {
-		t.Fatalf("stdout=%q error=%v", out.String(), err)
-	}
-	event := singleHTTPMetricEvent(t, logs.String())
-	for name, want := range map[string]int64{"attempts": 3, "retries": 1, "http_200": 1, "http_404": 1, "http_429": 1, "pages": 2, "page_success": 2} {
-		assertHTTPMetricCounter(t, event, name, want)
-	}
-	if event.HTTP.Admission.Reserved != 0 || event.HTTP.Admission.PeakReserved != 1 {
-		t.Fatalf("retry leaked/exceeded reservations: %+v", event.HTTP.Admission)
+	for _, adaptive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("adaptive=%t", adaptive), func(t *testing.T) {
+			var firstPageAttempts atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("page") == "2" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				if firstPageAttempts.Add(1) == 1 {
+					w.Header().Set("Retry-After", "0")
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm8","registeredAt":"2024-01-02T03:04:05Z","count":{"comment":12}}}]}}`)
+			}))
+			t.Cleanup(server.Close)
+			cfg := testFetchConfig(server.URL)
+			cfg.Retries, cfg.HTTPConcurrency, cfg.HTTPMetrics = 2, 1, true
+			cfg.AdaptiveHTTPConcurrency = adaptive
+			var logs bytes.Buffer
+			deps := newTestRootDeps()
+			deps.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			out, _, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1")
+			if err != nil || out.String() != "sm8\n" {
+				t.Fatalf("stdout=%q error=%v", out.String(), err)
+			}
+			event := singleHTTPMetricEvent(t, logs.String())
+			for name, want := range map[string]int64{"attempts": 3, "retries": 1, "http_200": 1, "http_404": 1, "http_429": 1, "pages": 2, "page_success": 2} {
+				assertHTTPMetricCounter(t, event, name, want)
+			}
+			if event.HTTP.Admission.Reserved != 0 || event.HTTP.Admission.PeakReserved != 1 {
+				t.Fatalf("retry leaked/exceeded reservations: %+v", event.HTTP.Admission)
+			}
+		})
 	}
 }
 
@@ -354,51 +387,54 @@ func TestHTTPMetricsRoutingAndContentIsolation(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	for _, destination := range []string{"stderr", "injected_logger", "logfile"} {
-		t.Run(destination, func(t *testing.T) {
-			cfg := testFetchConfig(server.URL)
-			cfg.HTTPConcurrency, cfg.HTTPMetrics = 2, true
-			var stderr, injected bytes.Buffer
-			deps := newTestRootDeps()
-			deps.Stderr = &stderr
-			loggerOutput := &injected
-			if destination == "stderr" {
-				loggerOutput = &stderr
-			}
-			deps.Logger = slog.New(slog.NewJSONHandler(loggerOutput, nil))
-			if destination == "logfile" {
-				cfg.LogFilePath = filepath.Join(t.TempDir(), "metrics.log")
-			}
-			out, _, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/918273645")
-			if err != nil || out.String() != privateID+"\n" {
-				t.Fatalf("stdout=%q error=%v", out.String(), err)
-			}
-			logs := loggerOutput.String()
-			if destination == "logfile" {
-				data, err := os.ReadFile(cfg.LogFilePath)
-				if err != nil {
-					t.Fatal(err)
+		for _, adaptive := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/adaptive=%t", destination, adaptive), func(t *testing.T) {
+				cfg := testFetchConfig(server.URL)
+				cfg.HTTPConcurrency, cfg.HTTPMetrics = 2, true
+				cfg.AdaptiveHTTPConcurrency = adaptive
+				var stderr, injected bytes.Buffer
+				deps := newTestRootDeps()
+				deps.Stderr = &stderr
+				loggerOutput := &injected
+				if destination == "stderr" {
+					loggerOutput = &stderr
 				}
-				logs = string(data)
-				if injected.Len() != 0 {
-					t.Fatalf("logfile should replace injected logger: %q", injected.String())
+				deps.Logger = slog.New(slog.NewJSONHandler(loggerOutput, nil))
+				if destination == "logfile" {
+					cfg.LogFilePath = filepath.Join(t.TempDir(), "metrics.log")
 				}
-			}
-			event := singleHTTPMetricEvent(t, logs)
-			for _, forbidden := range []string{server.URL, "/users/", "918273645", secretHeader, secretBody, "registeredAt"} {
-				if strings.Contains(string(event.RawHTTP), forbidden) {
-					t.Errorf("metrics retained request/response content %q: %s", forbidden, event.RawHTTP)
+				out, _, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/918273645")
+				if err != nil || out.String() != privateID+"\n" {
+					t.Fatalf("stdout=%q error=%v", out.String(), err)
 				}
-			}
-			if strings.Contains(out.String(), "http_metrics") || strings.Contains(out.String(), "summary") {
-				t.Fatalf("operational output leaked to stdout: %q", out.String())
-			}
-			if destination != "stderr" && strings.Contains(stderr.String(), "http_metrics") {
-				t.Fatalf("metrics leaked to stderr: %q", stderr.String())
-			}
-			if !strings.Contains(stderr.String(), "summary inputs=1 valid=1 invalid=0 fetch_ok=1 fetch_err=0 output_count=1") {
-				t.Fatalf("summary missing from stderr: %q", stderr.String())
-			}
-		})
+				logs := loggerOutput.String()
+				if destination == "logfile" {
+					data, err := os.ReadFile(cfg.LogFilePath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					logs = string(data)
+					if injected.Len() != 0 {
+						t.Fatalf("logfile should replace injected logger: %q", injected.String())
+					}
+				}
+				event := singleHTTPMetricEvent(t, logs)
+				for _, forbidden := range []string{server.URL, "/users/", "918273645", secretHeader, secretBody, "registeredAt"} {
+					if strings.Contains(string(event.RawHTTP), forbidden) {
+						t.Errorf("metrics retained request/response content %q: %s", forbidden, event.RawHTTP)
+					}
+				}
+				if strings.Contains(out.String(), "http_metrics") || strings.Contains(out.String(), "summary") {
+					t.Fatalf("operational output leaked to stdout: %q", out.String())
+				}
+				if destination != "stderr" && strings.Contains(stderr.String(), "http_metrics") {
+					t.Fatalf("metrics leaked to stderr: %q", stderr.String())
+				}
+				if !strings.Contains(stderr.String(), "summary inputs=1 valid=1 invalid=0 fetch_ok=1 fetch_err=0 output_count=1") {
+					t.Fatalf("summary missing from stderr: %q", stderr.String())
+				}
+			})
+		}
 	}
 }
 
@@ -415,6 +451,8 @@ func TestHTTPMetricsCommandIsolation(t *testing.T) {
 	}{
 		{name: "first", flags: []string{"--http-metrics", "--http-concurrency=1"}, targets: args[:1], want: 1, cap: 1},
 		{name: "second", flags: []string{"--http-metrics", "--http-concurrency=2"}, targets: args, want: 3, cap: 2},
+		{name: "adaptive", flags: []string{"--http-metrics", "--http-concurrency=16", "--adaptive-http-concurrency"}, targets: args, want: 3, cap: 16},
+		{name: "adaptive_unlimited", flags: []string{"--http-metrics", "--adaptive-http-concurrency"}, targets: args, want: 3},
 		{name: "disabled", targets: args[:1]},
 		{name: "empty", flags: []string{"--http-metrics"}},
 	} {
@@ -443,7 +481,7 @@ func TestHTTPMetricsCommandIsolation(t *testing.T) {
 			}
 		})
 	}
-	if cfg.HTTPMetrics || cfg.HTTPConcurrency != 0 {
+	if cfg.HTTPMetrics || cfg.HTTPConcurrency != 0 || cfg.AdaptiveHTTPConcurrency {
 		t.Fatalf("command flags mutated caller config: %+v", cfg)
 	}
 }
@@ -493,6 +531,12 @@ type httpCommandMetricEvent struct {
 			Pending      int `json:"pending"`
 			PeakPending  int `json:"peak_pending"`
 		} `json:"admission"`
+		Adaptive *struct {
+			Initial int    `json:"initial"`
+			Current int    `json:"current"`
+			Max     int    `json:"max"`
+			Reason  string `json:"last_reason"`
+		} `json:"adaptive,omitempty"`
 		Metrics struct {
 			Counters map[string]int64 `json:"counters"`
 		} `json:"metrics"`
@@ -650,4 +694,33 @@ func httpCommandPagePayload(mylist bool, total int, ids []string) string {
 		b.WriteByte('}')
 	}
 	return b.String()
+}
+
+// Include both policies without conflating HTTP policy with stdout mode.
+func httpCommandAdmissionModes() []httpCommandOutputMode {
+	modes := make([]httpCommandOutputMode, 0, 2*len(httpCommandOutputModes))
+	for _, mode := range httpCommandOutputModes {
+		fixed := mode
+		fixed.name += "/fixed"
+		adaptive := mode
+		adaptive.name += "/adaptive"
+		adaptive.adaptive = true
+		modes = append(modes, fixed, adaptive)
+	}
+	return modes
+}
+
+func assertAdaptiveHTTPMetric(tb testing.TB, event httpCommandMetricEvent, max int) {
+	tb.Helper()
+	state := event.HTTP.Adaptive
+	initial := 8
+	if max > 0 && max < initial {
+		initial = max
+	}
+	if state == nil || state.Initial != initial || state.Max != max || state.Current < 1 || (max > 0 && state.Current > max) || state.Reason == "" {
+		tb.Fatalf("invalid adaptive state: %+v, hard maximum %d", state, max)
+	}
+	if event.HTTP.Admission.HardMax != max || event.HTTP.Admission.Limit != state.Current {
+		tb.Fatalf("admission and adaptive state disagree: admission=%+v adaptive=%+v", event.HTTP.Admission, state)
+	}
 }

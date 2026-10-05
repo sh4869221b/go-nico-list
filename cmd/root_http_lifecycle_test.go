@@ -17,11 +17,12 @@ import (
 
 func TestHTTPControlsPreserveOutputFailureAndProgress(t *testing.T) {
 	server := newSingleVideoServer(t)
-	for _, mode := range httpCommandOutputModes {
+	for _, mode := range httpCommandAdmissionModes() {
 		t.Run(mode.name, func(t *testing.T) {
 			for _, hide := range []bool{false, true} {
 				cfg := testFetchConfig(server.URL)
 				cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
+				cfg.AdaptiveHTTPConcurrency = mode.adaptive
 				cfg.HTTPConcurrency, cfg.HTTPMetrics = 1, true
 				cfg.ForceProgress, cfg.NoProgress = true, hide
 				var logs bytes.Buffer
@@ -51,7 +52,7 @@ func TestHTTPControlsPreserveOutputFailureAndProgress(t *testing.T) {
 }
 
 func TestHTTPControlsCancelActiveBodyAndQueuedTargets(t *testing.T) {
-	for _, mode := range httpCommandOutputModes {
+	for _, mode := range httpCommandAdmissionModes() {
 		t.Run(mode.name, func(t *testing.T) {
 			started := make(chan struct{})
 			var once sync.Once
@@ -64,6 +65,7 @@ func TestHTTPControlsCancelActiveBodyAndQueuedTargets(t *testing.T) {
 			t.Cleanup(server.Close)
 			cfg := testFetchConfig(server.URL)
 			cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
+			cfg.AdaptiveHTTPConcurrency = mode.adaptive
 			cfg.Concurrency, cfg.HTTPConcurrency, cfg.HTTPMetrics = 3, 1, true
 			cfg.HTTPClientTimeout = 5 * time.Second
 			var logs bytes.Buffer

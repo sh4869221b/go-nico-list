@@ -35,7 +35,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}()
 	runLogger := newLogger
 
-	control := niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	control := newCommandHTTPControl(cfg)
 	if cfg.HTTPMetrics {
 		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
 	}

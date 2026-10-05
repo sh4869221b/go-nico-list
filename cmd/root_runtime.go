@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/sh4869221b/go-nico-list/internal/niconico"
 	"github.com/spf13/cobra"
 )
 
@@ -80,4 +81,12 @@ func outWriterFor(cmd *cobra.Command) io.Writer {
 		return os.Stdout
 	}
 	return cmd.OutOrStdout()
+}
+
+// newCommandHTTPControl shares one admission policy across all targets and pages.
+func newCommandHTTPControl(cfg *RootConfig) *niconico.HTTPControl {
+	if cfg.AdaptiveHTTPConcurrency {
+		return niconico.NewAdaptiveHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	}
+	return niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
 }

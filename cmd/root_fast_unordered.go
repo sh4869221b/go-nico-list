@@ -40,7 +40,7 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 		}
 	}()
 
-	control := niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	control := newCommandHTTPControl(cfg)
 	if cfg.HTTPMetrics {
 		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
 	}

@@ -11,6 +11,9 @@ import (
 )
 
 func validateFlagsFor(cfg *RootConfig) error {
+	if cfg.HTTPConcurrency < 0 {
+		return errors.New("http-concurrency must be >= 0")
+	}
 	if cfg.Concurrency < 1 {
 		return errors.New("concurrency must be at least 1")
 	}

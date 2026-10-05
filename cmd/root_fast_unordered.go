@@ -40,6 +40,11 @@ func runRootCmdFastUnordered(cmd *cobra.Command, args []string, cfg *RootConfig,
 		}
 	}()
 
+	control := niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	if cfg.HTTPMetrics {
+		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
+	}
+
 	ctx := context.Background()
 	if cmd != nil {
 		ctx = cmd.Context()
@@ -134,7 +139,7 @@ inputLoop:
 			defer wg.Done()
 			defer func() { <-sem }()
 			defer addProgress()
-			newList, err := fetchTargetListFastUnordered(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger)
+			newList, err := fetchTargetListFastUnordered(ctx, target, cfg, afterDate, beforeDate, limiter, runLogger, control)
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
 				errCh <- err

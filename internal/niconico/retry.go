@@ -46,7 +46,7 @@ func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
 }
 
 // retriesRequest issues a GET request with retries and rate limiting.
-func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter) (*http.Response, error) {
+func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter, control *HTTPControl) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -59,12 +59,12 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 
 	delay := time.Duration(0)
 	for attempt := 1; attempt <= retries; attempt++ {
-		if err := waitBeforeAttempt(ctx, limiter, delay); err != nil {
+		if err := waitForHTTPAttempt(ctx, limiter, delay, control); err != nil {
 			return nil, err
 		}
 		delay = 0
 
-		res, err := client.Do(req)
+		res, err := doHTTPAttempt(client, req, attempt > 1, control)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				if res != nil {

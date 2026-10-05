@@ -22,9 +22,10 @@ func collectRemainingSequentially(
 	logger *slog.Logger,
 	requestURL func(page int) string,
 	parsePage parsePageFunc,
+	control *HTTPControl,
 ) ([]string, error) {
 	for page := startPage; ; page++ {
-		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
+		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, nil
@@ -87,6 +88,7 @@ func collectPagesParallel(
 	logger *slog.Logger,
 	requestURL func(page int) string,
 	parsePage parsePageFunc,
+	control *HTTPControl,
 ) ([]string, error) {
 	pages := make(chan int)
 	results := make(chan pageResult, pageConcurrency)
@@ -103,7 +105,7 @@ func collectPagesParallel(
 				if int64(page) >= stopBefore.Load() {
 					return
 				}
-				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage)
+				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
 				if err != nil {
 					lowerStopBefore(&stopBefore, page)
 					stopOnce.Do(func() { close(stopScheduling) })

@@ -35,6 +35,11 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}()
 	runLogger := newLogger
 
+	control := niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	if cfg.HTTPMetrics {
+		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
+	}
+
 	ctx := context.Background()
 	if cmd != nil {
 		ctx = cmd.Context()
@@ -137,9 +142,9 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			var err error
 			switch target.Type {
 			case targetTypeUser:
-				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
+				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger, control)
 			case targetTypeMylist:
-				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
+				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger, control)
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)

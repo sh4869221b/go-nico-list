@@ -54,6 +54,8 @@ cat users.txt | go-nico-list --stdin
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
+| `--http-concurrency` | maximum command-wide HTTP requests (0 disables) | `0` |
+| `--http-metrics` | log aggregate HTTP performance metrics | `false` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
 | `--timeout` | HTTP client timeout | `10s` |
@@ -81,7 +83,7 @@ Notes:
 - There are no replacement fetch limits. Large targets can therefore take longer, issue more requests, and produce more output; global rate limiting, retry handling, and context cancellation still apply.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
-- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount`. The maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
+- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount`. Without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
 - Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
@@ -92,6 +94,23 @@ Notes:
 - `--no-sort` is an unordered fast mode for line output: input target order, page order, and API item order are not guaranteed. Results are written as soon as target fetches finish.
 - `--json` emits a single JSON object to stdout. `--url` does not affect JSON `items`, and the summary still prints to stderr.
 - In JSON output, `targets` include `type` (`user` or `mylist`) and `id`, sorted by type and numeric id in ascending order.
+
+## HTTP performance diagnostics
+
+```bash
+# Measure the existing settings without adding an HTTP cap.
+go-nico-list --input-file users.txt --http-metrics
+
+# Bound HTTP work across all targets/pages/retries and save diagnostics in the log.
+go-nico-list --input-file users.txt -n 8 --page-concurrency 4 \
+  --http-concurrency 8 --http-metrics --logfile run.jsonl
+```
+
+`--http-concurrency 0` preserves the existing uncapped behavior; negative values are invalid. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. This is a fixed cap, not automatic tuning, and it does not increase the supply of target/page workers.
+
+`--http-metrics` adds one `http_metrics` structured log event at the end of an initialized execution. It contains attempts, dispatched retries, status/error counts, connection reuse, in-flight/reservation peaks, elapsed time and wait/network/body/decode timings. It does not change stdout, JSON results, the summary or exit status. The metrics event contains no request URLs, target IDs or response content; ordinary existing error logs are unchanged.
+
+Timing percentiles use the most recent 1024 samples per metric, with sample counts; p95 requires at least 20 samples and p99 at least 100. Trace intervals overlap and must not be added to obtain elapsed time. See [measurement definitions and reproducible local benchmarks](docs/HTTP_METRICS.md).
 
 ## Design
 This project separates the CLI layer from the domain logic so each part is easier to test and maintain.

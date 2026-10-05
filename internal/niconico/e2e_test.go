@@ -41,7 +41,7 @@ func TestGetVideoListE2E(t *testing.T) {
 		10*time.Second,
 		nil,
 		1,
-		logger,
+		logger, nil,
 	)
 	if err != nil {
 		t.Fatalf("GetVideoList returned error: %v", err)

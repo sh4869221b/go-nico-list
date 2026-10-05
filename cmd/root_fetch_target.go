@@ -17,12 +17,13 @@ func fetchTargetListFastUnordered(
 	beforeDate time.Time,
 	limiter *niconico.RateLimiter,
 	runLogger *slog.Logger,
+	control *niconico.HTTPControl,
 ) ([]string, error) {
 	switch target.Type {
 	case targetTypeUser:
-		return niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
+		return niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger, control)
 	case targetTypeMylist:
-		return niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger)
+		return niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger, control)
 	default:
 		return nil, nil
 	}

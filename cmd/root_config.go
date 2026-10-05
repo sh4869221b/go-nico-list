@@ -18,6 +18,8 @@ type RootConfig struct {
 	URL               bool
 	Concurrency       int
 	PageConcurrency   int
+	HTTPConcurrency   int
+	HTTPMetrics       bool
 	Retries           int
 	HTTPClientTimeout time.Duration
 	InputFilePath     string
@@ -103,6 +105,8 @@ func NewRootCommand(cfg RootConfig, deps RootDeps) *cobra.Command {
 	cmd.Flags().BoolVarP(&cfg.URL, "url", "u", cfg.URL, "output id add url")
 	cmd.Flags().IntVarP(&cfg.Concurrency, "concurrency", "n", cfg.Concurrency, "number of concurrent requests")
 	cmd.Flags().IntVar(&cfg.PageConcurrency, "page-concurrency", cfg.PageConcurrency, "number of concurrent page requests per target")
+	cmd.Flags().IntVar(&cfg.HTTPConcurrency, "http-concurrency", cfg.HTTPConcurrency, "maximum command-wide HTTP requests (0 disables)")
+	cmd.Flags().BoolVar(&cfg.HTTPMetrics, "http-metrics", cfg.HTTPMetrics, "log aggregate HTTP performance metrics")
 	cmd.Flags().DurationVar(&cfg.HTTPClientTimeout, "timeout", cfg.HTTPClientTimeout, "HTTP client timeout")
 	cmd.Flags().IntVar(&cfg.Retries, "retries", cfg.Retries, "number of retries for requests")
 	cmd.Flags().Float64Var(&cfg.RateLimit, "rate-limit", cfg.RateLimit, "maximum requests per second (0 disables)")

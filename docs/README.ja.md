@@ -52,6 +52,8 @@ cat users.txt | go-nico-list --stdin
 | `-u, --url` | output id add url | `false` |
 | `-n, --concurrency` | number of concurrent requests | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
+| `--http-concurrency` | maximum command-wide HTTP requests (0 disables) | `0` |
+| `--http-metrics` | log aggregate HTTP performance metrics | `false` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
 | `--timeout` | HTTP client timeout | `10s` |
@@ -87,6 +89,23 @@ Notes:
 - `--dedupe` を指定すると動画IDの重複を除外してからソート/出力します。`--no-sort` 併用時は writer に先に到着した occurrence を採用します。
 - `--no-sort` は行出力向けの unordered fast mode です。入力ターゲット順、ページ順、API items 順は保証されず、取得完了した結果から出力されます。
 - `--json` は stdout に単一の JSON オブジェクトを出力します。`--url` は JSON の `items` に影響せず、サマリは引き続き stderr に出力します。
+
+## HTTP 性能計測
+
+```bash
+# 既存設定のまま計測する（HTTP の追加上限なし）。
+go-nico-list --input-file users.txt --http-metrics
+
+# 全ターゲット・ページ・リトライで共有する固定上限を設定する。
+go-nico-list --input-file users.txt -n 8 --page-concurrency 4 \
+  --http-concurrency 8 --http-metrics --logfile run.jsonl
+```
+
+`--http-concurrency 0` は追加上限なし、正数は HTTP の共有上限、負数はエラーです。本文の読み取りと close が終わるまで枠を保持し、リトライの待機前に解放します。既存のレート制限も維持します。自動調整ではなく固定上限で、ターゲット・ページの並列設定を自動的に増やすものではありません。
+
+`--http-metrics` は初期化済みの実行終了時に `http_metrics` の集約ログを1件出力します。出力先は stderr、または既存の `--logfile` です。試行・実送信した再試行・ステータス・エラー・接続再利用・同時数・待機・通信・本文・decode の時間を確認できます。stdout、結果 JSON、summary、終了コードは変更しません。計測ログに URL、対象ID、本文は含めません（既存のエラーログは従来どおりです）。
+
+分位点は各計測の直近最大1024件から求めます。p95 は20件以上、p99 は100件以上の場合のみ表示します。区間は重なるため合計して実行時間として扱わないでください。[計測定義・ローカルベンチマーク](HTTP_METRICS.md)も参照してください。
 
 ## Design
 CLI 層とドメインロジックを分離し、テストと保守性を高めています。

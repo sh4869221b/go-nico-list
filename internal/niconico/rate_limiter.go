@@ -38,6 +38,11 @@ func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
 	if l == nil {
 		return sleepFn(ctx, minDelay)
 	}
+	return sleepFn(ctx, l.reserveDelay(minDelay))
+}
+
+// reserveDelay reserves the existing global rate slot without sleeping.
+func (l *RateLimiter) reserveDelay(minDelay time.Duration) time.Duration {
 	if minDelay < 0 {
 		minDelay = 0
 	}
@@ -49,5 +54,5 @@ func (l *RateLimiter) Wait(ctx context.Context, minDelay time.Duration) error {
 	}
 	l.nextTime = readyAt.Add(l.interval)
 	l.mu.Unlock()
-	return sleepFn(ctx, readyAt.Sub(now))
+	return readyAt.Sub(now)
 }

@@ -30,12 +30,13 @@ func GetVideoList(
 	limiter *RateLimiter,
 	pageConcurrency int,
 	logger *slog.Logger,
+	control *HTTPControl,
 ) ([]string, error) {
 	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger,
 		func(page int) string {
 			return fmt.Sprintf("%s/users/%s/videos?pageSize=%d&page=%d", baseURL, userID, pageSize, page)
 		},
-		parseUserVideoPage,
+		parseUserVideoPage, control,
 	)
 }
 
@@ -52,12 +53,13 @@ func GetMylistVideoList(
 	limiter *RateLimiter,
 	pageConcurrency int,
 	logger *slog.Logger,
+	control *HTTPControl,
 ) ([]string, error) {
 	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger,
 		func(page int) string {
 			return fmt.Sprintf("%s/mylists/%s?pageSize=%d&page=%d", baseURL, mylistID, pageSize, page)
 		},
-		parseMylistPage,
+		parseMylistPage, control,
 	)
 }
 
@@ -151,12 +153,13 @@ func collectVideoList(
 	logger *slog.Logger,
 	requestURL func(page int) string,
 	parsePage parsePageFunc,
+	control *HTTPControl,
 ) ([]string, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	firstPage, err := fetchPage(ctx, requestURL(1), httpClientTimeout, retries, limiter, logger, parsePage)
+	firstPage, err := fetchPage(ctx, requestURL(1), httpClientTimeout, retries, limiter, logger, parsePage, control)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, nil
@@ -168,13 +171,13 @@ func collectVideoList(
 	}
 	resStr := filterItems(firstPage.Items, commentCount, afterDate, beforeDate)
 	if shouldCollectSequentially(firstPage, pageConcurrency) {
-		return collectRemainingSequentially(ctx, resStr, 2, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage)
+		return collectRemainingSequentially(ctx, resStr, 2, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage, control)
 	}
 	totalPages := pageCountFor(firstPage.TotalCount)
 	if totalPages <= 1 {
 		return resStr, nil
 	}
-	parallelIDs, err := collectPagesParallel(ctx, 2, totalPages, pageConcurrency, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage)
+	parallelIDs, err := collectPagesParallel(ctx, 2, totalPages, pageConcurrency, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage, control)
 	resStr = append(resStr, parallelIDs...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

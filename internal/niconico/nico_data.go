@@ -1,8 +1,6 @@
 package niconico
 
-import (
-	"time"
-)
+import "time"
 
 // NicoData represents the niconico API response payload.
 type NicoData struct {
@@ -10,7 +8,7 @@ type NicoData struct {
 		Status int `json:"status"`
 	} `json:"meta"`
 	Data struct {
-		TotalCount int `json:"totalCount"`
+		TotalCount *int `json:"totalCount"`
 		Items      []struct {
 			Series struct {
 				ID    int    `json:"id"`

@@ -13,7 +13,7 @@ import (
 // preserve the original combined rate/backoff reservation behavior exactly.
 func waitForHTTPAttempt(ctx context.Context, limiter *RateLimiter, delay time.Duration, control *HTTPControl) error {
 	if control == nil {
-		return waitBeforeAttempt(ctx, limiter, delay)
+		return limiter.Wait(ctx, delay)
 	}
 	metrics := control.metrics
 	if control.hardMax == 0 {
@@ -68,11 +68,7 @@ func waitForHTTPAttempt(ctx context.Context, limiter *RateLimiter, delay time.Du
 	return nil
 }
 
-func doHTTPAttempt(client *http.Client, req *http.Request, retry bool, control *HTTPControl) (*http.Response, error) {
-	return performHTTPAttempt(client, req, retry, control, nil, 0)
-}
-
-func performHTTPAttempt(client *http.Client, req *http.Request, retry bool, control *HTTPControl, adaptive *adaptiveAttempt, attempt int) (*http.Response, error) {
+func performHTTPAttempt(client *http.Client, req *http.Request, attempt int, control *HTTPControl, adaptive *adaptiveAttempt) (*http.Response, error) {
 	if control == nil {
 		return client.Do(req)
 	}
@@ -84,7 +80,7 @@ func performHTTPAttempt(client *http.Client, req *http.Request, retry bool, cont
 		trace, stop := metrics.trace(started)
 		stopTrace = stop
 		req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
-		metrics.startAttempt(retry)
+		metrics.startAttempt(attempt > 1)
 	}
 	res, err := client.Do(req)
 	if err != nil {

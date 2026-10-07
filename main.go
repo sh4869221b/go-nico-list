@@ -13,9 +13,7 @@ import (
 	"github.com/sh4869221b/go-nico-list/cmd"
 )
 
-var (
-	Version = "unset"
-)
+var Version = "unset"
 
 // main resolves version info, installs signal handling, and runs the CLI.
 func main() {

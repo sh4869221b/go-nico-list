@@ -152,9 +152,9 @@ GitHub Actions runs on pull requests to `master` and pushes to `master`, and enf
 - GitHub Actions references are pinned to commit SHAs in workflow files.
 
 ## Test layers
-- Integration-style command wiring tests: `cmd/root_test.go` (`httptest` + stdout/stderr/exit-code checks).
+- Integration-style command wiring tests: `cmd/root_*_test.go` (`httptest` + stdout/stderr/exit-code checks).
 - Contract tests: `internal/niconico/nico_data_contract_test.go` (fixture decode from `internal/niconico/testdata/`).
-- Fuzz tests: `internal/niconico/fuzz_test.go`, `cmd/root_fuzz_test.go` (sorting/JSON/url-parse panic safety).
+- Fuzz tests: `internal/niconico/fuzz_test.go`, `cmd/root_fuzz_test.go` (sorting/url-parse panic safety).
 - E2E tests (opt-in): `internal/niconico/e2e_test.go` with `-tags=e2e`.
 - Benchmarks (opt-in): `cmd/root_benchmark_test.go`, `internal/niconico/benchmark_test.go`.
 
@@ -163,23 +163,11 @@ Opt-in commands:
 ```bash
 go test ./internal/niconico -run TestNicoDataContract -count=1
 go test ./cmd -run=^$ -fuzz=FuzzParseInputTargetNoPanic -fuzztime=10s
-go test ./cmd -run=^$ -fuzz=FuzzSubmatchByNameNoPanic -fuzztime=10s
 go test ./internal/niconico -run=^$ -fuzz=FuzzNiconicoSortNoPanic -fuzztime=10s
-go test ./internal/niconico -run=^$ -fuzz=FuzzNicoDataUnmarshalNoPanic -fuzztime=10s
 GO_NICO_LIST_E2E_USER_ID=<user-id> go test -tags=e2e ./internal/niconico -run TestGetVideoListE2E -count=1
-go test ./cmd -run=^$ -bench='BenchmarkRunRootCmdLargeFanIn(LineOutput|JSONOutput)' -benchmem -count=5
+go test ./cmd -run=^$ -bench='^BenchmarkHTTPCommand$' -benchmem -benchtime=10x -count=5
 go test ./internal/niconico -run=^$ -bench=BenchmarkNiconicoSort -benchmem -count=1
 ```
-
-Latest local sort/no-sort benchmark sample:
-
-Environment: linux/amd64, AMD Ryzen 7 7700X 8-Core Processor, `go test ./cmd -run=^$ -bench='BenchmarkRunRootCmdLargeFanIn(LineOutput|JSONOutput)' -benchmem -count=5`.
-Numbers below use median `ns/op`; lower is better.
-
-| Benchmark | Sort | No sort | Change |
-| --- | ---: | ---: | ---: |
-| Line output large fan-in | 632,022 ns/op | 601,919 ns/op | 4.8% faster |
-| JSON output large fan-in | 653,449 ns/op | 618,076 ns/op | 5.4% faster |
 
 ## Contributing
 See `CONTRIBUTING.md`.

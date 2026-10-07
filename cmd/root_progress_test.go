@@ -7,85 +7,38 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-func TestRunRootCmdInvalidInput(t *testing.T) {
-	var bar *progressbar.ProgressBar
-	deps := newTestRootDeps()
-	deps.IsTerminal = func(io.Writer) bool { return true }
-	deps.ProgressBarNew = func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
-		bar = progressbar.NewOptions64(max, progressbar.OptionSetWriter(writer), progressbar.OptionSetVisibility(visible))
-		return bar
-	}
-	cfg := newTestRootConfig()
-	cfg.NoProgress = false
-
-	_, _, err := executeTestRootCommand(t, cfg, deps, "invalid")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bar == nil || !bar.IsFinished() {
-		t.Errorf("progress bar not finished")
-	}
-}
-
-func TestProgressAutoDisabledOnNonTTY(t *testing.T) {
-	var visible bool
-	deps := newTestRootDeps()
-	deps.IsTerminal = func(io.Writer) bool { return false }
-	deps.ProgressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
-		visible = show
-		return progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard), progressbar.OptionSetVisibility(show))
-	}
-	cfg := newTestRootConfig()
-	cfg.NoProgress = false
-	cfg.ForceProgress = false
-
-	_, _, err := executeTestRootCommand(t, cfg, deps, "invalid")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if visible {
-		t.Errorf("expected progress to be hidden on non-TTY stderr")
-	}
-}
-
-func TestProgressForcedOn(t *testing.T) {
-	var visible bool
-	deps := newTestRootDeps()
-	deps.IsTerminal = func(io.Writer) bool { return false }
-	deps.ProgressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
-		visible = show
-		return progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard), progressbar.OptionSetVisibility(show))
-	}
-	cfg := newTestRootConfig()
-	cfg.ForceProgress = true
-	cfg.NoProgress = false
-
-	_, _, err := executeTestRootCommand(t, cfg, deps, "invalid")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !visible {
-		t.Errorf("expected progress to be visible when forced")
-	}
-}
-
-func TestNoProgressOverridesForceProgress(t *testing.T) {
-	var visible bool
-	deps := newTestRootDeps()
-	deps.IsTerminal = func(io.Writer) bool { return true }
-	deps.ProgressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
-		visible = show
-		return progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard), progressbar.OptionSetVisibility(show))
-	}
-	cfg := newTestRootConfig()
-	cfg.ForceProgress = true
-	cfg.NoProgress = true
-
-	_, _, err := executeTestRootCommand(t, cfg, deps, "invalid")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if visible {
-		t.Errorf("expected progress to be hidden when no-progress is set")
+func TestRunRootCmdProgress(t *testing.T) {
+	for _, test := range []struct {
+		name                        string
+		terminal, force, hide, show bool
+	}{
+		{name: "terminal", terminal: true, show: true},
+		{name: "non_terminal"},
+		{name: "forced", force: true, show: true},
+		{name: "hidden_overrides_forced", terminal: true, force: true, hide: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := newTestRootConfig()
+			cfg.NoProgress, cfg.ForceProgress = test.hide, test.force
+			deps := newTestRootDeps()
+			deps.IsTerminal = func(io.Writer) bool { return test.terminal }
+			var bar *progressbar.ProgressBar
+			var visible bool
+			deps.ProgressBarNew = func(max int64, writer io.Writer, show bool) *progressbar.ProgressBar {
+				visible = show
+				bar = progressbar.NewOptions64(max, progressbar.OptionSetWriter(io.Discard), progressbar.OptionSetVisibility(show))
+				return bar
+			}
+			out, _, err := executeTestRootCommand(t, cfg, deps, "invalid")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("invalid input wrote stdout: %q", out.String())
+			}
+			if bar == nil || visible != test.show || (visible && !bar.IsFinished()) {
+				t.Fatalf("progress finished=%t visible=%t, want visible=%t", bar != nil && bar.IsFinished(), visible, test.show)
+			}
+		})
 	}
 }

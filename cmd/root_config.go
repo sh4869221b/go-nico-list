@@ -57,9 +57,9 @@ func DefaultConfig() RootConfig {
 		DateBefore:        "99991231",
 		Concurrency:       3,
 		PageConcurrency:   1,
-		Retries:           defaultRetries,
-		HTTPClientTimeout: defaultHTTPTimeout,
-		BaseURL:           defaultBaseURL,
+		Retries:           10,
+		HTTPClientTimeout: 10 * time.Second,
+		BaseURL:           "https://nvapi.nicovideo.jp/v3",
 		Version:           Version,
 	}
 }
@@ -69,7 +69,7 @@ func DefaultDeps() RootDeps {
 	return RootDeps{
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
-		Logger: slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{})),
+		Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		OpenLogFile: func(path string) (io.WriteCloser, error) {
 			return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		},

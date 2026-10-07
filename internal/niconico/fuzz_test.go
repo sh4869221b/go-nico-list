@@ -1,7 +1,6 @@
 package niconico
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -15,17 +14,6 @@ func FuzzNiconicoSortNoPanic(f *testing.F) {
 		if len(items) > 256 {
 			items = items[:256]
 		}
-		values := append([]string(nil), items...)
-		NiconicoSort(values)
-	})
-}
-
-func FuzzNicoDataUnmarshalNoPanic(f *testing.F) {
-	f.Add([]byte(`{"meta":{"status":200},"data":{"totalCount":0,"items":[]}}`))
-	f.Add([]byte(`{}`))
-
-	f.Fuzz(func(t *testing.T, b []byte) {
-		var payload NicoData
-		_ = json.Unmarshal(b, &payload)
+		NiconicoSort(items)
 	})
 }

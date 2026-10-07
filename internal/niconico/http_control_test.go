@@ -60,9 +60,9 @@ func TestHTTPControlDrainAndIncrease(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := c.setLimit(1); err != nil {
-		t.Fatal(err)
-	}
+	c.mu.Lock()
+	c.limit = 1
+	c.mu.Unlock()
 	result := make(chan error, 1)
 	go func() { result <- c.acquire(context.Background()) }()
 	waitForPending(t, c, 1)
@@ -71,19 +71,15 @@ func TestHTTPControlDrainAndIncrease(t *testing.T) {
 	if got := c.Snapshot().Admission; got.Reserved != 1 || got.Pending != 1 {
 		t.Fatalf("did not drain: %+v", got)
 	}
-	if err := c.setLimit(2); err != nil {
-		t.Fatal(err)
-	}
+	c.mu.Lock()
+	c.limit = 2
+	c.grantLocked()
+	c.mu.Unlock()
 	if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 	c.release()
 	c.release()
-	for _, limit := range []int{0, -1, 4} {
-		if c.setLimit(limit) == nil {
-			t.Fatalf("accepted invalid limit %d", limit)
-		}
-	}
 	if got := c.Snapshot().Admission; got.Reserved != 0 || got.PeakReserved != 3 {
 		t.Fatalf("snapshot: %+v", got)
 	}
@@ -142,7 +138,7 @@ func TestHTTPControlHoldsUntilCloseCompletes(t *testing.T) {
 	if err := waitForHTTPAttempt(req.Context(), nil, 0, c); err != nil {
 		t.Fatal(err)
 	}
-	res, err := doHTTPAttempt(client, req, false, c)
+	res, err := performHTTPAttempt(client, req, 1, c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

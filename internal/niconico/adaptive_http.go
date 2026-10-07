@@ -31,7 +31,9 @@ func adaptiveHTTPAttempt(client *http.Client, req *http.Request, attempt int, re
 			control.metrics.addCounter("wait_cancellations", 1)
 			return nil, err
 		}
-		pauseEpoch := control.adaptivePauseEpoch()
+		control.mu.Lock()
+		pauseEpoch := control.pauseEpoch
+		control.mu.Unlock()
 		if limiter != nil {
 			started = timeNow()
 			err = limiter.Wait(ctx, 0)
@@ -54,7 +56,7 @@ func adaptiveHTTPAttempt(client *http.Client, req *http.Request, attempt int, re
 			control.release()
 			continue
 		}
-		return performHTTPAttempt(client, req, attempt > 1, control, &permit, attempt)
+		return performHTTPAttempt(client, req, attempt, control, &permit)
 	}
 }
 
@@ -89,12 +91,6 @@ func (c *HTTPControl) waitAdaptiveReady(ctx context.Context, retryAt time.Time) 
 			return err
 		}
 	}
-}
-
-func (c *HTTPControl) adaptivePauseEpoch() uint64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pauseEpoch
 }
 
 func (c *HTTPControl) adaptiveDispatch(ctx context.Context, rateWait time.Duration, pauseEpoch uint64) (adaptiveAttempt, bool, error) {

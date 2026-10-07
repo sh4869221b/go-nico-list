@@ -10,7 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -25,55 +24,22 @@ type inputStream struct {
 
 // onceReadCloser ensures shared cancellation and cleanup paths close a reader once.
 type onceReadCloser struct {
-	io.Reader
+	io.ReadCloser
 	closeOnce sync.Once
-	closer    io.Closer
 	closeErr  error
-}
-
-// newOnceReadCloser wraps reader with idempotent close behavior.
-func newOnceReadCloser(reader io.ReadCloser) *onceReadCloser {
-	return &onceReadCloser{
-		Reader: reader,
-		closer: reader,
-	}
 }
 
 // Close closes the wrapped reader once and returns the first close error.
 func (r *onceReadCloser) Close() error {
 	r.closeOnce.Do(func() {
-		r.closeErr = r.closer.Close()
+		r.closeErr = r.ReadCloser.Close()
 	})
 	return r.closeErr
 }
 
-func newProgressBarWithConfig(cmd *cobra.Command, totalKnown bool, total int64, cfg *RootConfig, deps RootDeps) *progressbar.ProgressBar {
-	deps = normalizeRootDeps(deps)
-	if !totalKnown {
-		total = -1
-	}
-	var errWriter io.Writer = os.Stderr
-	if cmd != nil {
-		errWriter = cmd.ErrOrStderr()
-	}
-	visible := shouldShowProgressWithConfig(errWriter, cfg, deps)
-	writer := errWriter
-	if !visible {
-		writer = io.Discard
-	}
-	return deps.ProgressBarNew(total, writer, visible)
-}
-
 func shouldShowProgressWithConfig(errWriter io.Writer, cfg *RootConfig, deps RootDeps) bool {
-	deps = normalizeRootDeps(deps)
 	visible := deps.IsTerminal(errWriter)
-	if cfg.ForceProgress {
-		visible = true
-	}
-	if cfg.NoProgress {
-		visible = false
-	}
-	return visible
+	return !cfg.NoProgress && (cfg.ForceProgress || visible)
 }
 
 // defaultIsTerminal reports whether the writer is a terminal.
@@ -85,7 +51,6 @@ func defaultIsTerminal(w io.Writer) bool {
 }
 
 func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) inputStream {
-	deps = normalizeRootDeps(deps)
 	out := make(chan string)
 	errCh := make(chan error, 1)
 	totalKnown := cfg.InputFilePath == "" && !cfg.ReadStdin
@@ -113,11 +78,7 @@ func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []stri
 		}
 
 		if cfg.ReadStdin {
-			var reader io.Reader = os.Stdin
-			if cmd != nil {
-				reader = cmd.InOrStdin()
-			}
-			n, err := streamLines(ctx, reader, out)
+			n, err := streamLines(ctx, cmd.InOrStdin(), out)
 			count += n
 			if err != nil {
 				errCh <- err
@@ -150,12 +111,11 @@ func sendInput(ctx context.Context, out chan<- string, input string) bool {
 
 // streamLinesFromFile streams trimmed lines from a file into out.
 func streamLinesFromFile(ctx context.Context, path string, out chan<- string, deps RootDeps) (int, error) {
-	deps = normalizeRootDeps(deps)
 	openedFile, err := deps.OpenInputFile(path)
 	if err != nil {
 		return 0, err
 	}
-	file := newOnceReadCloser(openedFile)
+	file := &onceReadCloser{ReadCloser: openedFile}
 	count, err := streamLines(ctx, file, out)
 	if closeErr := file.Close(); err == nil && closeErr != nil && ctx.Err() == nil {
 		err = closeErr
@@ -168,7 +128,14 @@ func streamLines(ctx context.Context, reader io.Reader, out chan<- string) (int,
 	done := make(chan struct{})
 	var closedOnCancel atomic.Bool
 	if closer, ok := reader.(io.Closer); ok {
-		go closeReaderOnCancel(ctx, closer, done, &closedOnCancel)
+		go func() {
+			select {
+			case <-ctx.Done():
+				closedOnCancel.Store(true)
+				_ = closer.Close()
+			case <-done:
+			}
+		}()
 		defer close(done)
 	}
 
@@ -192,14 +159,4 @@ func streamLines(ctx context.Context, reader io.Reader, out chan<- string) (int,
 		return count, err
 	}
 	return count, nil
-}
-
-// closeReaderOnCancel closes closer when ctx is canceled before scanning finishes.
-func closeReaderOnCancel(ctx context.Context, closer io.Closer, done <-chan struct{}, closedOnCancel *atomic.Bool) {
-	select {
-	case <-ctx.Done():
-		closedOnCancel.Store(true)
-		_ = closer.Close()
-	case <-done:
-	}
 }

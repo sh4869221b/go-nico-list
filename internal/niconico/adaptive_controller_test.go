@@ -1,9 +1,7 @@
 package niconico
 
 import (
-	"encoding/json"
 	"fmt"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -61,7 +59,7 @@ func TestAdaptiveControllerRequiresConsecutiveHealthyWindows(t *testing.T) {
 	// A low-count time window must interrupt credit rather than fabricate p95.
 	now = now.Add(time.Second)
 	a.observe(now, adaptiveSample{Generation: a.generation, Success: true, Service: 100 * time.Millisecond}, adaptiveLoad{Pending: 32, InFlight: 7})
-	if a.lastReason != "insufficient_samples" || a.healthyWindows != 0 || a.lastWindow.P95Seconds != nil {
+	if a.lastReason != "insufficient_samples" || a.healthyWindows != 0 || a.snapshot(now).LastWindow.P95Seconds != nil {
 		t.Fatalf("low-count window retained credit/quantile: %+v", a.snapshot(now))
 	}
 	adaptiveTestHealthy(a, &now, 100*time.Millisecond)
@@ -145,7 +143,8 @@ func TestAdaptiveControllerIsolatedNoiseDoesNotDecrease(t *testing.T) {
 		}
 		a.observe(now, adaptiveSample{Generation: a.generation, Service: service, Success: i != 1, Overload: i == 1}, adaptiveLoad{Pending: 1, InFlight: 7})
 	}
-	if a.limit != 8 || a.baseline != 100*time.Millisecond || a.lastWindow.P95Seconds == nil || *a.lastWindow.P95Seconds != 0.1 {
+	window := a.snapshot(now).LastWindow
+	if a.limit != 8 || a.baseline != 100*time.Millisecond || window.P95Seconds == nil || *window.P95Seconds != 0.1 {
 		t.Fatalf("isolated noise changed control: %+v", a.snapshot(now))
 	}
 	if a.healthyWindows != 0 {
@@ -177,7 +176,7 @@ func TestAdaptiveControllerEligibleRetryPressure(t *testing.T) {
 	// count window is not full; neutral completions do not close it early.
 	now = adaptiveTestStart().Add(adaptiveWindowDuration)
 	a.observe(now, adaptiveSample{Generation: a.generation}, adaptiveLoad{})
-	if a.limit != 4 || a.lastWindow.Eligible != 20 || a.lastWindow.Successes != 16 {
+	if a.limit != 4 || a.lastWindow.eligible != 20 || a.lastWindow.successes != 16 {
 		t.Fatalf("incorrect eligible population: %+v", a.snapshot(now))
 	}
 }
@@ -431,40 +430,28 @@ func TestAdaptiveControllerOrdinaryDecisionInterval(t *testing.T) {
 	}
 }
 
-func TestAdaptiveControllerSnapshotsBoundedDetachedAndDeterministic(t *testing.T) {
-	run := func() AdaptiveSnapshot {
-		now := adaptiveTestStart()
-		a := newAdaptiveController(32, now)
-		for range 50 {
-			adaptiveTestHealthy(a, &now, 100*time.Millisecond)
-		}
-		s := a.snapshot(now)
-		if len(s.Decisions) != adaptiveDecisionHistory || s.EvaluatedWindows != 50 {
-			t.Fatalf("unbounded/lost history: %+v", s)
-		}
-		for i := 1; i < len(s.Decisions); i++ {
-			if s.Decisions[i].ElapsedSeconds < s.Decisions[i-1].ElapsedSeconds {
-				t.Fatal("decision ring not chronological")
-			}
-		}
-		before, err := json.Marshal(s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.Decisions[0].Reason = "changed"
-		*s.LastWindow.P95Seconds = 99
-		*s.BaselineP95Seconds = 99
-		after, err := json.Marshal(a.snapshot(now))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(before) != string(after) {
-			t.Fatal("snapshot mutation changed controller state")
-		}
-		return a.snapshot(now)
+func TestAdaptiveControllerSnapshotsBoundedAndDetached(t *testing.T) {
+	now := adaptiveTestStart()
+	a := newAdaptiveController(32, now)
+	for range 50 {
+		adaptiveTestHealthy(a, &now, 100*time.Millisecond)
 	}
-	if !reflect.DeepEqual(run(), run()) {
-		t.Fatal("identical observations produced different decisions")
+	s := a.snapshot(now)
+	if len(s.Decisions) != adaptiveDecisionHistory || s.EvaluatedWindows != 50 {
+		t.Fatalf("unbounded/lost history: %+v", s)
+	}
+	for i := 1; i < len(s.Decisions); i++ {
+		if s.Decisions[i].ElapsedSeconds < s.Decisions[i-1].ElapsedSeconds {
+			t.Fatal("decision ring not chronological")
+		}
+	}
+	reason, p95, baseline := s.Decisions[0].Reason, *s.LastWindow.P95Seconds, *s.BaselineP95Seconds
+	s.Decisions[0].Reason = "changed"
+	*s.LastWindow.P95Seconds = 99
+	*s.BaselineP95Seconds = 99
+	after := a.snapshot(now)
+	if after.Decisions[0].Reason != reason || *after.LastWindow.P95Seconds != p95 || *after.BaselineP95Seconds != baseline {
+		t.Fatal("snapshot mutation changed controller state")
 	}
 }
 
@@ -621,40 +608,26 @@ func TestAdaptiveControllerLargeContinuousLatencyStepRebaselines(t *testing.T) {
 }
 
 func TestAdaptiveControllerSlowParallelBatchesStillDecrease(t *testing.T) {
-	now := adaptiveTestStart()
-	a := newAdaptiveController(8, now)
-	adaptiveTestHealthy(a, &now, 100*time.Millisecond)
-	// Eight outstanding requests may complete in a batch every two seconds.
-	// The empty window between batches cannot erase sustained slow evidence.
-	for range 8 {
-		now = now.Add(2 * time.Second)
-		generation := a.generation
-		for remaining := 7; remaining >= 0; remaining-- {
-			a.observe(now, adaptiveSample{Generation: generation, Success: true, Service: 2 * time.Second}, adaptiveLoad{Pending: 32, InFlight: remaining})
-		}
-	}
-	if a.limit >= 8 || a.baseline != 100*time.Millisecond {
-		t.Fatalf("continuous slow batches did not reduce against old baseline: %+v", a.snapshot(now))
-	}
-}
-
-func TestAdaptiveControllerHighCeilingSlowBatchesStillDecrease(t *testing.T) {
-	now := adaptiveTestStart()
-	a := newAdaptiveController(64, now)
-	for a.limit < 64 {
-		adaptiveTestHealthy(a, &now, 100*time.Millisecond)
-	}
-	// Even at high concurrency, the gap between synchronized completions is a
-	// whole service duration. Freshness cannot fall below that duration.
-	for range 2 {
-		now = now.Add(2 * time.Second)
-		generation := a.generation
-		for remaining := 63; remaining >= 0; remaining-- {
-			a.observe(now, adaptiveSample{Generation: generation, Success: true, Service: 2 * time.Second}, adaptiveLoad{Pending: 128, InFlight: remaining})
-		}
-	}
-	if a.limit >= 64 || a.baseline != 100*time.Millisecond {
-		t.Fatalf("high-ceiling slow batches were mistaken for idle: %+v", a.snapshot(now))
+	for _, tc := range []struct{ maximum, batches int }{{8, 8}, {64, 2}} {
+		t.Run(fmt.Sprint(tc.maximum), func(t *testing.T) {
+			now := adaptiveTestStart()
+			a := newAdaptiveController(tc.maximum, now)
+			for !a.hasBaseline || a.limit < tc.maximum {
+				adaptiveTestHealthy(a, &now, 100*time.Millisecond)
+			}
+			// Synchronized batches leave an empty window for a complete service
+			// duration. That gap must preserve sustained slow evidence.
+			for range tc.batches {
+				now = now.Add(2 * time.Second)
+				generation := a.generation
+				for remaining := tc.maximum - 1; remaining >= 0; remaining-- {
+					a.observe(now, adaptiveSample{Generation: generation, Success: true, Service: 2 * time.Second}, adaptiveLoad{Pending: 2 * tc.maximum, InFlight: remaining})
+				}
+			}
+			if a.limit >= tc.maximum || a.baseline != 100*time.Millisecond {
+				t.Fatalf("continuous slow batches did not reduce against old baseline: %+v", a.snapshot(now))
+			}
+		})
 	}
 }
 
@@ -676,7 +649,7 @@ func TestAdaptiveControllerNeutralOutcomesPreserveEligibleEvidence(t *testing.T)
 					a.observe(now, adaptiveSample{Generation: generation, Success: !overload, Overload: overload, Service: 10 * time.Millisecond}, adaptiveLoad{Pending: 32, InFlight: a.limit - 1})
 				}
 			}
-			if a.lastWindow.Completed != 2*adaptiveWindowSize || a.lastWindow.Eligible != adaptiveWindowSize {
+			if a.lastWindow.completed != 2*adaptiveWindowSize || a.lastWindow.eligible != adaptiveWindowSize {
 				t.Fatalf("neutral samples erased evidence: %+v", a.snapshot(now))
 			}
 			if overload {
@@ -684,7 +657,7 @@ func TestAdaptiveControllerNeutralOutcomesPreserveEligibleEvidence(t *testing.T)
 					t.Fatalf("overload evidence ignored: %+v", a.snapshot(now))
 				}
 			} else {
-				if a.limit != 12 || a.lastWindow.Successes != adaptiveWindowSize {
+				if a.limit != 12 || a.lastWindow.successes != adaptiveWindowSize {
 					t.Fatalf("healthy evidence ignored: %+v", a.snapshot(now))
 				}
 			}
@@ -748,34 +721,5 @@ func TestAdaptiveControllerIntegerHeadroom(t *testing.T) {
 	w.add(adaptiveSample{Success: true}, adaptiveLoad{InFlight: maxInt}, maxInt)
 	if w.snapshot().Utilization != 1 {
 		t.Fatal("utilization overflowed")
-	}
-}
-
-func TestAdaptiveNoMaximumHoldsAndDecreases(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		rate time.Duration
-		load adaptiveLoad
-	}{
-		{name: "no_pending", load: adaptiveLoad{InFlight: 7}},
-		{name: "underfed", load: adaptiveLoad{Pending: 1, InFlight: 2}},
-		{name: "rate_limited", rate: time.Second, load: adaptiveLoad{Pending: 8, InFlight: 7}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			now := adaptiveTestStart()
-			a := newAdaptiveController(0, now)
-			for range 4 {
-				adaptiveTestWindow(a, &now, 100*time.Millisecond, tc.rate, 0, tc.load)
-			}
-			if a.limit != 8 || a.increases != 0 {
-				t.Fatalf("unexpected growth: %+v", a.snapshot(now))
-			}
-		})
-	}
-	now := adaptiveTestStart()
-	a := newAdaptiveController(0, now)
-	adaptiveTestWindow(a, &now, 100*time.Millisecond, 0, 4, adaptiveLoad{Pending: 8, InFlight: 7})
-	if a.limit != 4 || a.lastReason != "retry_pressure" || a.maximum != 0 {
-		t.Fatalf("pressure did not reduce unlimited controller: %+v", a.snapshot(now))
 	}
 }

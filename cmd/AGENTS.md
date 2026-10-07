@@ -6,7 +6,7 @@
 ## WHERE TO LOOK
 | Task | Location | Notes |
 | --- | --- | --- |
-| Public command entry | `root_flags.go` | `Execute`, `ExecuteContext`, and package `Version`. |
+| Public command entry | `root_flags.go` | `ExecuteContext` and package `Version`. |
 | Flags/defaults/deps | `root_config.go` | `RootConfig`, `RootDeps`, `DefaultConfig`, `DefaultDeps`, `NewRootCommand`. |
 | Runner | `root_run.go` | Validation, goroutine fan-out, fetch aggregation, summary, output, final error. |
 | Input targets | `input_target.go` | Partial-match user/mylist regexes and named submatch extraction. |
@@ -32,7 +32,7 @@
 
 ## TEST PATTERNS
 - Add command tests as focused `root_*_test.go` files near the behavior they cover.
-- Use `newTestRootConfig`, `newTestRootDeps`, `executeTestRootCommand`, or `testRunner` from `root_test_helpers_test.go`.
+- Use `newTestRootConfig`, `newTestRootDeps`, or `executeTestRootCommand` from `root_test_helpers_test.go`.
 - Use `httptest.Server` for fetch-facing command tests instead of live API calls.
 - Assert stdout and stderr separately; summaries belong on stderr.
 - For concurrency-sensitive tests, use controllable synchronization (`sync.Once`, channels, context cancellation) instead of sleeping.

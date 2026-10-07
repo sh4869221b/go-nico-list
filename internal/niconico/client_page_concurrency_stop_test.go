@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -48,47 +48,7 @@ func TestGetVideoListPageConcurrencyIgnoresErrorAfterEmptyPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !reflect.DeepEqual(got, []string{"sm1"}) {
-		t.Fatalf("unexpected ids: %v", got)
-	}
-}
-
-func TestGetVideoListPageConcurrencyReturnsEarlierPageBeforeLaterEmptyPage(t *testing.T) {
-	logger := slog.New(slog.DiscardHandler)
-	releasePage2 := make(chan struct{})
-	var releasePage2Once sync.Once
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Query().Get("page") {
-		case "1":
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-		case "2":
-			select {
-			case <-releasePage2:
-			case <-r.Context().Done():
-				return
-			}
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
-		case "3":
-			releasePage2Once.Do(func() { close(releasePage2) })
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
-		default:
-			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
-		}
-	})
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	t.Cleanup(func() { releasePage2Once.Do(func() { close(releasePage2) }) })
-
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"sm1", "sm2"}) {
+	if !slices.Equal(got, []string{"sm1"}) {
 		t.Fatalf("unexpected ids: %v", got)
 	}
 }

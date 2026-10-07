@@ -68,27 +68,14 @@ func parseUserVideoPage(body []byte) (parsedPage, error) {
 	if err := json.Unmarshal(body, &nicoData); err != nil {
 		return parsedPage{}, err
 	}
-	var countPayload struct {
-		Data struct {
-			TotalCount *int `json:"totalCount"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &countPayload); err != nil {
-		return parsedPage{}, err
-	}
 	items := make([]videoItem, 0, len(nicoData.Data.Items))
 	for _, s := range nicoData.Data.Items {
 		items = append(items, videoItem{ID: s.Essential.ID, CommentCount: s.Essential.Count.Comment, RegisteredAt: s.Essential.RegisteredAt})
 	}
-	totalCount := 0
-	if countPayload.Data.TotalCount != nil {
-		totalCount = *countPayload.Data.TotalCount
-	}
 	return parsedPage{
-		Items:           items,
-		Status:          nicoData.Meta.Status,
-		TotalCount:      totalCount,
-		TotalCountKnown: countPayload.Data.TotalCount != nil,
+		Items:      items,
+		Status:     nicoData.Meta.Status,
+		TotalCount: nicoData.Data.TotalCount,
 	}, nil
 }
 
@@ -121,23 +108,17 @@ func parseMylistPage(body []byte) (parsedPage, error) {
 	for _, it := range payload.Data.Mylist.Items {
 		items = append(items, videoItem{ID: it.Video.ID, CommentCount: it.Video.Count.Comment, RegisteredAt: it.Video.RegisteredAt})
 	}
-	totalCount := 0
-	totalCountKnown := false
-	if payload.Data.Mylist.TotalCount != nil {
-		totalCount = *payload.Data.Mylist.TotalCount
-		totalCountKnown = true
-	} else if payload.Data.Mylist.TotalItemCount != nil {
-		totalCount = *payload.Data.Mylist.TotalItemCount
-		totalCountKnown = true
-	} else if payload.Data.TotalCount != nil {
-		totalCount = *payload.Data.TotalCount
-		totalCountKnown = true
+	totalCount := payload.Data.Mylist.TotalCount
+	if totalCount == nil {
+		totalCount = payload.Data.Mylist.TotalItemCount
+	}
+	if totalCount == nil {
+		totalCount = payload.Data.TotalCount
 	}
 	return parsedPage{
-		Items:           items,
-		Status:          payload.Meta.Status,
-		TotalCount:      totalCount,
-		TotalCountKnown: totalCountKnown,
+		Items:      items,
+		Status:     payload.Meta.Status,
+		TotalCount: totalCount,
 	}, nil
 }
 
@@ -170,10 +151,25 @@ func collectVideoList(
 		return nil, nil
 	}
 	resStr := filterItems(firstPage.Items, commentCount, afterDate, beforeDate)
-	if shouldCollectSequentially(firstPage, pageConcurrency) {
-		return collectRemainingSequentially(ctx, resStr, 2, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage, control)
+	if pageConcurrency <= 1 || firstPage.TotalCount == nil {
+		for page := 2; ; page++ {
+			parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return nil, nil
+				}
+				return resStr, err
+			}
+			if parsed.NotFound || len(parsed.Items) == 0 {
+				return resStr, nil
+			}
+			resStr = append(resStr, filterItems(parsed.Items, commentCount, afterDate, beforeDate)...)
+		}
 	}
-	totalPages := pageCountFor(firstPage.TotalCount)
+	totalPages := 0
+	if *firstPage.TotalCount > 0 {
+		totalPages = (*firstPage.TotalCount + pageSize - 1) / pageSize
+	}
 	if totalPages <= 1 {
 		return resStr, nil
 	}

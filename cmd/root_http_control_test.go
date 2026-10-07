@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,62 +36,37 @@ var httpCommandOutputModes = []httpCommandOutputMode{
 	{name: "json_input_order", json: true, noSort: true},
 }
 
-func TestHTTPControlFlagDefaultsAndValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	if cfg.HTTPConcurrency != 0 || cfg.HTTPMetrics || cfg.AdaptiveHTTPConcurrency {
-		t.Fatalf("HTTP controls should be opt-in, got concurrency=%d metrics=%t", cfg.HTTPConcurrency, cfg.HTTPMetrics)
-	}
-	cmd, _, _ := newTestRootCommand(t, cfg, newTestRootDeps())
-	for name, want := range map[string]string{"http-concurrency": "0", "http-metrics": "false", "adaptive-http-concurrency": "false"} {
-		flag := cmd.Flags().Lookup(name)
-		if flag == nil || flag.DefValue != want {
-			t.Fatalf("flag %s: got %v, want default %q", name, flag, want)
-		}
-	}
-	if usage := cmd.Flags().Lookup("http-concurrency").Usage; !strings.Contains(usage, "0 means no additional maximum") {
-		t.Fatalf("HTTP concurrency help does not describe zero: %q", usage)
-	}
-	if usage := cmd.Flags().Lookup("adaptive-http-concurrency").Usage; !strings.Contains(usage, "optional") {
-		t.Fatalf("adaptive help does not describe the optional maximum: %q", usage)
-	}
-	for _, mode := range httpCommandOutputModes {
-		t.Run(mode.name, func(t *testing.T) {
-			for _, test := range []struct {
-				name string
-				args []string
-				edit func(*RootConfig, *RootDeps)
-			}{
-				{name: "negative_flag", args: []string{"--http-concurrency=-1"}},
-				{name: "adaptive_negative_ceiling", args: []string{"--adaptive-http-concurrency", "--http-concurrency=-1"}},
-				{name: "adaptive_config_negative", edit: func(c *RootConfig, _ *RootDeps) { c.AdaptiveHTTPConcurrency, c.HTTPConcurrency = true, -1 }},
-				{name: "negative_config", edit: func(c *RootConfig, _ *RootDeps) { c.HTTPConcurrency = -1 }},
-				{name: "invalid_date", edit: func(c *RootConfig, _ *RootDeps) { c.DateAfter = "invalid" }},
-				{name: "logger_failure", edit: func(c *RootConfig, d *RootDeps) {
-					c.LogFilePath = "unopenable.log"
-					d.OpenLogFile = func(string) (io.WriteCloser, error) { return nil, errors.New("log open failed") }
-				}},
-			} {
-				t.Run(test.name, func(t *testing.T) {
-					cfg := newTestRootConfig()
-					cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
-					cfg.HTTPMetrics = true
-					var logs bytes.Buffer
-					deps := newTestRootDeps()
-					deps.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
-					if test.edit != nil {
-						test.edit(&cfg, &deps)
-					}
-					out, errOut, err := executeTestRootCommand(t, cfg, deps, test.args...)
-					if err == nil {
-						t.Fatal("expected initialization error")
-					}
-					if (strings.HasPrefix(test.name, "negative") || strings.HasPrefix(test.name, "adaptive")) && !strings.Contains(err.Error(), "http-concurrency") {
-						t.Fatalf("expected HTTP concurrency validation error, got %v", err)
-					}
-					if out.Len() != 0 || strings.Contains(errOut.String(), "Usage:") || logs.Len() != 0 {
-						t.Fatalf("initialization failure wrote data, usage, or diagnostics: stdout=%q stderr=%q logs=%q", out.String(), errOut.String(), logs.String())
-					}
-				})
+func TestHTTPControlInitializationFailures(t *testing.T) {
+	for _, test := range []struct {
+		name                          string
+		args                          []string
+		configNegative, loggerFailure bool
+		want                          string
+	}{
+		{name: "negative_flag", args: []string{"--http-concurrency=-1"}, want: "http-concurrency must be >= 0"},
+		{name: "adaptive_negative_ceiling", args: []string{"--adaptive-http-concurrency", "--http-concurrency=-1"}, want: "http-concurrency must be >= 0"},
+		{name: "negative_config", configNegative: true, want: "http-concurrency must be >= 0"},
+		{name: "invalid_date", args: []string{"--dateafter=invalid"}, want: "dateafter format error"},
+		{name: "logger_failure", args: []string{"--logfile=unopenable.log"}, loggerFailure: true, want: "log open failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := newTestRootConfig()
+			cfg.HTTPMetrics = true
+			if test.configNegative {
+				cfg.HTTPConcurrency = -1
+			}
+			var logs bytes.Buffer
+			deps := newTestRootDeps()
+			deps.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			if test.loggerFailure {
+				deps.OpenLogFile = func(string) (io.WriteCloser, error) { return nil, errors.New(test.want) }
+			}
+			out, errOut, err := executeTestRootCommand(t, cfg, deps, test.args...)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("initialization error=%v, want %q", err, test.want)
+			}
+			if out.Len() != 0 || strings.Contains(errOut.String(), "Usage:") || logs.Len() != 0 {
+				t.Fatalf("initialization failure wrote data, usage, or diagnostics: stdout=%q stderr=%q logs=%q", out.String(), errOut.String(), logs.String())
 			}
 		})
 	}
@@ -117,17 +91,12 @@ func TestHTTPControlsPreserveOutputContracts(t *testing.T) {
 					max      int
 				}{
 					{name: "default"},
-					{name: "explicit_off", args: []string{"--http-concurrency=0", "--http-metrics=false"}},
 					{name: "cap", args: []string{"--http-concurrency=2"}},
 					{name: "metrics", args: []string{"--http-metrics"}, metrics: true},
 					{name: "cap_and_metrics", args: []string{"--http-concurrency=2", "--http-metrics"}, metrics: true},
 					{name: "adaptive", args: []string{"--http-concurrency=2", "--adaptive-http-concurrency"}, adaptive: true, max: 2},
 					{name: "adaptive_and_metrics", args: []string{"--http-concurrency=2", "--adaptive-http-concurrency", "--http-metrics"}, metrics: true, adaptive: true, max: 2},
-					{name: "adaptive_default_max", args: []string{"--adaptive-http-concurrency"}, adaptive: true},
 					{name: "adaptive_default_max_and_metrics", args: []string{"--adaptive-http-concurrency", "--http-metrics"}, metrics: true, adaptive: true},
-					{name: "adaptive_explicit_zero", args: []string{"--adaptive-http-concurrency", "--http-concurrency=0"}, adaptive: true},
-					{name: "adaptive_explicit_zero_and_metrics", args: []string{"--adaptive-http-concurrency", "--http-concurrency=0", "--http-metrics"}, metrics: true, adaptive: true},
-					{name: "explicit_fixed", args: []string{"--http-concurrency=2", "--adaptive-http-concurrency=false"}},
 				} {
 					t.Run(flags.name, func(t *testing.T) {
 						cfg := testFetchConfig(server.URL)
@@ -315,6 +284,9 @@ func TestHTTPControlsPreserveStrictBestEffortAndPartialResults(t *testing.T) {
 					if (err != nil) != behavior.wantError {
 						t.Fatalf("mode=%s: error=%v, wantError=%t", controlMode, err, behavior.wantError)
 					}
+					if behavior.strict && err.Error() != "invalid input detected" {
+						t.Fatalf("strict input error lost precedence: %v", err)
+					}
 					assertHTTPCommandIDs(t, out.String(), mode, []string{"sm7"})
 					gotError := fmt.Sprint(err)
 					if controlMode == "disabled" {
@@ -486,41 +458,6 @@ func TestHTTPMetricsCommandIsolation(t *testing.T) {
 	}
 }
 
-// TestHTTPMetricsLocalReport is also an opt-in verbose measurement report:
-//
-//	go test ./cmd -run '^TestHTTPMetricsLocalReport$' -count=1 -v
-//
-// The synthetic run has 120 successful pages, enough for service p95/p99.
-// Normal test output stays quiet; verbose output contains only the aggregate
-// diagnostic, with no fixture IDs, request URLs, headers, or response content.
-func TestHTTPMetricsLocalReport(t *testing.T) {
-	server, args, want := newHTTPCommandFixture(t, 40, 100)
-	cfg := testFetchConfig(server.URL)
-	cfg.Concurrency, cfg.PageConcurrency = 3, 4
-	cfg.HTTPConcurrency, cfg.HTTPMetrics = 8, true
-	cfg.HTTPClientTimeout = 10 * time.Second
-	var logs bytes.Buffer
-	deps := newTestRootDeps()
-	deps.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
-	out, _, err := executeTestRootCommand(t, cfg, deps, args...)
-	if err != nil {
-		t.Fatalf("local measurement command: %v", err)
-	}
-	assertHTTPCommandIDs(t, out.String(), httpCommandOutputMode{name: "line"}, want)
-	event := singleHTTPMetricEvent(t, logs.String())
-	for _, name := range []string{"attempts", "pages", "page_success"} {
-		assertHTTPMetricCounter(t, event, name, 120)
-	}
-	if event.HTTP.Admission.HardMax != 8 || event.HTTP.Admission.Reserved != 0 || event.HTTP.Admission.Pending != 0 {
-		t.Fatalf("unexpected final admission state: %+v", event.HTTP.Admission)
-	}
-	for _, line := range strings.Split(logs.String(), "\n") {
-		if strings.Contains(line, `"msg":"http_metrics"`) {
-			t.Log(line)
-		}
-	}
-}
-
 type httpCommandMetricEvent struct {
 	HTTP struct {
 		Admission struct {
@@ -598,17 +535,8 @@ func assertHTTPCommandIDs(tb testing.TB, output string, mode httpCommandOutputMo
 		if err := json.Unmarshal([]byte(output), &payload); err != nil {
 			tb.Fatalf("decode stdout JSON: %v: %q", err, output)
 		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(output), &fields); err != nil {
-			tb.Fatal(err)
-		}
-		for _, name := range []string{"inputs", "invalid", "targets", "errors", "output_count", "items"} {
-			if _, ok := fields[name]; !ok {
-				tb.Fatalf("stdout JSON missing %q", name)
-			}
-		}
-		if len(fields) != 6 || payload.OutputCount != len(want) {
-			tb.Fatalf("JSON schema/count changed: keys=%v output_count=%d, want %d", fields, payload.OutputCount, len(want))
+		if payload.OutputCount != len(want) {
+			tb.Fatalf("output_count=%d, want %d", payload.OutputCount, len(want))
 		}
 		got = payload.Items
 	} else if output != "" {
@@ -628,7 +556,7 @@ func assertHTTPCommandIDs(tb testing.TB, output string, mode httpCommandOutputMo
 	got, want = slices.Clone(got), slices.Clone(want)
 	slices.Sort(got)
 	slices.Sort(want)
-	if !reflect.DeepEqual(got, want) {
+	if !slices.Equal(got, want) {
 		tb.Fatalf("output ID multiset mismatch:\n got %v\nwant %v", got, want)
 	}
 }

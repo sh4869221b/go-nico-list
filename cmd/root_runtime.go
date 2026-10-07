@@ -2,13 +2,7 @@ package cmd
 
 import (
 	"errors"
-	"io"
-	"log/slog"
-	"os"
 	"time"
-
-	"github.com/sh4869221b/go-nico-list/internal/niconico"
-	"github.com/spf13/cobra"
 )
 
 func validateFlagsFor(cfg *RootConfig) error {
@@ -51,42 +45,4 @@ func parseDateRange(after, before string) (time.Time, time.Time, error) {
 		return time.Time{}, time.Time{}, errors.New("dateafter must be on or before datebefore")
 	}
 	return parsedAfter, parsedBefore, nil
-}
-
-func setupLoggerFor(path string, deps RootDeps) (*slog.Logger, func() error, error) {
-	deps = normalizeRootDeps(deps)
-	if path == "" {
-		return deps.Logger, func() error { return nil }, nil
-	}
-	logFile, err := deps.OpenLogFile(path)
-	if err != nil {
-		return nil, func() error { return nil }, err
-	}
-	cleanup := func() error { return logFile.Close() }
-	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{}))
-	return logger, cleanup, nil
-}
-
-// errWriterFor returns the stderr writer for a command.
-func errWriterFor(cmd *cobra.Command) io.Writer {
-	if cmd == nil {
-		return os.Stderr
-	}
-	return cmd.ErrOrStderr()
-}
-
-// outWriterFor returns the stdout writer for a command.
-func outWriterFor(cmd *cobra.Command) io.Writer {
-	if cmd == nil {
-		return os.Stdout
-	}
-	return cmd.OutOrStdout()
-}
-
-// newCommandHTTPControl shares one admission policy across all targets and pages.
-func newCommandHTTPControl(cfg *RootConfig) *niconico.HTTPControl {
-	if cfg.AdaptiveHTTPConcurrency {
-		return niconico.NewAdaptiveHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
-	}
-	return niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
 }

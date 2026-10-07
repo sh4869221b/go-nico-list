@@ -67,6 +67,7 @@ go-nico-list/
 
 ## CHANGE RULES
 - Keep changes atomic and limited to the requested scope.
+- Preserve JSON struct fields even when runtime code does not read them.
 - Do not mix CLI and domain logic. `cmd/` handles flags, IO, validation, output, concurrency, and exit behavior; `internal/niconico/` handles API fetch/retry/sort/types.
 - Refactors must preserve flags, stdout/stderr, log messages, summaries, exit codes, progress behavior, pagination, retry, and rate-limit semantics unless the requested change explicitly changes them.
 - Before user-facing behavior or responsibility-boundary changes, update `docs/DESIGN.md` as needed and get explicit OK before implementation.
@@ -103,7 +104,7 @@ golangci-lint run ./...
 - Use `httptest.Server` for command/API integration tests and assert stdout, stderr, and returned errors separately.
 - When mocking niconico pagination, terminate page > 1 with empty items or 404.
 - Contract fixtures live under `internal/niconico/testdata/` and are decoded by `internal/niconico/nico_data_contract_test.go`.
-- Fuzz tests cover parse, regex submatch, sort, and JSON unmarshal panic safety.
+- Fuzz tests cover input parsing and sorting panic safety.
 - E2E tests are opt-in behind the `e2e` build tag and `GO_NICO_LIST_E2E_USER_ID`.
 
 ## ANTI-PATTERNS

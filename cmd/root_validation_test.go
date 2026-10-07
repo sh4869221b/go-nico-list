@@ -1,109 +1,55 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
-	"time"
 )
 
-func TestRetriesValidation(t *testing.T) {
-	_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "--retries=0", "12345")
-	if err == nil || err.Error() != "retries must be at least 1" {
-		t.Fatalf("unexpected error: %v", err)
+func TestFlagValidation(t *testing.T) {
+	for _, test := range []struct {
+		arg, want string
+	}{
+		{"--retries=0", "retries must be at least 1"},
+		{"--rate-limit=-1", "rate-limit must be at least 0"},
+		{"--timeout=0s", "timeout must be greater than 0"},
+		{"--timeout=-1s", "timeout must be greater than 0"},
+		{"--dateafter=2025-01-01", "dateafter format error"},
+		{"--datebefore=2025-01-01", "datebefore format error"},
+		{"--min-interval=-1s", "min-interval must be at least 0"},
+		{"--concurrency=0", "concurrency must be at least 1"},
+		{"--page-concurrency=0", "page-concurrency must be at least 1"},
+	} {
+		t.Run(test.arg, func(t *testing.T) {
+			out, errOut, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), test.arg, "nicovideo.jp/user/1")
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("error=%v, want %q", err, test.want)
+			}
+			if out.Len() != 0 || strings.Contains(errOut.String(), "Usage:") {
+				t.Fatalf("validation wrote data or usage: stdout=%q stderr=%q", out.String(), errOut.String())
+			}
+		})
 	}
 }
 
-func TestRateLimitValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.RateLimit = -1
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "rate-limit must be at least 0" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestTimeoutValidation(t *testing.T) {
-	for _, timeout := range []string{"0s", "-1s"} {
-		_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "--timeout", timeout, "nicovideo.jp/user/1")
-		if err == nil || err.Error() != "timeout must be greater than 0" {
-			t.Fatalf("unexpected error for timeout %v: %v", timeout, err)
-		}
-	}
-}
-
-func TestDateRangeOrderValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.DateAfter = "20250102"
-	cfg.DateBefore = "20250101"
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "dateafter must be on or before datebefore" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDateAfterFormatValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.DateAfter = "2025-01-01"
-	cfg.DateBefore = "20250101"
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "dateafter format error" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDateBeforeFormatValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.DateAfter = "20250101"
-	cfg.DateBefore = "2025-01-01"
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "datebefore format error" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDateRangeSameDayAllowed(t *testing.T) {
+func TestDateRangeValidation(t *testing.T) {
 	server := newEmptyAPIServer(t)
-	cfg := testFetchConfig(server.URL)
-	cfg.DateAfter = "20250101"
-	cfg.DateBefore = "20250101"
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestMinIntervalValidation(t *testing.T) {
-	cfg := newTestRootConfig()
-	cfg.MinInterval = -time.Second
-	_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err == nil || err.Error() != "min-interval must be at least 0" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestConcurrencyValidation(t *testing.T) {
-	_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "--concurrency=0", "12345")
-	if err == nil || err.Error() != "concurrency must be at least 1" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPageConcurrencyValidation(t *testing.T) {
-	_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "--page-concurrency=0", "12345")
-	if err == nil || err.Error() != "page-concurrency must be at least 1" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPageConcurrencyFlagDocumentsPerTargetScope(t *testing.T) {
-	cmd, _, _ := newTestRootCommand(t, newTestRootConfig(), newTestRootDeps())
-	flag := cmd.Flags().Lookup("page-concurrency")
-	if flag == nil {
-		t.Fatalf("expected page-concurrency flag")
-	}
-	if flag.DefValue != "1" {
-		t.Fatalf("expected default 1, got %q", flag.DefValue)
-	}
-	if got := flag.Usage; got != "number of concurrent page requests per target" {
-		t.Fatalf("unexpected usage: %q", got)
+	for _, test := range []struct {
+		before, want string
+	}{
+		{"20250101", "dateafter must be on or before datebefore"},
+		{"20250102", ""},
+	} {
+		t.Run(test.before, func(t *testing.T) {
+			cfg := testFetchConfig(server.URL)
+			cfg.DateAfter, cfg.DateBefore = "20250102", test.before
+			_, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("same-day range rejected: %v", err)
+				}
+			} else if err == nil || err.Error() != test.want {
+				t.Fatalf("error=%v, want %q", err, test.want)
+			}
+		})
 	}
 }

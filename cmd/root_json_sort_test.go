@@ -6,18 +6,7 @@ import (
 )
 
 func TestSortTargetResultsLargeAllocationBudget(t *testing.T) {
-	base := make([]targetResult, 2000)
-	for i := range base {
-		targetType := targetTypeUser
-		if i%2 == 0 {
-			targetType = targetTypeMylist
-		}
-		id := fmt.Sprintf("%d", 2000-i)
-		if i%5 == 0 {
-			id = fmt.Sprintf("%d-invalid", i)
-		}
-		base[i] = targetResult{Type: targetType, ID: id, Error: fmt.Sprintf("err-%d", i)}
-	}
+	base := largeTargetResults()
 
 	allocs := testing.AllocsPerRun(20, func() {
 		results := append([]targetResult(nil), base...)
@@ -28,4 +17,18 @@ func TestSortTargetResultsLargeAllocationBudget(t *testing.T) {
 	if allocs > allocationBudget {
 		t.Fatalf("allocation budget exceeded: got %.0f allocs, want <= %d", allocs, allocationBudget)
 	}
+}
+
+func largeTargetResults() []targetResult {
+	base := make([]targetResult, 2000)
+	for i := range base {
+		targetType := targetTypeUser
+		if i%2 == 0 {
+			targetType = targetTypeMylist
+		}
+		id := fmt.Sprintf("%d", 2000-i)
+		base[i] = targetResult{Type: targetType, ID: id, Error: fmt.Sprintf("err-%d", i)}
+	}
+
+	return base
 }

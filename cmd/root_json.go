@@ -44,10 +44,6 @@ func buildJSONOutput(
 	outputCount int,
 	outputIDs []string,
 ) jsonOutputPayload {
-	items := make([]string, 0, len(outputIDs))
-	for _, id := range outputIDs {
-		items = append(items, normalizeOutputID(id))
-	}
 	targets := make([]targetResult, 0, len(targetResults))
 	for _, target := range targetResults {
 		targets = append(targets, targetResult{
@@ -67,7 +63,7 @@ func buildJSONOutput(
 		Targets:     targets,
 		Errors:      append([]string{}, errorsList...),
 		OutputCount: outputCount,
-		Items:       items,
+		Items:       normalizeOutputList(outputIDs),
 	}
 }
 
@@ -77,8 +73,14 @@ func sortTargetResults(results []targetResult) {
 		if results[i].Type != results[j].Type {
 			return results[i].Type < results[j].Type
 		}
-		if less, decided := targetIDLess(results[i].ID, results[j].ID); decided {
-			return less
+		// Parsed target IDs are decimal strings of at most twelve digits.
+		left := strings.TrimLeft(results[i].ID, "0")
+		right := strings.TrimLeft(results[j].ID, "0")
+		if len(left) != len(right) {
+			return len(left) < len(right)
+		}
+		if left != right {
+			return left < right
 		}
 		if results[i].ID != results[j].ID {
 			return results[i].ID < results[j].ID
@@ -99,56 +101,11 @@ func flattenTargetItemsByInputOrder(results []targetResult) []string {
 	return outputIDs
 }
 
-// targetIDLess compares target IDs using numeric order when both fit uint64.
-func targetIDLess(leftID string, rightID string) (bool, bool) {
-	left, leftNumeric := normalizedTargetUint64Text(leftID)
-	right, rightNumeric := normalizedTargetUint64Text(rightID)
-	if leftNumeric && rightNumeric && left != right {
-		if len(left) != len(right) {
-			return len(left) < len(right), true
-		}
-		return left < right, true
-	}
-	if leftNumeric && !rightNumeric {
-		return true, true
-	}
-	if !leftNumeric && rightNumeric {
-		return false, true
-	}
-	return false, false
-}
-
-// normalizedTargetUint64Text returns canonical decimal text when text fits uint64.
-func normalizedTargetUint64Text(text string) (string, bool) {
-	if len(text) == 0 || len(text) > len(maxTargetUint64Text) {
-		return text, false
-	}
-	for i := range text {
-		if text[i] < '0' || text[i] > '9' {
-			return text, false
-		}
-	}
-	if len(text) == len(maxTargetUint64Text) && text > maxTargetUint64Text {
-		return text, false
-	}
-	for len(text) > 1 && text[0] == '0' {
-		text = text[1:]
-	}
-	return text, true
-}
-
-const maxTargetUint64Text = "18446744073709551615"
-
-// normalizeOutputID strips the URL prefix from an output ID.
-func normalizeOutputID(id string) string {
-	return strings.TrimPrefix(id, nicoWatchURLPrefix)
-}
-
 // normalizeOutputList normalizes a list of output IDs.
 func normalizeOutputList(items []string) []string {
 	normalized := make([]string, 0, len(items))
 	for _, item := range items {
-		normalized = append(normalized, normalizeOutputID(item))
+		normalized = append(normalized, strings.TrimPrefix(item, nicoWatchURLPrefix))
 	}
 	return normalized
 }

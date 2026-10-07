@@ -20,25 +20,6 @@ var (
 	sleepFn = sleepWithContext
 )
 
-// closeAndIsNotFound closes the response body and reports whether the status is 404.
-func closeAndIsNotFound(res *http.Response) bool {
-	if res == nil || res.StatusCode != http.StatusNotFound {
-		return false
-	}
-	_ = res.Body.Close()
-	return true
-}
-
-// evaluateResponse validates HTTP responses and returns any retry delay needed.
-func evaluateResponse(res *http.Response) (*http.Response, time.Duration, error) {
-	if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
-		return res, 0, nil
-	}
-	retryAfter := retryAfterDelay(res)
-	_ = res.Body.Close()
-	return nil, retryAfter, fmt.Errorf("unexpected status: %d", res.StatusCode)
-}
-
 // nextRetryDelay calculates the next backoff delay, honoring Retry-After when larger.
 func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
 	wait := min(retryBaseDelay*time.Duration(1<<uint(attempt-1)), retryMaxDelay)
@@ -69,31 +50,27 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			if err := waitForHTTPAttempt(ctx, limiter, delay, control); err != nil {
 				return nil, err
 			}
-			res, err = doHTTPAttempt(client, req, attempt > 1, control)
+			res, err = performHTTPAttempt(client, req, attempt, control, nil)
 		}
 		delay = 0
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				if res != nil {
-					_ = res.Body.Close()
-				}
-				return nil, err
-			}
 			if res != nil {
 				_ = res.Body.Close()
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
 			}
 			lastErr = err
 		} else {
 			if body, ok := res.Body.(*controlledBody); ok && body.adaptive != nil {
 				adaptiveRetryAt = body.adaptive.retryAt
 			}
-			var retryAfter time.Duration
-			res, retryAfter, err = evaluateResponse(res)
-			if err == nil {
+			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
 				return res, nil
 			}
-			lastErr = err
-			delay = retryAfter
+			delay = retryAfterDelay(res)
+			_ = res.Body.Close()
+			lastErr = fmt.Errorf("unexpected status: %d", res.StatusCode)
 		}
 
 		if attempt == retries {
@@ -122,14 +99,6 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
-}
-
-// waitBeforeAttempt applies any delay and rate limiting before a request attempt.
-func waitBeforeAttempt(ctx context.Context, limiter *RateLimiter, delay time.Duration) error {
-	if limiter == nil {
-		return sleepFn(ctx, delay)
-	}
-	return limiter.Wait(ctx, delay)
 }
 
 // retryAfterDelay parses Retry-After for 429 responses and returns a delay.

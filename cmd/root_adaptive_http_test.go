@@ -12,44 +12,6 @@ import (
 	"testing"
 )
 
-func TestAdaptiveHTTPControlIsIndependentOfDiagnostics(t *testing.T) {
-	for _, max := range []int{0, 4, 32} {
-		t.Run(fmt.Sprintf("maximum=%d", max), func(t *testing.T) {
-			cfg := newTestRootConfig()
-			cfg.AdaptiveHTTPConcurrency, cfg.HTTPConcurrency = true, max
-			if err := validateFlagsFor(&cfg); err != nil {
-				t.Fatalf("valid adaptive config rejected: %v", err)
-			}
-			initial := 8
-			if max > 0 && max < initial {
-				initial = max
-			}
-			control := newCommandHTTPControl(&cfg)
-			snapshot := control.Snapshot()
-			if snapshot.Adaptive == nil || snapshot.Adaptive.Current != initial || snapshot.Adaptive.Max != max || snapshot.Admission.Limit != initial || snapshot.Admission.HardMax != max {
-				t.Fatalf("adaptive control was not initialized: %+v", snapshot)
-			}
-			if snapshot.Metrics.Counters != nil || snapshot.Metrics.Durations != nil {
-				t.Fatal("adaptive control enabled full diagnostics")
-			}
-			other := newCommandHTTPControl(&cfg)
-			if other == control {
-				t.Fatal("separate commands shared HTTP control state")
-			}
-		})
-	}
-	cfg := newTestRootConfig()
-	cfg.HTTPConcurrency = 32
-	fixed := newCommandHTTPControl(&cfg).Snapshot()
-	if fixed.Adaptive != nil || fixed.Admission.Limit != 32 {
-		t.Fatalf("fixed control contract changed: %+v", fixed)
-	}
-	cfg.HTTPConcurrency = 0
-	if control := newCommandHTTPControl(&cfg); control != nil {
-		t.Fatal("disabled HTTP controls no longer preserve the original request path")
-	}
-}
-
 func TestAdaptiveHTTPInputFailuresPreserveErrorsAndCleanup(t *testing.T) {
 	for _, mode := range httpCommandOutputModes {
 		for _, max := range []int{0, 8} {

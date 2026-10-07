@@ -12,7 +12,7 @@ Scope: files under `internal/niconico/`.
 - `nico_data.go`: decode target for user-video API responses and fixture contract tests.
 - `client_test.go`: low-level behavior coverage for fetch, retry, backoff, cancellation, timeout, 404 handling, and rate limiting.
 - `nico_data_contract_test.go`: fixture-backed API shape contract.
-- `fuzz_test.go`: panic-safety coverage for sorting and JSON decode boundaries.
+- `fuzz_test.go`: panic-safety coverage for sorting.
 - `e2e_test.go`: opt-in live API coverage behind the `e2e` build tag and `GO_NICO_LIST_E2E_USER_ID`.
 - `benchmark_test.go`: `NiconicoSort` performance baseline.
 

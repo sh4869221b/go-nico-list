@@ -77,19 +77,12 @@ Enabled metrics are measurably expensive for very short commands: the short unca
 
 No fixed cap is recommended from these loopback timings. Worker supply, service capacity, delays and scheduling differ from the real service. No live API requests were made, and adaptive tuning remains unimplemented.
 
-#### One observable larger run
-
-`go test ./cmd -run '^TestHTTPMetricsLocalReport$' -count=1 -v` is a reproducible aggregate diagnostic example. One recorded run fetched 120 pages/12,000 IDs, with 120 attempts, zero retries/429/errors, peak actual in-flight 8, peak pending 4, and final reserved/pending/in-flight all zero. Service p50/p95/p99 were 0.613/3.199/5.140ms from 120 samples; 108/120 connection events reused connections. Elapsed measurement was 26.536ms. This single-run latency sample illustrates the schema, not a statistically established latency claim.
-
 #### Reproduction
 
 ```sh
-go test ./cmd -run '^$' -bench 'BenchmarkRunRootCmdLargeFanIn(LineOutput|JSONOutput)' -benchmem -count=5
 go test ./cmd -run '^$' -bench '^BenchmarkHTTPCommand$' -benchmem -benchtime=10x -count=5
 go test ./cmd -run '^$' -bench '^BenchmarkHTTPCommand/(short|supplied_mixed|supplied_large)/line/' -benchmem -benchtime=300ms -count=5
 go test ./cmd -run '^$' -bench '^BenchmarkHTTPCommand/supplied_large/line/cap=0/' -benchmem -benchtime=1s -count=5
-go test ./cmd -run '^$' -bench '^BenchmarkHTTPNetworkBoundMeasurement$' -benchmem -benchtime=1s -count=5
-go test ./cmd -run '^TestHTTPMetricsLocalReport$' -count=1 -v
 ```
 
 All timed iterations create a fresh command and include initial page discovery, output, and enabled diagnostic serialization. Server setup is outside timing. Process startup and the compiler are outside timing. Metrics use bounded memory independent of run length, but the application's existing output/result storage is unchanged and can grow with result count. Retry/rate/cancellation scenarios are correctness tests, not comprehensive performance models. The proposed high-concurrency production matrix and real-service validation remain future opt-in work.

@@ -7,9 +7,6 @@ import (
 
 // writeLineOutput writes line output directly without building a joined string.
 func writeLineOutput(out io.Writer, items []string, withURL bool) error {
-	if len(items) == 0 {
-		return nil
-	}
 	writer := bufio.NewWriter(out)
 	for _, item := range items {
 		if withURL {

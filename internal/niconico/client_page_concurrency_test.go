@@ -6,122 +6,115 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 )
 
-func TestGetVideoListSequentialNilItemsStopsPagination(t *testing.T) {
-	logger := slog.New(slog.DiscardHandler)
-	var requestedPages []string
-	var mu sync.Mutex
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		requestedPages = append(requestedPages, r.URL.Query().Get("page"))
-		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Query().Get("page") {
-		case "1":
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-		case "2":
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{}}`)
-		default:
-			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{}}`)
-		}
-	})
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
+func TestGetVideoListSequentialStopsPagination(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		terminalStatus  int
+		pageConcurrency int
+	}{
+		{"nil items", http.StatusOK, 1},
+		{"not found", http.StatusNotFound, 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var requestedPages []string
+			var mu sync.Mutex
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				requestedPages = append(requestedPages, r.URL.Query().Get("page"))
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Query().Get("page") {
+				case "1":
+					_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+				case "2":
+					w.WriteHeader(tt.terminalStatus)
+					if tt.terminalStatus == http.StatusOK {
+						_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{}}`)
+					}
+				default:
+					t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
+					_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{}}`)
+				}
+			}))
+			t.Cleanup(server.Close)
 
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, logger, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"sm1"}) {
-		t.Fatalf("unexpected ids: %v", got)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
-		t.Fatalf("unexpected requested pages: %v", requestedPages)
-	}
-}
-
-func TestGetVideoListSequentialNotFoundStopsPagination(t *testing.T) {
-	logger := slog.New(slog.DiscardHandler)
-	var requestedPages []string
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestedPages = append(requestedPages, r.URL.Query().Get("page"))
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Query().Get("page") {
-		case "1":
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-		case "2":
-			w.WriteHeader(http.StatusNotFound)
-		default:
-			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
-		}
-	})
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"sm1"}) {
-		t.Fatalf("unexpected ids: %v", got)
-	}
-	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
-		t.Fatalf("unexpected requested pages: %v", requestedPages)
+			after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+			got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, tt.pageConcurrency, slog.New(slog.DiscardHandler), nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !slices.Equal(got, []string{"sm1"}) {
+				t.Fatalf("unexpected ids: %v", got)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if !slices.Equal(requestedPages, []string{"1", "2"}) {
+				t.Fatalf("unexpected requested pages: %v", requestedPages)
+			}
+		})
 	}
 }
 
 func TestGetVideoListPageConcurrencyPreservesPageOrder(t *testing.T) {
-	logger := slog.New(slog.DiscardHandler)
-	releasePage2 := make(chan struct{})
-	var releaseOnce sync.Once
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Query().Get("page") {
-		case "1":
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-		case "2":
-			select {
-			case <-releasePage2:
-			case <-r.Context().Done():
-				return
+	for _, tt := range []struct {
+		name      string
+		thirdPage string
+		want      []string
+	}{
+		{
+			"later page has items",
+			`{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`,
+			[]string{"sm1", "sm2", "sm3"},
+		},
+		{
+			"later page is empty",
+			`{"meta":{"status":200},"data":{"items":[]}}`,
+			[]string{"sm1", "sm2"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			releasePage2 := make(chan struct{})
+			var releaseOnce sync.Once
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Query().Get("page") {
+				case "1":
+					_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"totalCount":300,"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+				case "2":
+					select {
+					case <-releasePage2:
+					case <-r.Context().Done():
+						return
+					}
+					_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
+				case "3":
+					releaseOnce.Do(func() { close(releasePage2) })
+					_, _ = io.WriteString(w, tt.thirdPage)
+				default:
+					t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
+					_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
+				}
+			}))
+			t.Cleanup(server.Close)
+			t.Cleanup(func() { releaseOnce.Do(func() { close(releasePage2) }) })
+
+			after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+			got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, slog.New(slog.DiscardHandler), nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
-		case "3":
-			releaseOnce.Do(func() { close(releasePage2) })
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
-		default:
-			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
-		}
-	})
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	t.Cleanup(func() { releaseOnce.Do(func() { close(releasePage2) }) })
-
-	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-	got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 2, logger, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"sm1", "sm2", "sm3"}) {
-		t.Fatalf("expected page-order ids, got %v", got)
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("expected page-order ids %v, got %v", tt.want, got)
+			}
+		})
 	}
 }
 
@@ -157,7 +150,7 @@ func TestGetVideoListPageConcurrencyStopsSchedulingAfterFetchError(t *testing.T)
 	if err == nil {
 		t.Fatal("expected fetch error")
 	}
-	if !reflect.DeepEqual(got, []string{"sm1"}) {
+	if !slices.Equal(got, []string{"sm1"}) {
 		t.Fatalf("unexpected partial ids: %v", got)
 	}
 	mu.Lock()
@@ -204,7 +197,7 @@ func TestGetVideoListPageConcurrencyStopsAtEmptyPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !reflect.DeepEqual(got, []string{"sm1"}) {
+	if !slices.Equal(got, []string{"sm1"}) {
 		t.Fatalf("unexpected ids: %v", got)
 	}
 }
@@ -238,12 +231,12 @@ func TestGetMylistVideoListPageConcurrencyUsesTotalItemCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !reflect.DeepEqual(got, []string{"sm1", "sm2"}) {
+	if !slices.Equal(got, []string{"sm1", "sm2"}) {
 		t.Fatalf("unexpected ids: %v", got)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if !reflect.DeepEqual(requestedPages, []string{"1", "2"}) {
+	if !slices.Equal(requestedPages, []string{"1", "2"}) {
 		t.Fatalf("unexpected requested pages: %v", requestedPages)
 	}
 }

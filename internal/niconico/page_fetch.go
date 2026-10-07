@@ -10,11 +10,10 @@ import (
 )
 
 type parsedPage struct {
-	Items           []videoItem
-	Status          int
-	TotalCount      int
-	TotalCountKnown bool
-	NotFound        bool
+	Items      []videoItem
+	Status     int
+	TotalCount *int
+	NotFound   bool
 }
 
 type parsePageFunc func([]byte) (parsedPage, error)
@@ -48,7 +47,8 @@ func fetchPage(
 	if res == nil {
 		return parsedPage{}, nil
 	}
-	if closeAndIsNotFound(res) {
+	if res.StatusCode == http.StatusNotFound {
+		_ = res.Body.Close()
 		return parsedPage{NotFound: true}, nil
 	}
 	var started time.Time

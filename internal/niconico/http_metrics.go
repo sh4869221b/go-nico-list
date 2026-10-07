@@ -133,12 +133,8 @@ type HTTPMetrics struct {
 // NewHTTPMetrics begins a measurement lifetime, including time spent waiting
 // for initial scheduling and final result processing.
 func NewHTTPMetrics() *HTTPMetrics {
-	return newHTTPMetrics(time.Now)
-}
-
-func newHTTPMetrics(now func() time.Time) *HTTPMetrics {
-	started := now()
-	return &HTTPMetrics{now: now, started: started, lastChange: started}
+	started := time.Now()
+	return &HTTPMetrics{now: time.Now, started: started, lastChange: started}
 }
 
 // initLocked also makes the zero value usable. Normal callers use the
@@ -300,8 +296,7 @@ type httpTraceTimes struct {
 	acquire          time.Time
 	dns              httpTracePending
 	tls              httpTracePending
-	connects         map[httpConnectKey][]time.Time
-	connectCount     int
+	connects         map[httpConnectKey]time.Time
 	connectsDisabled bool
 }
 
@@ -310,7 +305,8 @@ type httpTraceTimes struct {
 // Resuming after dropping starts could still pair a late completion incorrectly.
 // Completed measurements remain valid; trace_dropped reports omitted starts.
 type httpTracePending struct {
-	starts   []time.Time
+	started  time.Time
+	active   bool
 	disabled bool
 }
 
@@ -318,24 +314,20 @@ func (p *httpTracePending) add(now time.Time) int64 {
 	if p.disabled {
 		return 1
 	}
-	if len(p.starts) > 0 {
-		dropped := int64(len(p.starts) + 1)
-		p.starts = nil
+	if p.active {
+		p.started = time.Time{}
+		p.active = false
 		p.disabled = true
-		return dropped
+		return 2
 	}
-	p.starts = append(p.starts, now)
+	p.started, p.active = now, true
 	return 0
 }
 
-func popHTTPTraceStart(starts *[]time.Time) (time.Time, bool) {
-	if len(*starts) == 0 {
-		return time.Time{}, false
-	}
-	started := (*starts)[0]
-	(*starts)[0] = time.Time{}
-	*starts = (*starts)[1:]
-	return started, true
+func (p *httpTracePending) pop() (time.Time, bool) {
+	started, active := p.started, p.active
+	p.started, p.active = time.Time{}, false
+	return started, active
 }
 
 // trace builds a separate race-safe trace for each application attempt. Go may
@@ -352,7 +344,7 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 	m.initLocked()
 	now := m.now
 	m.mu.Unlock()
-	times := &httpTraceTimes{connects: make(map[httpConnectKey][]time.Time)}
+	times := &httpTraceTimes{connects: make(map[httpConnectKey]time.Time)}
 	trace := &httptrace.ClientTrace{
 		GetConn: func(string) {
 			times.mu.Lock()
@@ -391,7 +383,7 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 			if times.stopped {
 				return
 			}
-			if started, ok := popHTTPTraceStart(&times.dns.starts); ok {
+			if started, ok := times.dns.pop(); ok {
 				m.observe("dns", now().Sub(started))
 			}
 		},
@@ -409,15 +401,14 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 			// A duplicate key cannot distinguish reordered completions. Drop
 			// the entire phase, including still-pending distinct-key starts,
 			// rather than inventing intervals from an assumed callback order.
-			if times.connectCount >= httpTracePendingLimit || len(times.connects[key]) > 0 {
-				m.addCounter("trace_dropped", int64(times.connectCount+1))
+			_, duplicate := times.connects[key]
+			if len(times.connects) >= httpTracePendingLimit || duplicate {
+				m.addCounter("trace_dropped", int64(len(times.connects)+1))
 				times.connects = nil
-				times.connectCount = 0
 				times.connectsDisabled = true
 				return
 			}
-			times.connects[key] = append(times.connects[key], now())
-			times.connectCount++
+			times.connects[key] = now()
 		},
 		ConnectDone: func(network, address string, _ error) {
 			times.mu.Lock()
@@ -426,15 +417,9 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 				return
 			}
 			key := httpConnectKey{network: network, address: address}
-			starts := times.connects[key]
-			started, ok := popHTTPTraceStart(&starts)
-			if len(starts) == 0 {
-				delete(times.connects, key)
-			} else {
-				times.connects[key] = starts
-			}
+			started, ok := times.connects[key]
+			delete(times.connects, key)
 			if ok {
-				times.connectCount--
 				m.observe("connect", now().Sub(started))
 			}
 		},
@@ -451,7 +436,7 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 			if times.stopped {
 				return
 			}
-			if started, ok := popHTTPTraceStart(&times.tls.starts); ok {
+			if started, ok := times.tls.pop(); ok {
 				m.observe("tls", now().Sub(started))
 			}
 		},

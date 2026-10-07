@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +35,19 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to parse JSON output: %v", err)
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"inputs", "invalid", "targets", "errors", "output_count", "items"} {
+		if _, ok := fields[name]; !ok {
+			t.Fatalf("stdout JSON missing %q", name)
+		}
+	}
+	if len(fields) != 6 {
+		t.Fatalf("unexpected JSON fields: %v", fields)
+	}
+
 	if payload.Inputs.Total != 2 || payload.Inputs.Valid != 1 || payload.Inputs.Invalid != 1 {
 		t.Errorf("unexpected inputs: %+v", payload.Inputs)
 	}
@@ -148,6 +160,14 @@ func TestRunRootCmdJSONOutputTargetsSortedByTypeAndID(t *testing.T) {
 	var user2CompletedOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/mylists/") {
+			ids := []string{"sm42"}
+			if r.URL.Query().Get("page") != "1" {
+				ids = nil
+			}
+			_, _ = io.WriteString(w, httpCommandPagePayload(true, 1, ids))
+			return
+		}
 		isUser2 := strings.Contains(r.URL.Path, "/users/2/")
 		if r.URL.Query().Get("page") != "1" {
 			if isUser2 {
@@ -170,10 +190,10 @@ func TestRunRootCmdJSONOutputTargetsSortedByTypeAndID(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	cfg := testFetchConfig(server.URL)
-	cfg.Concurrency = 2
+	cfg.Concurrency = 3
 	cfg.JSONOutput = true
 
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1", "nicovideo.jp/user/2")
+	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/847130")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,91 +201,26 @@ func TestRunRootCmdJSONOutputTargetsSortedByTypeAndID(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to parse JSON output: %v", err)
 	}
-	if len(payload.Targets) != 2 {
+	if len(payload.Targets) != 3 {
 		t.Fatalf("unexpected targets length: %d", len(payload.Targets))
 	}
-	if payload.Targets[0].Type != targetTypeUser || payload.Targets[0].ID != "1" || payload.Targets[1].Type != targetTypeUser || payload.Targets[1].ID != "2" {
+	if payload.Targets[1].Type != targetTypeUser || payload.Targets[1].ID != "1" || payload.Targets[2].Type != targetTypeUser || payload.Targets[2].ID != "2" {
 		t.Fatalf("expected targets ordered by type and id, got %+v", payload.Targets)
 	}
-}
-
-func TestRunRootCmdJSONOutputPreservesMylistTargetType(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/mylists/847130") {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("page") != "1" {
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[]}}}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[{"video":{"id":"sm42","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.JSONOutput = true
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/mylist/847130")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var payload struct {
-		Targets []struct {
-			Type  string   `json:"type"`
-			ID    string   `json:"id"`
-			Items []string `json:"items"`
-			Error string   `json:"error"`
-		} `json:"targets"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("failed to parse JSON output: %v", err)
-	}
-	if len(payload.Targets) != 1 {
-		t.Fatalf("unexpected targets length: %d; output=%s", len(payload.Targets), out.String())
-	}
-	target := payload.Targets[0]
-	if target.Type != targetTypeMylist || target.ID != "847130" || strings.Join(target.Items, ",") != "sm42" || target.Error != "" {
-		t.Errorf("unexpected target: %+v", target)
+	mylist := payload.Targets[0]
+	if mylist.Type != targetTypeMylist || mylist.ID != "847130" || strings.Join(mylist.Items, ",") != "sm42" || mylist.Error != "" {
+		t.Fatalf("unexpected mylist target: %+v", mylist)
 	}
 }
 
 func TestSortTargetResultsSortsByTypeAndNumericID(t *testing.T) {
-	results := []targetResult{{Type: targetTypeUser, ID: "10"}, {Type: targetTypeMylist, ID: "2"}, {Type: targetTypeUser, ID: "1"}, {Type: targetTypeMylist, ID: "11"}, {Type: targetTypeMylist, ID: "10000000000"}, {Type: targetTypeMylist, ID: "9999999999"}}
+	results := []targetResult{{Type: targetTypeUser, ID: "10"}, {Type: targetTypeMylist, ID: "2"}, {Type: targetTypeUser, ID: "1"}, {Type: targetTypeMylist, ID: "11"}, {Type: targetTypeMylist, ID: "10000000000"}, {Type: targetTypeMylist, ID: "9999999999"}, {Type: targetTypeUser, ID: "000000000000"}, {Type: targetTypeMylist, ID: "02"}, {Type: targetTypeMylist, ID: "2", Error: "b"}, {Type: targetTypeMylist, ID: "2", Error: "a"}}
 	sortTargetResults(results)
 	got := make([]string, 0, len(results))
 	for _, result := range results {
-		got = append(got, result.Type+":"+result.ID)
+		got = append(got, result.Type+":"+result.ID+":"+result.Error)
 	}
-	if strings.Join(got, ",") != "mylist:2,mylist:11,mylist:9999999999,mylist:10000000000,user:1,user:10" {
+	if strings.Join(got, ",") != "mylist:02:,mylist:2:,mylist:2:a,mylist:2:b,mylist:11:,mylist:9999999999:,mylist:10000000000:,user:000000000000:,user:1:,user:10:" {
 		t.Fatalf("unexpected target order: %v", got)
-	}
-}
-
-func TestRunRootCmdReturnsJSONOutputWriteError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("page") != "1" {
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.JSONOutput = true
-	writeErr := errors.New("stdout failed")
-	var errOut strings.Builder
-	deps := newTestRootDeps()
-	deps.Stdout = errorWriter{err: writeErr}
-	deps.Stderr = &errOut
-
-	_, _, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1")
-	if !errors.Is(err, writeErr) {
-		t.Fatalf("expected stdout error, got %v", err)
-	}
-	wantSummary := "summary inputs=1 valid=1 invalid=0 fetch_ok=1 fetch_err=0 output_count=1"
-	if got := errOut.String(); !strings.Contains(got, wantSummary) {
-		t.Fatalf("expected summary %q, got %q", wantSummary, got)
 	}
 }

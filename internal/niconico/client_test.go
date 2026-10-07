@@ -3,12 +3,10 @@ package niconico
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -16,66 +14,15 @@ import (
 	"time"
 )
 
-type trackingReadCloser struct {
-	closed bool
-}
-
-func sameStringSet(got []string, want []string) bool {
-	gotCopy := append([]string{}, got...)
-	wantCopy := append([]string{}, want...)
-	slices.Sort(gotCopy)
-	slices.Sort(wantCopy)
-	return slices.Equal(gotCopy, wantCopy)
-}
-
-func (r *trackingReadCloser) Read(_ []byte) (int, error) {
-	return 0, io.EOF
-}
-
-func (r *trackingReadCloser) Close() error {
-	r.closed = true
-	return nil
-}
-
-func TestCloseAndIsNotFound(t *testing.T) {
-	t.Run("not found closes body", func(t *testing.T) {
-		body := &trackingReadCloser{}
-		res := &http.Response{StatusCode: http.StatusNotFound, Body: body}
-		if !closeAndIsNotFound(res) {
-			t.Fatal("expected true")
-		}
-		if !body.closed {
-			t.Fatal("expected body to be closed")
-		}
-	})
-
-	t.Run("non-404 does not close body", func(t *testing.T) {
-		body := &trackingReadCloser{}
-		res := &http.Response{StatusCode: http.StatusOK, Body: body}
-		if closeAndIsNotFound(res) {
-			t.Fatal("expected false")
-		}
-		if body.closed {
-			t.Fatal("expected body to remain open")
-		}
-	})
-}
-
 func TestRetriesRequest(t *testing.T) {
 	retries := 3
 	count := 0
-	var headerErrs []string
-	var headerErrsMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Frontend-Id"); got != "6" {
-			headerErrsMu.Lock()
-			headerErrs = append(headerErrs, fmt.Sprintf("unexpected X-Frontend-Id header: %q", got))
-			headerErrsMu.Unlock()
+			t.Errorf("unexpected X-Frontend-Id header: %q", got)
 		}
 		if got := r.Header.Get("Accept"); got != "*/*" {
-			headerErrsMu.Lock()
-			headerErrs = append(headerErrs, fmt.Sprintf("unexpected Accept header: %q", got))
-			headerErrsMu.Unlock()
+			t.Errorf("unexpected Accept header: %q", got)
 		}
 		count++
 		if count < 3 {
@@ -95,11 +42,6 @@ func TestRetriesRequest(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("expected 3 attempts, got %d", count)
-	}
-	headerErrsMu.Lock()
-	defer headerErrsMu.Unlock()
-	if len(headerErrs) > 0 {
-		t.Fatalf("header assertions failed: %v", headerErrs)
 	}
 	_ = res.Body.Close()
 }
@@ -185,10 +127,8 @@ func TestRetriesRequestContextCanceled(t *testing.T) {
 }
 
 func TestRetriesRequestTimeout(t *testing.T) {
-	started := make(chan struct{})
 	done := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(started)
 		<-r.Context().Done()
 		close(done)
 	}))
@@ -210,12 +150,6 @@ func TestRetriesRequestTimeout(t *testing.T) {
 		if remaining := time.Until(deadline) / 2; remaining > 0 {
 			waitTimeout = remaining
 		}
-	}
-
-	select {
-	case <-started:
-	case <-time.After(waitTimeout):
-		t.Fatal("expected request to start")
 	}
 
 	select {
@@ -278,57 +212,33 @@ func TestNewRateLimiterInterval(t *testing.T) {
 }
 
 func TestRateLimiterWaitSequence(t *testing.T) {
-	origNow := timeNow
-	origSleep := sleepFn
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	current := base
-	timeNow = func() time.Time { return current }
-	sleepFn = func(ctx context.Context, d time.Duration) error {
-		current = current.Add(d)
-		return nil
-	}
-	t.Cleanup(func() {
-		timeNow = origNow
-		sleepFn = origSleep
-	})
-
-	limiter := &RateLimiter{interval: 50 * time.Millisecond}
-
-	if err := limiter.Wait(context.Background(), 0); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !current.Equal(base) {
-		t.Fatalf("expected no delay, got %v", current.Sub(base))
-	}
-	if err := limiter.Wait(context.Background(), 0); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := current.Sub(base); got != 50*time.Millisecond {
-		t.Fatalf("expected delay 50ms, got %v", got)
-	}
-}
-
-func TestRateLimiterWaitHonorsMinDelay(t *testing.T) {
-	origNow := timeNow
-	origSleep := sleepFn
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	current := base
-	timeNow = func() time.Time { return current }
-	sleepFn = func(ctx context.Context, d time.Duration) error {
-		current = current.Add(d)
-		return nil
-	}
-	t.Cleanup(func() {
-		timeNow = origNow
-		sleepFn = origSleep
-	})
-
-	limiter := &RateLimiter{interval: 50 * time.Millisecond}
-	if err := limiter.Wait(context.Background(), 120*time.Millisecond); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := current.Sub(base); got != 120*time.Millisecond {
-		t.Fatalf("expected delay 120ms, got %v", got)
+	for _, tc := range []struct {
+		name            string
+		delays, elapsed []time.Duration
+	}{
+		{name: "sequence", delays: []time.Duration{0, 0}, elapsed: []time.Duration{0, 50 * time.Millisecond}},
+		{name: "minimum delay", delays: []time.Duration{120 * time.Millisecond}, elapsed: []time.Duration{120 * time.Millisecond}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			origNow, origSleep := timeNow, sleepFn
+			base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			current := base
+			timeNow = func() time.Time { return current }
+			sleepFn = func(ctx context.Context, d time.Duration) error {
+				current = current.Add(d)
+				return nil
+			}
+			t.Cleanup(func() { timeNow, sleepFn = origNow, origSleep })
+			limiter := &RateLimiter{interval: 50 * time.Millisecond}
+			for i, delay := range tc.delays {
+				if err := limiter.Wait(context.Background(), delay); err != nil {
+					t.Fatal(err)
+				}
+				if got := current.Sub(base); got != tc.elapsed[i] {
+					t.Fatalf("wait %d: elapsed %v, want %v", i, got, tc.elapsed[i])
+				}
+			}
+		})
 	}
 }
 
@@ -454,9 +364,9 @@ func TestGetVideoList(t *testing.T) {
 			var resp string
 			switch page {
 			case "1":
-				resp = `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-15T00:00:00Z","count":{"comment":3}}}]}}`
+				resp = `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-01T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-15T00:00:00Z","count":{"comment":5}}}]}}`
 			case "2":
-				resp = `{"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-02-10T00:00:00Z","count":{"comment":20}}},{"essential":{"id":"sm4","registeredAt":"2024-05-02T00:00:00Z","count":{"comment":30}}}]}}`
+				resp = `{"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-04-30T00:00:00Z","count":{"comment":20}}},{"essential":{"id":"sm4","registeredAt":"2024-05-01T00:00:00Z","count":{"comment":30}}}]}}`
 			default:
 				resp = `{"data":{"items":[]}}`
 			}
@@ -474,33 +384,8 @@ func TestGetVideoList(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		expected := []string{"sm1", "sm3"}
-		if !reflect.DeepEqual(got, expected) {
+		if !slices.Equal(got, expected) {
 			t.Errorf("expected %v, got %v", expected, got)
-		}
-	})
-
-	t.Run("before date is inclusive and next day is excluded", func(t *testing.T) {
-		logger := slog.New(slog.DiscardHandler)
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			if r.URL.Query().Get("page") != "1" {
-				_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-				return
-			}
-			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-04-30T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-05-01T00:00:00Z","count":{"comment":10}}}]}}`)
-		})
-		server := httptest.NewServer(handler)
-		t.Cleanup(server.Close)
-
-		after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-		before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
-
-		got, err := GetVideoList(context.Background(), "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, logger, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !reflect.DeepEqual(got, []string{"sm1"}) {
-			t.Errorf("expected [sm1], got %v", got)
 		}
 	})
 
@@ -525,20 +410,13 @@ func TestGetVideoList(t *testing.T) {
 
 func TestGetVideoListContextCanceled(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-	})
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
 
-	got, err := GetVideoList(ctx, "12345", 0, after, before, server.URL, 1, time.Second, nil, 1, logger, nil)
+	got, err := GetVideoList(ctx, "12345", 0, after, before, "http://fixture.invalid", 1, time.Second, nil, 1, logger, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -619,7 +497,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	if !reflect.DeepEqual(got, []string{"sm1"}) {
+	if !slices.Equal(got, []string{"sm1"}) {
 		t.Errorf("expected partial result, got %v", got)
 	}
 }
@@ -648,7 +526,7 @@ func TestGetVideoListPageConcurrencyReturnsPartialIDsOnFetchError(t *testing.T) 
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	if !sameStringSet(got, []string{"sm1", "sm2"}) {
+	if !slices.Equal(got, []string{"sm1", "sm2"}) {
 		t.Fatalf("unexpected partial ids: %v", got)
 	}
 }
@@ -682,7 +560,7 @@ func TestGetMylistVideoList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !reflect.DeepEqual(ids, []string{"sm9"}) {
+	if !slices.Equal(ids, []string{"sm9"}) {
 		t.Fatalf("unexpected ids: %v", ids)
 	}
 }

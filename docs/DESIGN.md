@@ -52,8 +52,8 @@ main.go
 
 ### Input
 - Arguments: `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` URL (scheme optional).
-  - User regex: `((http(s)?://)?(www\.)?)nicovideo\.jp/user/(?P<userID>\d{1,9})(/video)?`
-  - Mylist regex: `((http(s)?://)?(www\.)?)nicovideo\.jp/mylist/(?P<mylistID>\d{1,12})`
+  - User regex: `(?:https?://)?(?:www\.)?nicovideo\.jp/user/(?P<userID>\d{1,9})(?:/video)?`
+  - Mylist regex: `(?:https?://)?(?:www\.)?nicovideo\.jp/mylist/(?P<mylistID>\d{1,12})`
   - Regex is **partial match** (valid if the input contains a match).
   - If multiple matches exist, use the first matching target pattern in the input string.
   - Domain-less paths and plain digits are treated as invalid inputs.
@@ -186,10 +186,9 @@ main.go
   - `cmd/root_log_test.go` (logfile and logger setup).
   - `cmd/root_input_test.go` (input parsing and streaming).
   - `cmd/root_json_test.go` (JSON output assembly).
-  - `cmd/root_characterization_test.go` (command isolation and side effects).
 - Domain tests: `internal/niconico/client_test.go` (fetch/retry/sort).
 - Contract test: `internal/niconico/nico_data_contract_test.go` validates fixture JSON decode into `NicoData`.
-- Fuzz tests: `internal/niconico/fuzz_test.go` and `cmd/root_fuzz_test.go` ensure sorting/JSON/url parsing paths do not panic.
+- Fuzz tests: `internal/niconico/fuzz_test.go` and `cmd/root_fuzz_test.go` ensure sorting/url parsing paths do not panic.
 - E2E test (opt-in): `internal/niconico/e2e_test.go` is gated by `//go:build e2e` and `GO_NICO_LIST_E2E_USER_ID`.
 - Benchmark (opt-in): `internal/niconico/benchmark_test.go` provides a `NiconicoSort` baseline (`go test -bench`).
 

@@ -130,7 +130,6 @@ The controller, safety integration and local regression gates are implemented. B
 ```sh
 go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPCommand/.*/.*/metrics=false$' -benchmem -benchtime=1x -count=5 -timeout=15m
 go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPCommand/(stable_capacity|capacity_drop_recovery_429|rate_bound|low_worker_supply)/adaptive32/metrics=true$' -benchmem -benchtime=1x -count=5
-go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPShortProcess$' -benchmem -benchtime=10x -count=5
 ```
 
 Sustained comparisons take several minutes. Preserve all repeats and ID/load checks when modifying parameters. Raw final matrices, telemetry, coefficient comparisons and the intentionally interrupted pre-neutral-fix pass are retained in the delivery for auditability; that partial pass is not part of the final statistics.

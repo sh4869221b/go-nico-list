@@ -2,14 +2,11 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -48,7 +45,86 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 		{name: "short", targets: 1, pages: 1, pageWorkers: 8, capacity: 128},
 	} {
 		b.Run(workload.name, func(b *testing.B) {
-			fixture := newAdaptiveHTTPBenchmarkFixture(b, workload)
+			var fixture struct {
+				server     *httptest.Server
+				args, want []string
+				mu         sync.Mutex
+				stats      adaptiveHTTPServerStats
+				seen       map[string]int
+			}
+			fixture.seen = make(map[string]int)
+			payloads := make(map[string]string)
+			for target := 1; target <= workload.targets; target++ {
+				mylist := target%2 == 0
+				path := "/users/" + strconv.Itoa(target) + "/videos"
+				input := "nicovideo.jp/user/" + strconv.Itoa(target)
+				if mylist {
+					path = "/mylists/" + strconv.Itoa(target)
+					input = "nicovideo.jp/mylist/" + strconv.Itoa(target)
+				}
+				fixture.args = append(fixture.args, input)
+				for page := 1; page <= workload.pages; page++ {
+					ids := []string{"sm" + strconv.Itoa(target*workload.pages+page), "sm1"}
+					fixture.want = append(fixture.want, ids...)
+					payload := httpCommandPagePayload(mylist, workload.pages*100, ids)
+					if workload.unknown {
+						payload = strings.Replace(payload, fmt.Sprintf(`"totalCount":%d,`, workload.pages*100), "", 1)
+					}
+					payloads[path+"?page="+strconv.Itoa(page)] = payload
+				}
+			}
+			slices.Sort(fixture.want)
+			fixture.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				key := r.URL.Path + "?page=" + r.URL.Query().Get("page")
+				fixture.mu.Lock()
+				fixture.stats.attempts++
+				fixture.seen[key]++
+				attempt := fixture.seen[key]
+				if attempt > 1 {
+					fixture.stats.retries++
+				}
+				fixture.stats.active++
+				active := fixture.stats.active
+				fixture.stats.peak = max(fixture.stats.peak, active)
+				capacity := workload.capacity
+				// Drop/recovery is driven by completed useful work rather than wall time,
+				// so each policy must cross the same capacity phases before finishing.
+				if workload.drop && fixture.stats.success >= workload.targets*workload.pages/4 && fixture.stats.success < workload.targets*workload.pages/2 {
+					capacity = 4
+				}
+				reject := workload.drop && capacity == 4 && active > capacity && attempt == 1
+				if reject {
+					fixture.stats.rejected++
+				}
+				fixture.mu.Unlock()
+				defer func() {
+					fixture.mu.Lock()
+					fixture.stats.active--
+					fixture.mu.Unlock()
+				}()
+
+				// Explicit synthetic service delay, including congestion above capacity.
+				// This models a soft saturation knee rather than a real API's internals.
+				if delay := workload.delay + time.Duration(max(0, active-capacity))*2*time.Millisecond; delay > 0 {
+					time.Sleep(delay)
+				}
+				if reject {
+					w.Header().Set("Retry-After", "0")
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				payload, ok := payloads[key]
+				if !ok {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, payload)
+				fixture.mu.Lock()
+				fixture.stats.success++
+				fixture.mu.Unlock()
+			}))
+			b.Cleanup(fixture.server.Close)
 			for _, policy := range []struct {
 				name     string
 				max      int
@@ -82,7 +158,10 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 						b.ReportAllocs()
 						b.ResetTimer()
 						for range b.N {
-							fixture.reset()
+							fixture.mu.Lock()
+							fixture.stats = adaptiveHTTPServerStats{}
+							clear(fixture.seen)
+							fixture.mu.Unlock()
 							output.Reset()
 							logs.Reset()
 							b.StartTimer()
@@ -94,7 +173,9 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 								b.Fatalf("synthetic command: %v", err)
 							}
 							assertHTTPCommandIDs(b, output.String(), httpCommandOutputModes[0], fixture.want)
-							stats := fixture.snapshot()
+							fixture.mu.Lock()
+							stats := fixture.stats
+							fixture.mu.Unlock()
 							if stats.active != 0 || (policy.max > 0 && stats.peak > policy.max) || stats.peak > workload.targets*workload.pageWorkers || stats.success != workload.targets*workload.pages {
 								b.Fatalf("invalid server totals: %+v; hard max %d", stats, policy.max)
 							}
@@ -106,7 +187,6 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 								if policy.adaptive {
 									assertAdaptiveHTTPMetric(b, event, policy.max)
 								}
-								b.Logf("final aggregate: %s", event.RawHTTP)
 							} else if len(httpMetricEvents(b, logs.String())) != 0 {
 								b.Fatal("metrics disabled but diagnostics were logged")
 							}
@@ -140,166 +220,4 @@ type adaptiveHTTPWorkload struct {
 type adaptiveHTTPServerStats struct {
 	attempts, retries, rejected int
 	active, peak, success       int
-}
-
-type adaptiveHTTPBenchmarkFixture struct {
-	server *httptest.Server
-	args   []string
-	want   []string
-	mu     sync.Mutex
-	stats  adaptiveHTTPServerStats
-	seen   map[string]int
-}
-
-func newAdaptiveHTTPBenchmarkFixture(tb testing.TB, workload adaptiveHTTPWorkload) *adaptiveHTTPBenchmarkFixture {
-	tb.Helper()
-	fixture := &adaptiveHTTPBenchmarkFixture{seen: make(map[string]int)}
-	payloads := make(map[string]string)
-	for target := 1; target <= workload.targets; target++ {
-		mylist := target%2 == 0
-		path := "/users/" + strconv.Itoa(target) + "/videos"
-		input := "nicovideo.jp/user/" + strconv.Itoa(target)
-		if mylist {
-			path = "/mylists/" + strconv.Itoa(target)
-			input = "nicovideo.jp/mylist/" + strconv.Itoa(target)
-		}
-		fixture.args = append(fixture.args, input)
-		for page := 1; page <= workload.pages; page++ {
-			ids := []string{"sm" + strconv.Itoa(target*workload.pages+page), "sm1"}
-			fixture.want = append(fixture.want, ids...)
-			payload := httpCommandPagePayload(mylist, workload.pages*100, ids)
-			if workload.unknown {
-				payload = strings.Replace(payload, fmt.Sprintf(`"totalCount":%d,`, workload.pages*100), "", 1)
-			}
-			payloads[path+"?page="+strconv.Itoa(page)] = payload
-		}
-	}
-	slices.Sort(fixture.want)
-	fixture.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := r.URL.Path + "?page=" + r.URL.Query().Get("page")
-		fixture.mu.Lock()
-		fixture.stats.attempts++
-		fixture.seen[key]++
-		attempt := fixture.seen[key]
-		if attempt > 1 {
-			fixture.stats.retries++
-		}
-		fixture.stats.active++
-		active := fixture.stats.active
-		fixture.stats.peak = max(fixture.stats.peak, active)
-		capacity := workload.capacity
-		// Drop/recovery is driven by completed useful work rather than wall time,
-		// so each policy must cross the same capacity phases before finishing.
-		if workload.drop && fixture.stats.success >= workload.targets*workload.pages/4 && fixture.stats.success < workload.targets*workload.pages/2 {
-			capacity = 4
-		}
-		reject := workload.drop && capacity == 4 && active > capacity && attempt == 1
-		if reject {
-			fixture.stats.rejected++
-		}
-		fixture.mu.Unlock()
-		defer func() {
-			fixture.mu.Lock()
-			fixture.stats.active--
-			fixture.mu.Unlock()
-		}()
-
-		// Explicit synthetic service delay, including congestion above capacity.
-		// This models a soft saturation knee rather than a real API's internals.
-		if delay := workload.delay + time.Duration(max(0, active-capacity))*2*time.Millisecond; delay > 0 {
-			time.Sleep(delay)
-		}
-		if reject {
-			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		payload, ok := payloads[key]
-		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, payload)
-		fixture.mu.Lock()
-		fixture.stats.success++
-		fixture.mu.Unlock()
-	}))
-	tb.Cleanup(fixture.server.Close)
-	return fixture
-}
-
-func (f *adaptiveHTTPBenchmarkFixture) reset() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.stats = adaptiveHTTPServerStats{}
-	clear(f.seen)
-}
-
-func (f *adaptiveHTTPBenchmarkFixture) snapshot() adaptiveHTTPServerStats {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.stats
-}
-
-// BenchmarkAdaptiveHTTPShortProcess includes process startup using the test
-// executable as a CLI helper, so it can inject a loopback URL without adding a
-// public endpoint flag. It is not a release-binary startup or child RSS measure.
-// Benchmark allocation counts cover the parent harness only.
-func BenchmarkAdaptiveHTTPShortProcess(b *testing.B) {
-	executable, err := os.Executable()
-	if err != nil {
-		b.Fatal(err)
-	}
-	fixture := newAdaptiveHTTPBenchmarkFixture(b, adaptiveHTTPWorkload{targets: 1, pages: 1, capacity: 128})
-	for _, policy := range []struct {
-		name string
-		args []string
-	}{
-		{name: "fixed8", args: []string{"--http-concurrency=8"}},
-		{name: "adaptive32", args: []string{"--http-concurrency=32", "--adaptive-http-concurrency"}},
-		{name: "adaptive64", args: []string{"--http-concurrency=64", "--adaptive-http-concurrency"}},
-	} {
-		b.Run(policy.name, func(b *testing.B) {
-			b.StopTimer()
-			for range b.N {
-				fixture.reset()
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				args := append([]string{"-test.run=^TestAdaptiveHTTPShortProcessHelper$", "--", "--page-concurrency=8"}, policy.args...)
-				args = append(args, fixture.args...)
-				b.StartTimer()
-				command := exec.CommandContext(ctx, executable, args...)
-				command.Env = append(os.Environ(), "GO_NICO_ADAPTIVE_BENCHMARK_URL="+fixture.server.URL)
-				output, err := command.Output()
-				b.StopTimer()
-				cancel()
-				if err != nil {
-					b.Fatalf("fresh-process CLI: %v", err)
-				}
-				assertHTTPCommandIDs(b, string(output), httpCommandOutputModes[0], fixture.want)
-				if stats := fixture.snapshot(); stats.attempts != 1 || stats.active != 0 {
-					b.Fatalf("unexpected fresh-process work: %+v", stats)
-				}
-			}
-		})
-	}
-}
-
-func TestAdaptiveHTTPShortProcessHelper(t *testing.T) {
-	endpoint := os.Getenv("GO_NICO_ADAPTIVE_BENCHMARK_URL")
-	if endpoint == "" {
-		t.Skip("only used by the fresh-process benchmark")
-	}
-	separator := slices.Index(os.Args, "--")
-	if separator < 0 {
-		t.Fatal("missing helper CLI arguments")
-	}
-	cfg := testFetchConfig(endpoint)
-	deps := newTestRootDeps()
-	deps.Stdout, deps.Stderr = os.Stdout, io.Discard
-	if err := executeBenchmarkRootCommand(cfg, deps, os.Args[separator+1:]...); err != nil {
-		t.Fatalf("fresh-process command: %v", err)
-	}
-	// Suppress the testing runner's PASS trailer so stdout remains only CLI data.
-	os.Exit(0)
 }

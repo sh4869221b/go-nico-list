@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,48 +23,29 @@ func TestRunRootCmdNoInputs(t *testing.T) {
 	}
 }
 
-func TestRunRootCmdInputFileNoArgs(t *testing.T) {
+func TestRunRootCmdInputSourcesWithoutArgs(t *testing.T) {
 	server := newEmptyAPIServer(t)
-	cfg := testFetchConfig(server.URL)
-	cfg.InputFilePath = writeInputsFile(t, "nicovideo.jp/user/1\ninvalid\n\n")
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Errorf("expected no stdout output, got %q", out.String())
-	}
-}
-
-func TestRunRootCmdStdinNoArgs(t *testing.T) {
-	server := newEmptyAPIServer(t)
-	cfg := testFetchConfig(server.URL)
-	cfg.ReadStdin = true
-	cmd, out, _ := newTestRootCommand(t, cfg, newTestRootDeps())
-	cmd.SetIn(strings.NewReader("nicovideo.jp/user/1\n"))
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Errorf("expected no stdout output, got %q", out.String())
-	}
-}
-
-func TestStreamLinesFromFileReturnsCloseError(t *testing.T) {
-	closeErr := errors.New("close failed")
-	deps := newTestRootDeps()
-	deps.OpenInputFile = func(string) (io.ReadCloser, error) {
-		return closeErrorReader{Reader: strings.NewReader("nicovideo.jp/user/1\n"), err: closeErr}, nil
-	}
-	out := make(chan string, 1)
-	count, err := streamLinesFromFile(context.Background(), "dummy", out, deps)
-	if !errors.Is(err, closeErr) {
-		t.Fatalf("expected close error, got %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("unexpected count: %d", count)
+	const inputs = "nicovideo.jp/user/1\ninvalid\n\n"
+	for _, stdin := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stdin=%t", stdin), func(t *testing.T) {
+			cfg := testFetchConfig(server.URL)
+			cfg.ReadStdin = stdin
+			if !stdin {
+				cfg.InputFilePath = filepath.Join(t.TempDir(), "inputs.txt")
+				if err := os.WriteFile(cfg.InputFilePath, []byte(inputs), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd, out, errOut := newTestRootCommand(t, cfg, newTestRootDeps())
+			cmd.SetIn(strings.NewReader(inputs))
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			want := "summary inputs=2 valid=1 invalid=1 fetch_ok=1 fetch_err=0 output_count=0"
+			if out.Len() != 0 || !strings.Contains(errOut.String(), want) {
+				t.Fatalf("stdout=%q stderr=%q, want empty output and %q", out.String(), errOut.String(), want)
+			}
+		})
 	}
 }
 
@@ -96,123 +81,69 @@ func TestRunRootCmdInputFileCloseError(t *testing.T) {
 }
 
 func TestRunRootCmdInputReadErrorCancelsFetches(t *testing.T) {
-	started := make(chan struct{})
-	canceled := make(chan struct{})
-	var startedOnce sync.Once
-	var canceledOnce sync.Once
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		startedOnce.Do(func() { close(started) })
-		<-r.Context().Done()
-		canceledOnce.Do(func() { close(canceled) })
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.HTTPClientTimeout = 5 * time.Second
-	cfg.ReadStdin = true
-	cmd, _, _ := newTestRootCommand(t, cfg, newTestRootDeps())
-	cmd.SetArgs([]string{"nicovideo.jp/user/1"})
-	wait := make(chan struct{})
-	cmd.SetIn(blockingErrorReader{wait: wait, err: errors.New("stdin read error")})
-
-	errCh := make(chan error, 1)
-	go func() { errCh <- cmd.Execute() }()
-	waitTimeout := time.Second
-	if deadline, ok := t.Deadline(); ok {
-		if remaining := time.Until(deadline) / 2; remaining > 0 {
-			waitTimeout = remaining
-		}
-	}
-	select {
-	case <-started:
-	case <-time.After(waitTimeout):
-		t.Fatal("expected request to start")
-	}
-	close(wait)
-	select {
-	case err := <-errCh:
-		if err == nil || err.Error() != "stdin read error" {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	case <-time.After(waitTimeout):
-		t.Fatal("expected command to finish after input error")
-	}
-	select {
-	case <-canceled:
-	case <-time.After(waitTimeout):
-		t.Fatal("expected request to be canceled")
-	}
-}
-
-func TestRunRootCmdJSONStdinReadError(t *testing.T) {
-	stdinErr := errors.New("stdin read error")
-	cfg := newTestRootConfig()
-	cfg.JSONOutput = true
-	cfg.ReadStdin = true
-	cmd, _, _ := newTestRootCommand(t, cfg, newTestRootDeps())
-	wait := make(chan struct{})
-	cmd.SetIn(blockingErrorReader{wait: wait, err: stdinErr})
-
-	errCh := make(chan error, 1)
-	go func() { errCh <- cmd.Execute() }()
-
-	close(wait)
-	select {
-	case err := <-errCh:
-		if !errors.Is(err, stdinErr) {
-			t.Fatalf("expected stdin error, got %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected command to finish after stdin error")
-	}
-}
-
-func TestRunRootCmdInputFileReadErrorCancelsFetches(t *testing.T) {
-	started := make(chan struct{})
-	canceled := make(chan struct{})
-	var startedOnce sync.Once
-	var canceledOnce sync.Once
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		startedOnce.Do(func() { close(started) })
-		<-r.Context().Done()
-		canceledOnce.Do(func() { close(canceled) })
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.HTTPClientTimeout = 5 * time.Second
-	cfg.InputFilePath = "dummy"
-	longLine := strings.Repeat("a", 1024*1024+1)
-	pr, pw := io.Pipe()
-	deps := newTestRootDeps()
-	deps.OpenInputFile = func(string) (io.ReadCloser, error) { return pr, nil }
-	cmd, _, _ := newTestRootCommand(t, cfg, deps)
-	cmd.SetArgs([]string{"nicovideo.jp/user/1"})
-
-	errCh := make(chan error, 1)
-	go func() { errCh <- cmd.Execute() }()
-	waitTimeout := time.Second
-	if deadline, ok := t.Deadline(); ok {
-		if remaining := time.Until(deadline) / 2; remaining > 0 {
-			waitTimeout = remaining
-		}
-	}
-	select {
-	case <-started:
-	case <-time.After(waitTimeout):
-		t.Fatal("expected request to start")
-	}
-	go func() {
-		_, _ = pw.Write([]byte(longLine + "\n"))
-		_ = pw.Close()
-	}()
-	select {
-	case err := <-errCh:
-		requireTooLongInputError(t, err)
-	case <-time.After(waitTimeout):
-		t.Fatal("expected command to finish after input error")
-	}
-	select {
-	case <-canceled:
-	case <-time.After(waitTimeout):
-		t.Fatal("expected request to be canceled")
+	for _, test := range []struct {
+		name       string
+		file, json bool
+	}{
+		{name: "stdin"},
+		{name: "json_stdin", json: true},
+		{name: "oversized_file", file: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			started, canceled := make(chan struct{}), make(chan struct{})
+			var startedOnce, canceledOnce sync.Once
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				startedOnce.Do(func() { close(started) })
+				<-r.Context().Done()
+				canceledOnce.Do(func() { close(canceled) })
+			}))
+			t.Cleanup(server.Close)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			t.Cleanup(cancel)
+			reader, writer := io.Pipe()
+			t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+			cfg := testFetchConfig(server.URL)
+			cfg.HTTPClientTimeout, cfg.JSONOutput = 5*time.Second, test.json
+			cfg.ReadStdin = !test.file
+			deps := newTestRootDeps()
+			if test.file {
+				cfg.InputFilePath = "dummy"
+				deps.OpenInputFile = func(string) (io.ReadCloser, error) { return reader, nil }
+			}
+			cmd, _, _ := newTestRootCommand(t, cfg, deps)
+			cmd.SetContext(ctx)
+			cmd.SetArgs([]string{"nicovideo.jp/user/1"})
+			cmd.SetIn(reader)
+			done := make(chan error, 1)
+			go func() { done <- cmd.Execute() }()
+			select {
+			case <-started:
+			case <-ctx.Done():
+				t.Fatal("request did not start")
+			}
+			wantErr := errors.New("stdin read error")
+			if test.file {
+				wantErr = bufio.ErrTooLong
+				go func() {
+					_, _ = io.WriteString(writer, strings.Repeat("a", 1024*1024+1)+"\n")
+					_ = writer.Close()
+				}()
+			} else {
+				_ = writer.CloseWithError(wantErr)
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("expected input error %v, got %v", wantErr, err)
+				}
+			case <-ctx.Done():
+				t.Fatal("command did not finish after input error")
+			}
+			select {
+			case <-canceled:
+			case <-ctx.Done():
+				t.Fatal("request was not canceled")
+			}
+		})
 	}
 }

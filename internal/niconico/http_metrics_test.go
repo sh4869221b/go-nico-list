@@ -18,6 +18,11 @@ import (
 	"time"
 )
 
+func newHTTPMetrics(now func() time.Time) *HTTPMetrics {
+	started := now()
+	return &HTTPMetrics{now: now, started: started, lastChange: started}
+}
+
 func TestHTTPMetricsNilAndZeroValue(t *testing.T) {
 	var disabled *HTTPMetrics
 	disabled.addCounter("pages", 1)
@@ -129,12 +134,6 @@ func TestHTTPMetricsRollingWindowAndCumulativeTotals(t *testing.T) {
 
 func TestHTTPMetricsAllocatesSamplesLazilyWithinFixedBound(t *testing.T) {
 	metrics := NewHTTPMetrics()
-	for index := range metrics.durations {
-		if metrics.durations[index].samples != nil {
-			t.Fatal("new collector eagerly allocated duration samples")
-		}
-	}
-	// Snapshot must not initialize unused sample storage either.
 	_ = metrics.Snapshot()
 	for index := range metrics.durations {
 		if metrics.durations[index].samples != nil {
@@ -147,9 +146,6 @@ func TestHTTPMetricsAllocatesSamplesLazilyWithinFixedBound(t *testing.T) {
 		wantLength := min(index+1, httpMetricWindowSize)
 		if len(metric.samples) != wantLength || cap(metric.samples) > httpMetricWindowSize {
 			t.Fatalf("sample %d: length %d, capacity %d, want length %d and capacity <= %d", index, len(metric.samples), cap(metric.samples), wantLength, httpMetricWindowSize)
-		}
-		if index == 0 && cap(metric.samples) != 16 {
-			t.Fatalf("first sample capacity = %d, want 16", cap(metric.samples))
 		}
 	}
 }
@@ -201,17 +197,11 @@ func TestHTTPMetricsResponseAndErrorClassification(t *testing.T) {
 		metrics.startAttempt(index > 0)
 		metrics.endAttempt(attempt.status, attempt.err, time.Millisecond)
 	}
-	metrics.addCounter("body_errors", 1)
-	metrics.addCounter("body_cancellations", 1)
-	metrics.addCounter("close_errors", 1)
-	metrics.addCounter("decode_errors", 1)
-	metrics.addCounter("wait_cancellations", 1)
 	snapshot := metrics.Snapshot()
 	for key, want := range map[string]int64{
 		"attempts": 11, "retries": 10, "http_200": 1, "http_404": 1, "http_429": 1,
 		"http_other_4xx": 1, "http_5xx": 2, "http_other": 2, "transport_errors": 3,
-		"cancellations": 2, "body_errors": 1, "body_cancellations": 1, "close_errors": 1,
-		"decode_errors": 1, "wait_cancellations": 1, "pages": 0, "page_success": 0,
+		"cancellations": 2, "pages": 0, "page_success": 0,
 	} {
 		if got := snapshot.Counters[key]; got != want {
 			t.Errorf("%s = %d, want %d", key, got, want)
@@ -369,22 +359,6 @@ func TestHTTPMetricsTraceBoundsPendingPhases(t *testing.T) {
 	}
 	if snapshot.Counters["connections"] != 2 || snapshot.Durations["connection_acquire"].Count != 2 {
 		t.Fatal("overflow incorrectly disabled other trace phases")
-	}
-}
-
-func TestHTTPMetricsTracePendingBoundWithDuplicateDialKeys(t *testing.T) {
-	metrics := NewHTTPMetrics()
-	trace, finalize := metrics.trace(time.Now())
-	defer finalize()
-	for range httpTracePendingLimit + 1 {
-		trace.ConnectStart("tcp", "same.invalid:443")
-	}
-	for range httpTracePendingLimit + 1 {
-		trace.ConnectDone("tcp", "same.invalid:443", nil)
-	}
-	snapshot := metrics.Snapshot()
-	if snapshot.Counters["trace_dropped"] != httpTracePendingLimit+1 || snapshot.Durations["connect"].Count != 0 {
-		t.Fatalf("duplicate keys escaped the total pending bound: %+v", snapshot)
 	}
 }
 

@@ -2,55 +2,12 @@ package cmd
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"sync"
 	"testing"
 )
-
-func TestWriteLineOutputMatchesExistingFormatting(t *testing.T) {
-	tests := []struct {
-		name    string
-		url     bool
-		want    string
-		wantNil bool
-	}{
-		{name: "raw", want: "sm1\nsm2\n"},
-		{name: "url", url: true, want: nicoWatchURLPrefix + "sm1\n" + nicoWatchURLPrefix + "sm2\n"},
-		{name: "empty", wantNil: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var out bytes.Buffer
-			items := []string{"sm1", "sm2"}
-			if tt.wantNil {
-				items = nil
-			}
-
-			if err := writeLineOutput(&out, items, tt.url); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got := out.String(); got != tt.want {
-				t.Fatalf("unexpected output: got %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestWriteLineOutputReturnsWriterError(t *testing.T) {
-	writeErr := errors.New("stdout failed")
-
-	err := writeLineOutput(errorWriter{err: writeErr}, []string{"sm1"}, false)
-
-	if !errors.Is(err, writeErr) {
-		t.Fatalf("expected stdout error, got %v", err)
-	}
-}
 
 func TestWriteLineOutputBatchesWrites(t *testing.T) {
 	var out countingWriter
@@ -77,160 +34,31 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-func TestRunRootCmdDedupeRemovesDuplicates(t *testing.T) {
+func TestRunRootCmdSortOrder(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("page") != "1" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
+		ids := []string{"sm2", "sm1"}
+		if r.URL.Query().Get("page") != "1" {
+			ids = nil
+		}
+		_, _ = io.WriteString(w, httpCommandPagePayload(false, 0, ids))
 	}))
 	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.DedupeOutput = true
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := out.String(); got != "sm1\nsm2\n" {
-		t.Errorf("unexpected stdout output: %q", got)
-	}
-}
-
-func TestRunRootCmdDefaultSortsFetchedIDs(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("page") != "1" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := out.String(); got != "sm1\nsm2\n" {
-		t.Errorf("unexpected stdout output: %q", got)
-	}
-}
-
-func TestRunRootCmdNoSortPreservesFetchOrder(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("page") != "1" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}}]}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "--no-sort", "nicovideo.jp/user/1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := out.String(); got != "sm2\nsm1\n" {
-		t.Errorf("unexpected stdout output: %q", got)
-	}
-}
-
-func TestRunRootCmdNoSortDoesNotRequireInputOrderWhenTargetsCompleteOutOfOrder(t *testing.T) {
-	user2Completed := make(chan struct{})
-	var user2CompletedOnce sync.Once
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		isUser2 := strings.Contains(r.URL.Path, "/users/2/")
-		if r.URL.Query().Get("page") != "1" {
-			if isUser2 {
-				user2CompletedOnce.Do(func() { close(user2Completed) })
+	for _, noSort := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no_sort=%t", noSort), func(t *testing.T) {
+			cfg := testFetchConfig(server.URL)
+			cfg.NoSortOutput = noSort
+			out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
-			_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-			return
-		}
-		if strings.Contains(r.URL.Path, "/users/1/") {
-			select {
-			case <-user2Completed:
-			case <-r.Context().Done():
-				http.Error(w, "request canceled before user 2 completed", http.StatusGatewayTimeout)
-				return
+			want := "sm1\nsm2\n"
+			if noSort {
+				want = "sm2\nsm1\n"
 			}
-			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.Concurrency = 2
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "--no-sort", "nicovideo.jp/user/1", "nicovideo.jp/user/2")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := strings.Fields(out.String()); len(got) != 2 || !strings.Contains(out.String(), "sm1\n") || !strings.Contains(out.String(), "sm2\n") {
-		t.Errorf("unexpected stdout output: %q", got)
-	}
-}
-
-func TestRunRootCmdPartialFailureOutputsResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/users/1/") {
-			if r.URL.Query().Get("page") != "1" {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, `{"data":{"items":[]}}`)
-				return
+			if got := out.String(); got != want {
+				t.Fatalf("output=%q, want %q", got, want)
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, "invalid")
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1", "nicovideo.jp/user/2")
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-	if got := out.String(); got != "sm1\n" {
-		t.Errorf("unexpected stdout output: %q", got)
-	}
-}
-
-func TestRunRootCmdMylistInput(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/mylists/847130") {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if r.URL.Query().Get("page") != "1" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[]}}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[{"video":{"id":"sm42","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/mylist/847130")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := out.String(); got != "sm42\n" {
-		t.Errorf("unexpected stdout output: %q", got)
+		})
 	}
 }

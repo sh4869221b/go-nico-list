@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -73,44 +71,6 @@ func BenchmarkHTTPCommand(b *testing.B) {
 							}
 						})
 					}
-				}
-			}
-		})
-	}
-}
-
-// BenchmarkHTTPNetworkBoundMeasurement adds a controlled 2ms service delay to
-// the same 120-page fixture. It is a synthetic latency scenario, not a claim
-// about live API latency. Startup, page discovery, output and diagnostics remain
-// inside each timed command; server setup stays outside.
-func BenchmarkHTTPNetworkBoundMeasurement(b *testing.B) {
-	fixture, args, want := newHTTPCommandFixture(b, 40, 100)
-	delayed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Millisecond)
-		fixture.Config.Handler.ServeHTTP(w, r)
-	}))
-	b.Cleanup(delayed.Close)
-	for _, metrics := range []bool{false, true} {
-		b.Run(fmt.Sprintf("cap=8/metrics=%t", metrics), func(b *testing.B) {
-			cfg := testFetchConfig(delayed.URL)
-			cfg.Concurrency, cfg.PageConcurrency = 3, 4
-			cfg.HTTPConcurrency, cfg.HTTPMetrics = 8, metrics
-			cfg.HTTPClientTimeout = 10 * time.Second
-			deps := newTestRootDeps()
-			deps.Stderr = io.Discard
-			deps.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil)) //nolint:sloglint // Include diagnostic serialization in this benchmark.
-			var output bytes.Buffer
-			deps.Stdout = &output
-			if err := executeBenchmarkRootCommand(cfg, deps, args...); err != nil {
-				b.Fatal(err)
-			}
-			assertHTTPCommandIDs(b, output.String(), httpCommandOutputModes[0], want)
-			deps.Stdout = io.Discard
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if err := executeBenchmarkRootCommand(cfg, deps, args...); err != nil {
-					b.Fatal(err)
 				}
 			}
 		})

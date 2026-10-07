@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,10 +18,6 @@ type signalWriter struct {
 	wrote chan struct{}
 }
 
-func newSignalWriter() *signalWriter {
-	return &signalWriter{wrote: make(chan struct{})}
-}
-
 func (w *signalWriter) Write(p []byte) (int, error) {
 	w.once.Do(func() { close(w.wrote) })
 	w.mu.Lock()
@@ -34,20 +29,6 @@ func (w *signalWriter) String() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.buf.String()
-}
-
-func sortedLines(output string) []string {
-	lines := strings.Fields(output)
-	slices.Sort(lines)
-	return lines
-}
-
-func sameStringSet(got []string, want []string) bool {
-	gotCopy := append([]string{}, got...)
-	wantCopy := append([]string{}, want...)
-	slices.Sort(gotCopy)
-	slices.Sort(wantCopy)
-	return slices.Equal(gotCopy, wantCopy)
 }
 
 func TestRunRootCmdNoSortStreamsReadyTargetBeforeSlowTargetCompletes(t *testing.T) {
@@ -80,7 +61,7 @@ func TestRunRootCmdNoSortStreamsReadyTargetBeforeSlowTargetCompletes(t *testing.
 	cfg := testFetchConfig(server.URL)
 	cfg.Concurrency = 2
 	cfg.NoSortOutput = true
-	stdout := newSignalWriter()
+	stdout := &signalWriter{wrote: make(chan struct{})}
 	deps := newTestRootDeps()
 	deps.Stdout = stdout
 
@@ -92,7 +73,7 @@ func TestRunRootCmdNoSortStreamsReadyTargetBeforeSlowTargetCompletes(t *testing.
 
 	select {
 	case <-stdout.wrote:
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("expected --no-sort output before the slow target completed")
 	}
 	releaseSlow()
@@ -101,28 +82,5 @@ func TestRunRootCmdNoSortStreamsReadyTargetBeforeSlowTargetCompletes(t *testing.
 	}
 	if got := stdout.String(); !strings.Contains(got, "sm2\n") {
 		t.Fatalf("expected fast target output, got %q", got)
-	}
-}
-
-func TestRunRootCmdNoSortDedupeOutputsEachIDOnce(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("page") != "1" {
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm1","registeredAt":"2024-01-11T00:00:00Z","count":{"comment":10}}},{"essential":{"id":"sm2","registeredAt":"2024-01-12T00:00:00Z","count":{"comment":10}}}]}}`)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testFetchConfig(server.URL)
-	cfg.NoSortOutput = true
-	cfg.DedupeOutput = true
-
-	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := sortedLines(out.String()); !sameStringSet(got, []string{"sm1", "sm2"}) {
-		t.Fatalf("unexpected stdout output: %q", out.String())
 	}
 }

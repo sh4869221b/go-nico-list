@@ -3,7 +3,6 @@ package niconico
 import (
 	"container/list"
 	"context"
-	"fmt"
 	"sync"
 )
 
@@ -154,16 +153,4 @@ func (c *HTTPControl) release() {
 	c.reserved--
 	c.grantLocked()
 	c.mu.Unlock()
-}
-
-// setLimit supports drain-on-shrink; fixed-mode production code never changes it.
-func (c *HTTPControl) setLimit(limit int) error {
-	if c == nil || c.hardMax <= 0 || limit < 1 || limit > c.hardMax {
-		return fmt.Errorf("HTTP limit must be within the positive hard maximum")
-	}
-	c.mu.Lock()
-	c.limit = limit
-	c.grantLocked()
-	c.mu.Unlock()
-	return nil
 }

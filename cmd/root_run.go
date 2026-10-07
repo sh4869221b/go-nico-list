@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -13,9 +15,7 @@ import (
 )
 
 func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) (retErr error) {
-	if cfg.NoSortOutput && !cfg.JSONOutput {
-		return runRootCmdFastUnordered(cmd, args, cfg, deps)
-	}
+	streamOutput := cfg.NoSortOutput && !cfg.JSONOutput
 	if err := validateFlagsFor(cfg); err != nil {
 		return err
 	}
@@ -24,30 +24,34 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		return err
 	}
 
-	newLogger, cleanup, err := setupLoggerFor(cfg.LogFilePath, deps)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := cleanup(); retErr == nil && err != nil {
-			retErr = err
+	runLogger := deps.Logger
+	if cfg.LogFilePath != "" {
+		logFile, err := deps.OpenLogFile(cfg.LogFilePath)
+		if err != nil {
+			return err
 		}
-	}()
-	runLogger := newLogger
-
-	control := newCommandHTTPControl(cfg)
+		defer func() {
+			if err := logFile.Close(); retErr == nil && err != nil {
+				retErr = err
+			}
+		}()
+		runLogger = slog.New(slog.NewJSONHandler(logFile, nil))
+	}
+	var control *niconico.HTTPControl
+	if cfg.AdaptiveHTTPConcurrency {
+		control = niconico.NewAdaptiveHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	} else {
+		control = niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	}
 	if cfg.HTTPMetrics {
 		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
 	}
 
-	ctx := context.Background()
-	if cmd != nil {
-		ctx = cmd.Context()
-	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	errWriter := errWriterFor(cmd)
+	errWriter := cmd.ErrOrStderr()
+	out := cmd.OutOrStdout()
 
 	var idList []string
 	var mu sync.Mutex
@@ -58,16 +62,30 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	var invalidInputs int64
 	var fetchOKCount int64
 	var fetchErrCount int64
-	invalidInputsList := make([]string, 0)
-	targetResults := make([]targetResult, 0)
-	errorsList := make([]string, 0)
+	var invalidInputsList []string
+	var targetResults []targetResult
+	var errorsList []string
 
-	bar := newProgressBarWithConfig(cmd, stream.totalKnown, stream.total, cfg, deps)
-	var progressMu sync.Mutex
+	progressTotal := stream.total
+	if !stream.totalKnown {
+		progressTotal = -1
+	}
+	progressWriter := errWriter
+	visible := shouldShowProgressWithConfig(errWriter, cfg, deps)
+	if !visible {
+		progressWriter = io.Discard
+	}
+	bar := deps.ProgressBarNew(progressTotal, progressWriter, visible)
 	addProgress := func() {
-		progressMu.Lock()
 		_ = bar.Add(1)
-		progressMu.Unlock()
+	}
+
+	var outputCh chan []string
+	var writeDone chan unorderedWriteResult
+	if streamOutput {
+		outputCh = make(chan []string, cfg.Concurrency)
+		writeDone = make(chan unorderedWriteResult, 1)
+		go writeUnorderedOutput(out, outputCh, cfg, cancel, writeDone)
 	}
 
 	sem := make(chan struct{}, cfg.Concurrency)
@@ -77,62 +95,76 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	go func() {
 		var firstErr error
 		for err := range errCh {
-			if err == nil {
-				continue
-			}
 			runLogger.Error("failed to get video list", "error", err)
 			if firstErr == nil {
 				firstErr = err
 			}
 		}
 		fetchErrCh <- firstErr
-		close(fetchErrCh)
 	}()
 
 	inputErrCh := make(chan error, 1)
 	go func() {
-		for err := range stream.errs {
-			if err == nil {
-				continue
-			}
+		if err := <-stream.errs; err != nil {
 			inputErrCh <- err
 			cancel()
-			break
 		}
 		close(inputErrCh)
 	}()
 
 	var inputErr error
+	inputClosed := false
 	nextTargetOrder := 0
-	for input := range stream.inputs {
-		atomic.AddInt64(&totalInputs, 1)
+inputLoop:
+	for {
+		var input string
+		var ok bool
+		if streamOutput {
+			select {
+			case <-ctx.Done():
+				break inputLoop
+			case input, ok = <-stream.inputs:
+			}
+		} else {
+			input, ok = <-stream.inputs
+		}
+		if !ok {
+			inputClosed = true
+			break
+		}
+		totalInputs++
 		if inputErr == nil {
 			select {
-			case err := <-inputErrCh:
-				if err != nil {
-					inputErr = err
-				}
+			case inputErr = <-inputErrCh:
 			default:
 			}
 		}
 		target, ok := parseInputTarget(input)
 		if !ok {
-			atomic.AddInt64(&invalidInputs, 1)
-			mu.Lock()
-			invalidInputsList = append(invalidInputsList, input)
-			mu.Unlock()
+			invalidInputs++
+			if cfg.JSONOutput {
+				invalidInputsList = append(invalidInputsList, input)
+			}
 			runLogger.Warn("invalid input", "input", input)
 			addProgress()
 			continue
 		}
-		atomic.AddInt64(&validInputs, 1)
+		validInputs++
 		if inputErr != nil {
 			addProgress()
 			continue
 		}
 		targetOrder := nextTargetOrder
 		nextTargetOrder++
-		sem <- struct{}{}
+		if streamOutput {
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				break inputLoop
+			}
+		} else {
+			sem <- struct{}{}
+		}
 		wg.Add(1)
 		go func(target inputTarget, targetOrder int) {
 			defer wg.Done()
@@ -148,87 +180,89 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)
-				mu.Lock()
-				errorsList = append(errorsList, err.Error())
-				targetResults = append(targetResults, targetResult{
-					Order: targetOrder,
-					Type:  target.Type,
-					ID:    target.ID,
-					Items: newList,
-					Error: err.Error(),
-				})
-				idList = append(idList, newList...)
-				mu.Unlock()
-				errCh <- err
+			} else {
+				atomic.AddInt64(&fetchOKCount, 1)
+			}
+			if streamOutput {
+				if err != nil {
+					errCh <- err
+					if len(newList) == 0 {
+						return
+					}
+				}
+				select {
+				case outputCh <- newList:
+				case <-ctx.Done():
+				}
 				return
 			}
-			atomic.AddInt64(&fetchOKCount, 1)
 			mu.Lock()
-			targetResults = append(targetResults, targetResult{
-				Order: targetOrder,
-				Type:  target.Type,
-				ID:    target.ID,
-				Items: newList,
-				Error: "",
-			})
+			if cfg.JSONOutput {
+				result := targetResult{Order: targetOrder, Type: target.Type, ID: target.ID, Items: newList}
+				if err != nil {
+					result.Error = err.Error()
+					errorsList = append(errorsList, result.Error)
+				}
+				targetResults = append(targetResults, result)
+			}
 			idList = append(idList, newList...)
 			mu.Unlock()
+			if err != nil {
+				errCh <- err
+			}
 		}(target, targetOrder)
 	}
 	wg.Wait()
+	var outputErr error
+	outputCount := 0
+	if streamOutput {
+		close(outputCh)
+	}
 	close(errCh)
 	fetchErrRet := <-fetchErrCh
-	sortTargetResults(targetResults)
-	if inputErr == nil {
-		for err := range inputErrCh {
-			if err != nil {
-				inputErr = err
-				break
+	if streamOutput {
+		writeResult := <-writeDone
+		outputCount, outputErr = writeResult.count, writeResult.err
+		if inputErr == nil {
+			select {
+			case inputErr = <-inputErrCh:
+			default:
 			}
 		}
 	}
-	close(sem)
-	runLogger.Info("video list", "count", len(idList))
-	outputIDs := idList
-	if cfg.NoSortOutput {
-		outputIDs = flattenTargetItemsByInputOrder(targetResults)
+	if inputErr == nil && (!streamOutput || inputClosed && outputErr == nil) {
+		inputErr = <-inputErrCh
 	}
-	if cfg.DedupeOutput && len(outputIDs) > 0 {
-		seen := make(map[string]struct{}, len(outputIDs))
-		unique := make([]string, 0, len(outputIDs))
-		for _, id := range outputIDs {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			unique = append(unique, id)
+	if streamOutput {
+		runLogger.Info("video list", "count", outputCount)
+	} else {
+		runLogger.Info("video list", "count", len(idList))
+		outputIDs := idList
+		if cfg.NoSortOutput {
+			outputIDs = flattenTargetItemsByInputOrder(targetResults)
 		}
-		outputIDs = unique
-	}
-	outputCount := len(outputIDs)
-	if outputCount > 0 && !cfg.NoSortOutput {
-		niconico.NiconicoSort(outputIDs)
-	}
-	out := outWriterFor(cmd)
-	var outputErr error
-	if cfg.JSONOutput {
-		jsonPayload := buildJSONOutput(
-			totalInputs,
-			validInputs,
-			invalidInputs,
-			invalidInputsList,
-			targetResults,
-			errorsList,
-			outputCount,
-			outputIDs,
-		)
-		enc := json.NewEncoder(out)
-		if err := enc.Encode(jsonPayload); err != nil {
-			outputErr = err
+		if cfg.DedupeOutput && len(outputIDs) > 0 {
+			outputIDs = dedupeItems(outputIDs, make(map[string]struct{}, len(outputIDs)))
 		}
-	} else if outputCount > 0 {
-		if err := writeLineOutput(out, outputIDs, cfg.URL); err != nil {
-			outputErr = err
+		outputCount = len(outputIDs)
+		if outputCount > 0 && !cfg.NoSortOutput {
+			niconico.NiconicoSort(outputIDs)
+		}
+		if cfg.JSONOutput {
+			sortTargetResults(targetResults)
+			jsonPayload := buildJSONOutput(
+				totalInputs,
+				validInputs,
+				invalidInputs,
+				invalidInputsList,
+				targetResults,
+				errorsList,
+				outputCount,
+				outputIDs,
+			)
+			outputErr = json.NewEncoder(out).Encode(jsonPayload)
+		} else if outputCount > 0 {
+			outputErr = writeLineOutput(out, outputIDs, cfg.URL)
 		}
 	}
 	if shouldShowProgressWithConfig(errWriter, cfg, deps) {
@@ -239,9 +273,9 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	if _, err := fmt.Fprintf(
 		errWriter,
 		"summary inputs=%d valid=%d invalid=%d fetch_ok=%d fetch_err=%d output_count=%d\n",
-		atomic.LoadInt64(&totalInputs),
-		atomic.LoadInt64(&validInputs),
-		atomic.LoadInt64(&invalidInputs),
+		totalInputs,
+		validInputs,
+		invalidInputs,
 		atomic.LoadInt64(&fetchOKCount),
 		atomic.LoadInt64(&fetchErrCount),
 		outputCount,
@@ -254,7 +288,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	if inputErr != nil {
 		return inputErr
 	}
-	if cfg.StrictInput && atomic.LoadInt64(&invalidInputs) > 0 {
+	if cfg.StrictInput && invalidInputs > 0 {
 		return errors.New("invalid input detected")
 	}
 	if cfg.BestEffort {

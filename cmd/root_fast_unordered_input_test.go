@@ -17,15 +17,6 @@ type closeUnblocksReader struct {
 	closeOnce sync.Once
 	readOnce  sync.Once
 	closed    chan struct{}
-	closeDone chan struct{}
-}
-
-func newCloseUnblocksReader(line string) *closeUnblocksReader {
-	return &closeUnblocksReader{
-		line:      line,
-		closed:    make(chan struct{}),
-		closeDone: make(chan struct{}),
-	}
 }
 
 func (r *closeUnblocksReader) Read(p []byte) (int, error) {
@@ -43,18 +34,8 @@ func (r *closeUnblocksReader) Read(p []byte) (int, error) {
 func (r *closeUnblocksReader) Close() error {
 	r.closeOnce.Do(func() {
 		close(r.closed)
-		close(r.closeDone)
 	})
 	return nil
-}
-
-func waitForReaderClose(t *testing.T, reader *closeUnblocksReader) {
-	t.Helper()
-	select {
-	case <-reader.closeDone:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected canceled input producer to close blocked reader")
-	}
 }
 
 func newSingleVideoServer(t *testing.T) *httptest.Server {
@@ -73,7 +54,7 @@ func newSingleVideoServer(t *testing.T) *httptest.Server {
 
 func TestRunRootCmdNoSortWriteErrorDoesNotWaitForBlockedInput(t *testing.T) {
 	server := newSingleVideoServer(t)
-	reader := newCloseUnblocksReader("nicovideo.jp/user/1\n")
+	reader := &closeUnblocksReader{line: "nicovideo.jp/user/1\n", closed: make(chan struct{})}
 	t.Cleanup(func() { _ = reader.Close() })
 
 	cfg := testFetchConfig(server.URL)
@@ -88,7 +69,11 @@ func TestRunRootCmdNoSortWriteErrorDoesNotWaitForBlockedInput(t *testing.T) {
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("expected stdout error, got %v", err)
 	}
-	waitForReaderClose(t, reader)
+	select {
+	case <-reader.closed:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("canceled input producer did not close blocked reader")
+	}
 }
 
 func TestRunRootCmdNoSortContextCancelDoesNotWaitForBlockedInputErrors(t *testing.T) {

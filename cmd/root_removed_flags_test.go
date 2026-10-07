@@ -5,19 +5,6 @@ import (
 	"testing"
 )
 
-func TestRemovedFlagsAreNotRegistered(t *testing.T) {
-	cmd := NewRootCommand(newTestRootConfig(), newTestRootDeps())
-
-	for _, name := range []string{"tab", "max-pages", "max-videos"} {
-		if flag := cmd.Flags().Lookup(name); flag != nil {
-			t.Errorf("flag %q is still registered", name)
-		}
-	}
-	if flag := cmd.Flags().ShorthandLookup("t"); flag != nil {
-		t.Errorf("shorthand flag %q is still registered", "t")
-	}
-}
-
 func TestRemovedFlagsReturnUnknownFlag(t *testing.T) {
 	tests := []struct {
 		arg     string

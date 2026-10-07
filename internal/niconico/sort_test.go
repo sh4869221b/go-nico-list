@@ -1,8 +1,7 @@
 package niconico
 
 import (
-	"fmt"
-	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -41,29 +40,16 @@ func TestNiconicoSort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			slice := append([]string(nil), tt.input...)
-			NiconicoSort(slice)
-			if !reflect.DeepEqual(slice, tt.expected) {
-				t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, slice)
+			NiconicoSort(tt.input)
+			if !slices.Equal(tt.input, tt.expected) {
+				t.Errorf("%s: expected %v, got %v", tt.name, tt.expected, tt.input)
 			}
 		})
 	}
 }
 
 func TestNiconicoSortLargeMixedAllocationBudget(t *testing.T) {
-	base := make([]string, 2000)
-	for i := range base {
-		switch i % 4 {
-		case 0:
-			base[i] = fmt.Sprintf("sm%d", 2000-i)
-		case 1:
-			base[i] = fmt.Sprintf("sm%012d", i)
-		case 2:
-			base[i] = fmt.Sprintf("xx%d", 4000-i)
-		default:
-			base[i] = fmt.Sprintf("sm%dextra", i)
-		}
-	}
+	base := mixedSortIDs()
 
 	allocs := testing.AllocsPerRun(20, func() {
 		values := append([]string(nil), base...)

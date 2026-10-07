@@ -152,7 +152,7 @@ type adaptiveController struct {
 	cooldownUntil, nextStartAt                time.Time
 	started, windowStarted, lastChange        time.Time
 	window                                    adaptiveWindow
-	lastWindow                                AdaptiveWindowSnapshot
+	lastWindow                                adaptiveWindow
 	load                                      adaptiveLoad
 	baseline                                  time.Duration
 	previousService                           time.Duration
@@ -199,7 +199,7 @@ func (a *adaptiveController) observe(now time.Time, sample adaptiveSample, load 
 	// Expire before inserting: a twentieth sample after a long idle must not
 	// turn nineteen stale samples into a newly qualified healthy population.
 	if now.Sub(a.windowStarted).Seconds() > a.windowFreshSeconds() {
-		a.lastWindow = a.window.snapshot()
+		a.lastWindow = a.window
 		a.evaluatedWindows++
 		a.hold(now, "insufficient_samples")
 		a.resetWindow(now)
@@ -218,7 +218,7 @@ func (a *adaptiveController) observe(now time.Time, sample adaptiveSample, load 
 			return
 		}
 	}
-	a.lastWindow = a.window.snapshot()
+	a.lastWindow = a.window
 	a.evaluatedWindows++
 	a.evaluate(now)
 	a.resetWindow(now)
@@ -270,11 +270,12 @@ func (a *adaptiveController) evaluate(now time.Time) {
 	if a.window.overloads == 0 && p95 < a.baseline {
 		a.baseline -= (a.baseline - p95) / 5
 	}
-	if a.lastWindow.RateWaitFraction > 0.1 {
+	window := a.window.snapshot()
+	if window.RateWaitFraction > 0.1 {
 		a.hold(now, "rate_limited")
 		return
 	}
-	if a.load.Pending <= 0 || a.lastWindow.Utilization < 0.8 {
+	if a.load.Pending <= 0 || window.Utilization < 0.8 {
 		a.hold(now, "scheduler_limited")
 		return
 	}
@@ -443,7 +444,7 @@ func (a *adaptiveController) snapshot(now time.Time) AdaptiveSnapshot {
 		Attempts: a.attempts, Successes: a.successes, OverloadErrors: a.overloadErrors,
 		StaleCompletions: a.staleCompletions, EvaluatedWindows: a.evaluatedWindows,
 		BaselineResets: a.baselineResets, LastReason: a.lastReason,
-		Window: a.window.snapshot(), LastWindow: cloneAdaptiveWindowSnapshot(a.lastWindow),
+		Window: a.window.snapshot(), LastWindow: a.lastWindow.snapshot(),
 		Pending: a.load.Pending, InFlight: a.load.InFlight,
 		CoolingDown:              now.Before(a.cooldownUntil),
 		CooldownRemainingSeconds: max(0, a.cooldownUntil.Sub(now).Seconds()),
@@ -459,18 +460,6 @@ func (a *adaptiveController) snapshot(now time.Time) AdaptiveSnapshot {
 	first := (a.decisionNext - a.decisionCount + len(a.decisions)) % len(a.decisions)
 	for i := range s.Decisions {
 		s.Decisions[i] = a.decisions[(first+i)%len(a.decisions)]
-	}
-	return s
-}
-
-func cloneAdaptiveWindowSnapshot(s AdaptiveWindowSnapshot) AdaptiveWindowSnapshot {
-	if s.P50Seconds != nil {
-		value := *s.P50Seconds
-		s.P50Seconds = &value
-	}
-	if s.P95Seconds != nil {
-		value := *s.P95Seconds
-		s.P95Seconds = &value
 	}
 	return s
 }

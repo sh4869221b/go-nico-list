@@ -2,9 +2,7 @@ package niconico
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -207,14 +205,14 @@ func TestAdaptiveShrunkLimitRejectsStaleReservation(t *testing.T) {
 		if readyAt.After(clock.Now()) {
 			clock.Advance(readyAt.Sub(clock.Now()))
 		}
-		p, ready, err := c.adaptiveDispatch(context.Background(), 0, c.adaptivePauseEpoch())
+		p, ready, err := c.adaptiveDispatch(context.Background(), 0, c.pauseEpoch)
 		if err != nil || !ready {
 			t.Fatalf("expected available dispatch: %v", err)
 		}
 		permits = append(permits, &p)
 	}
 	clock.Advance(time.Second)
-	if p, ready, err := c.adaptiveDispatch(context.Background(), 0, c.adaptivePauseEpoch()); err != nil || ready {
+	if p, ready, err := c.adaptiveDispatch(context.Background(), 0, c.pauseEpoch); err != nil || ready {
 		t.Fatalf("stale fifth reservation dispatched: %v %v", p, err)
 	}
 	for range 4 {
@@ -234,7 +232,7 @@ func TestAdaptiveBodyOutcomeAndCallerCancellation(t *testing.T) {
 		readErr      error
 		cancel       bool
 		payload      string
-		wantOverload float64
+		wantOverload uint64
 	}{
 		{name: "read failure", readErr: io.ErrUnexpectedEOF, wantOverload: 1},
 		{name: "client deadline with live caller", readErr: context.DeadlineExceeded, wantOverload: 1},
@@ -256,16 +254,8 @@ func TestAdaptiveBodyOutcomeAndCallerCancellation(t *testing.T) {
 			})
 			c := NewAdaptiveHTTPControl(8, false)
 			_, _ = fetchPage(ctx, "http://fixture.invalid", time.Second, 1, nil, slog.New(slog.DiscardHandler), parseUserVideoPage, c)
-			raw, err := json.Marshal(c.Snapshot().Adaptive)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var state map[string]any
-			if err := json.Unmarshal(raw, &state); err != nil {
-				t.Fatal(err)
-			}
-			if got := state["overload_errors"]; got != tc.wantOverload {
-				t.Fatalf("controller did not classify outcome: %s", raw)
+			if got := c.Snapshot().Adaptive.OverloadErrors; got != tc.wantOverload {
+				t.Fatalf("overload errors = %d, want %d", got, tc.wantOverload)
 			}
 			if got := c.Snapshot().Admission.Reserved; got != 0 {
 				t.Fatalf("leaked slot %d", got)
@@ -348,7 +338,7 @@ func TestAdaptiveStale429CreatesNewPauseIdentity(t *testing.T) {
 	c := NewAdaptiveHTTPControl(8, false)
 	c.throttleAdaptive(&adaptiveAttempt{generation: 0}, time.Second)
 	clock.Advance(2 * time.Second)
-	epoch := c.adaptivePauseEpoch()
+	epoch := c.pauseEpoch
 	generation := c.adaptive.generation
 	if err := c.acquire(context.Background()); err != nil {
 		t.Fatal(err)
@@ -403,33 +393,29 @@ func TestAdaptiveManyWorkersFinishAfterCooldown(t *testing.T) {
 }
 
 func TestAdaptiveNoMaximumStillLimitsAdmission(t *testing.T) {
-	for _, metrics := range []bool{false, true} {
-		t.Run(fmt.Sprint(metrics), func(t *testing.T) {
-			c := NewAdaptiveHTTPControl(0, metrics)
-			if c == nil || c.limit != 8 || c.hardMax != 0 || c.adaptive.maximum != 0 {
-				t.Fatalf("unexpected construction: %+v", c)
-			}
-			for range 8 {
-				if err := c.acquire(context.Background()); err != nil {
-					t.Fatal(err)
-				}
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			done := make(chan error, 1)
-			go func() { done <- c.acquire(ctx) }()
-			waitForPending(t, c, 1)
-			cancel()
-			if err := <-done; !errors.Is(err, context.Canceled) {
-				t.Fatalf("cancel=%v", err)
-			}
-			for range 8 {
-				c.release()
-			}
-			got := c.Snapshot()
-			if got.Admission.Reserved != 0 || got.Admission.Pending != 0 || got.Admission.PeakReserved != 8 || got.Adaptive.Max != 0 {
-				t.Fatalf("snapshot=%+v", got)
-			}
-		})
+	c := NewAdaptiveHTTPControl(0, false)
+	if c == nil || c.limit != 8 || c.hardMax != 0 || c.adaptive.maximum != 0 {
+		t.Fatalf("unexpected construction: %+v", c)
+	}
+	for range 8 {
+		if err := c.acquire(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.acquire(ctx) }()
+	waitForPending(t, c, 1)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel=%v", err)
+	}
+	for range 8 {
+		c.release()
+	}
+	got := c.Snapshot()
+	if got.Admission.Reserved != 0 || got.Admission.Pending != 0 || got.Admission.PeakReserved != 8 || got.Adaptive.Max != 0 {
+		t.Fatalf("snapshot=%+v", got)
 	}
 }

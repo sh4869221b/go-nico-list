@@ -2,9 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
@@ -30,18 +27,7 @@ func BenchmarkBuildJSONOutputLarge(b *testing.B) {
 }
 
 func BenchmarkSortTargetResultsLarge(b *testing.B) {
-	base := make([]targetResult, 2000)
-	for i := range base {
-		targetType := targetTypeUser
-		if i%2 == 0 {
-			targetType = targetTypeMylist
-		}
-		id := fmt.Sprintf("%d", 2000-i)
-		if i%5 == 0 {
-			id = fmt.Sprintf("%d-invalid", i)
-		}
-		base[i] = targetResult{Type: targetType, ID: id, Error: fmt.Sprintf("err-%d", i)}
-	}
+	base := largeTargetResults()
 	results := make([]targetResult, len(base))
 
 	b.ReportAllocs()
@@ -51,92 +37,8 @@ func BenchmarkSortTargetResultsLarge(b *testing.B) {
 	}
 }
 
-func BenchmarkRunRootCmdLargeFanInLineOutput(b *testing.B) {
-	benchmarkRunRootCmdLargeFanIn(b, false, false)
-}
-
-func BenchmarkRunRootCmdLargeFanInLineOutputNoSort(b *testing.B) {
-	benchmarkRunRootCmdLargeFanIn(b, false, true)
-}
-
-func BenchmarkRunRootCmdLargeFanInJSONOutput(b *testing.B) {
-	benchmarkRunRootCmdLargeFanIn(b, true, false)
-}
-
-func BenchmarkRunRootCmdLargeFanInJSONOutputNoSort(b *testing.B) {
-	benchmarkRunRootCmdLargeFanIn(b, true, true)
-}
-
-func benchmarkRunRootCmdLargeFanIn(b *testing.B, jsonOutput bool, noSortOutput bool) {
-	b.Helper()
-
-	server := newBenchmarkAPIServer(b)
-	cfg := testFetchConfig(server.URL)
-	cfg.NoProgress = true
-	cfg.JSONOutput = jsonOutput
-	cfg.NoSortOutput = noSortOutput
-	args := []string{"nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/847130"}
-
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		deps := newTestRootDeps()
-		deps.Stdout = io.Discard
-		deps.Stderr = io.Discard
-		err := executeBenchmarkRootCommand(cfg, deps, args...)
-		if err != nil {
-			b.Fatalf("command returned error: %v", err)
-		}
-	}
-}
-
 func executeBenchmarkRootCommand(cfg RootConfig, deps RootDeps, args ...string) error {
 	cmd := NewRootCommand(cfg, deps)
 	cmd.SetArgs(args)
 	return cmd.Execute()
-}
-
-func newBenchmarkAPIServer(b *testing.B) *httptest.Server {
-	b.Helper()
-	userPayload := benchmarkUserPayload(100)
-	mylistPayload := benchmarkMylistPayload(100)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("page") != "1" {
-			if r.URL.Path == "/mylists/847130" {
-				_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"mylist":{"items":[]}}}`)
-				return
-			}
-			_, _ = io.WriteString(w, `{"meta":{"status":200},"data":{"items":[]}}`)
-			return
-		}
-		if r.URL.Path == "/mylists/847130" {
-			_, _ = io.WriteString(w, mylistPayload)
-			return
-		}
-		_, _ = io.WriteString(w, userPayload)
-	}))
-	b.Cleanup(server.Close)
-	return server
-}
-
-func benchmarkUserPayload(count int) string {
-	payload := `{"meta":{"status":200},"data":{"items":[`
-	for i := range count {
-		if i > 0 {
-			payload += ","
-		}
-		payload += fmt.Sprintf(`{"essential":{"id":"sm%d","registeredAt":"2024-01-02T03:04:05Z","count":{"comment":12}}}`, i)
-	}
-	return payload + `]}}`
-}
-
-func benchmarkMylistPayload(count int) string {
-	payload := `{"meta":{"status":200},"data":{"mylist":{"items":[`
-	for i := range count {
-		if i > 0 {
-			payload += ","
-		}
-		payload += fmt.Sprintf(`{"video":{"id":"sm%d","registeredAt":"2024-01-02T03:04:05Z","count":{"comment":12}}}`, i)
-	}
-	return payload + `]}}}`
 }

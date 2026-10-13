@@ -43,9 +43,9 @@ func TestHTTPControlInitializationFailures(t *testing.T) {
 		configNegative, loggerFailure bool
 		want                          string
 	}{
-		{name: "negative_flag", args: []string{"--http-concurrency=-1"}, want: "http-concurrency must be >= 0"},
-		{name: "adaptive_negative_ceiling", args: []string{"--adaptive-concurrency", "--http-concurrency=-1"}, want: "http-concurrency must be >= 0"},
-		{name: "negative_config", configNegative: true, want: "http-concurrency must be >= 0"},
+		{name: "negative_flag", args: []string{"--concurrency-http=-1"}, want: "concurrency-http must be >= 0"},
+		{name: "adaptive_negative_ceiling", args: []string{"--concurrency-adaptive", "--concurrency-http=-1"}, want: "concurrency-http must be >= 0"},
+		{name: "negative_config", configNegative: true, want: "concurrency-http must be >= 0"},
 		{name: "invalid_date", args: []string{"--dateafter=invalid"}, want: "dateafter format error"},
 		{name: "logger_failure", args: []string{"--logfile=unopenable.log"}, loggerFailure: true, want: "log open failed"},
 	} {
@@ -91,12 +91,12 @@ func TestHTTPControlsPreserveOutputContracts(t *testing.T) {
 					max      int
 				}{
 					{name: "default"},
-					{name: "cap", args: []string{"--http-concurrency=2"}},
+					{name: "cap", args: []string{"--concurrency-http=2"}},
 					{name: "metrics", args: []string{"--http-metrics"}, metrics: true},
-					{name: "cap_and_metrics", args: []string{"--http-concurrency=2", "--http-metrics"}, metrics: true},
-					{name: "adaptive", args: []string{"--http-concurrency=2", "--adaptive-concurrency"}, adaptive: true, max: 2},
-					{name: "adaptive_and_metrics", args: []string{"--http-concurrency=2", "--adaptive-concurrency", "--http-metrics"}, metrics: true, adaptive: true, max: 2},
-					{name: "adaptive_default_max_and_metrics", args: []string{"--adaptive-concurrency", "--http-metrics"}, metrics: true, adaptive: true},
+					{name: "cap_and_metrics", args: []string{"--concurrency-http=2", "--http-metrics"}, metrics: true},
+					{name: "adaptive", args: []string{"--concurrency-http=2", "--concurrency-adaptive"}, adaptive: true, max: 2},
+					{name: "adaptive_and_metrics", args: []string{"--concurrency-http=2", "--concurrency-adaptive", "--http-metrics"}, metrics: true, adaptive: true, max: 2},
+					{name: "adaptive_default_max_and_metrics", args: []string{"--concurrency-adaptive", "--http-metrics"}, metrics: true, adaptive: true},
 				} {
 					t.Run(flags.name, func(t *testing.T) {
 						cfg := testFetchConfig(server.URL)
@@ -200,7 +200,7 @@ func TestHTTPConcurrencySharedAcrossMixedTargetsAndKnownPages(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			t.Cleanup(cancel)
 			cmd.SetContext(ctx)
-			cmd.SetArgs(append([]string{"--concurrency=3", "--page-concurrency=3", "--http-concurrency=2"}, args...))
+			cmd.SetArgs(append([]string{"--concurrency-targets=3", "--concurrency-pages=3", "--concurrency-http=2"}, args...))
 			done := make(chan error, 1)
 			go func() { done <- cmd.Execute() }()
 			for range cap {
@@ -375,7 +375,7 @@ func TestHTTPMetricsRoutingAndContentIsolation(t *testing.T) {
 				if destination == "logfile" {
 					cfg.LogFilePath = filepath.Join(t.TempDir(), "metrics.log")
 				}
-				out, _, err := executeTestRootCommand(t, cfg, deps, "--page-concurrency=1", "nicovideo.jp/user/918273645")
+				out, _, err := executeTestRootCommand(t, cfg, deps, "--concurrency-pages=1", "nicovideo.jp/user/918273645")
 				if err != nil || out.String() != privateID+"\n" {
 					t.Fatalf("stdout=%q error=%v", out.String(), err)
 				}
@@ -421,10 +421,10 @@ func TestHTTPMetricsCommandIsolation(t *testing.T) {
 		want    int64
 		cap     int
 	}{
-		{name: "first", flags: []string{"--http-metrics", "--http-concurrency=1"}, targets: args[:1], want: 1, cap: 1},
-		{name: "second", flags: []string{"--http-metrics", "--http-concurrency=2"}, targets: args, want: 3, cap: 2},
-		{name: "adaptive", flags: []string{"--http-metrics", "--http-concurrency=16", "--adaptive-concurrency"}, targets: args, want: 3, cap: 16},
-		{name: "adaptive_unlimited", flags: []string{"--http-metrics", "--adaptive-concurrency"}, targets: args, want: 3},
+		{name: "first", flags: []string{"--http-metrics", "--concurrency-http=1"}, targets: args[:1], want: 1, cap: 1},
+		{name: "second", flags: []string{"--http-metrics", "--concurrency-http=2"}, targets: args, want: 3, cap: 2},
+		{name: "adaptive", flags: []string{"--http-metrics", "--concurrency-http=16", "--concurrency-adaptive"}, targets: args, want: 3, cap: 16},
+		{name: "adaptive_unlimited", flags: []string{"--http-metrics", "--concurrency-adaptive"}, targets: args, want: 3},
 		{name: "disabled", targets: args[:1]},
 		{name: "empty", flags: []string{"--http-metrics"}},
 	} {

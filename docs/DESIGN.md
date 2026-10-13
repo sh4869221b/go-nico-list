@@ -34,7 +34,7 @@ main.go
   - `RootConfig` holds all flag values and runtime defaults.
   - `RootDeps` provides external dependencies (stdout/stderr, logger, file openers, progress bar factory, terminal detection) for testability.
   - `runRootCmdWithConfig` is the runnable entry point that uses the config and deps.
-  - Input validation (`concurrency`, `retries`, dates).
+  - Input validation (`concurrency-targets`, `retries`, dates).
   - Progress to stderr, results to stdout.
   - Output formatting (`--url`) and JSON payload assembly.
   - Call into `internal/niconico` and aggregate results.
@@ -64,10 +64,10 @@ main.go
     - Parsed by `time.Parse("20060102", ...)` (UTC).
     - `dateafter` must be on or before `datebefore`.
   - `--url` (default `false`): output formatting.
-  - `--concurrency` (default `3`): concurrently fetched input targets.
-  - `--page-concurrency` (default `1`): concurrent page requests per target. In fixed mode without an HTTP cap, total in-flight requests are roughly `--concurrency * --page-concurrency`.
-  - `--http-concurrency` (default `0`): command-wide HTTP cap; zero means no additional cap.
-  - `--adaptive-concurrency` (default `false`): automatically adjust unspecified target/page/HTTP concurrency.
+  - `-T, --concurrency-targets` (default `3`): concurrently fetched input targets.
+  - `-P, --concurrency-pages` (default `1`): concurrent page requests per target. In fixed mode without an HTTP cap, total in-flight requests are roughly `--concurrency-targets * --concurrency-pages`.
+  - `-H, --concurrency-http` (default `0`): command-wide HTTP cap; zero means no additional cap.
+  - `-A, --concurrency-adaptive` (default `false`): automatically adjust unspecified target/page/HTTP concurrency.
   - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
   - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
   - `--timeout` (default `10s`): HTTP client timeout.
@@ -120,7 +120,7 @@ main.go
 4. For `--no-sort && !--json`, stream fetched batches through a single stdout writer and apply `--dedupe` there.
 
 ## Errors and Exit Codes
-- Validation errors (`concurrency`/`retries`/`timeout`/date format): **non-zero exit**.
+- Validation errors (`concurrency-targets`/`retries`/`timeout`/date format): **non-zero exit**.
   - Print **only the error message** to stderr; no usage output.
 - If any fetch errors occur: **log all errors** to the log destination and still output any retrieved IDs, exit **non-zero**.
   - Errors include HTTP/IO/JSON failures from fetch operations.
@@ -140,7 +140,7 @@ main.go
   - `X-Frontend-Id: 6`
   - `Accept: */*`
 - Pagination is uncapped and follows the API's natural termination conditions.
-- When `totalCount` is present, page 1 determines the bounded page range and later pages use bounded page concurrency: the automatic budget unless `--page-concurrency` is explicitly fixed, or the existing fixed setting without automatic mode.
+- When `totalCount` is present, page 1 determines the bounded page range and later pages use bounded page concurrency: the automatic budget unless `--concurrency-pages` is explicitly fixed, or the existing fixed setting without automatic mode.
 - When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404; page-level concurrency does not apply.
 - Filters:
   - `comment > commentCount`
@@ -165,6 +165,13 @@ main.go
 - Sort raw `sm*` IDs by numeric part in ascending order.
 
 ## Concurrency
+- Canonical concurrency options share the `--concurrency-` prefix: `--concurrency-targets` (`-T`, default `3`), `--concurrency-pages` (`-P`, default `1`), `--concurrency-http` (`-H`, default `0`), and `--concurrency-adaptive` (`-A`, default `false`). The first three identify a layer; `adaptive` selects automatic tuning across all three layers.
+- Preserve the all-layer automatic tuning behavior introduced in #322. Explicit target/page/HTTP values fix only their own layer, including values equal to defaults. Unspecified layers remain automatic; an explicit HTTP zero disables HTTP admission capping while unspecified workers still adjust. Flag order does not change layer override precedence.
+- Remove the former long names `--concurrency`, `--page-concurrency`, `--http-concurrency`, and `--adaptive-concurrency`; they return unknown-flag errors. No compatibility aliases are retained. Remove the former `-n` shorthand. Concurrency shorthands use uppercase scope/policy initials: `-T` for targets, `-P` for pages, `-H` for HTTP, and `-A` for adaptive mode. Repeated settings use the last value, including explicit boolean `false`.
+- Runtime explicit-setting detection uses canonical flag names and recognizes `-T`, `-P`, and `-H` as explicit values for their corresponding layers. Preserve explicit overrides even when the value equals its default.
+- The removed HTTP-only `--adaptive-http-concurrency` flag remains unknown. Do not recreate an HTTP-only adaptive switch or map it to all-layer tuning, because the scope would change.
+- Keep existing `RootConfig` fields and domain APIs. Validation errors refer to canonical names. Update the English/Japanese READMEs and adaptive concurrency examples with canonical names, migration mappings and all-layer/per-layer precedence.
+- Extend existing deterministic command tests to cover canonical names, rejection of removed names, default-equal overrides, all four uppercase shorthands, HTTP zero/positive overrides, boolean false, repeated settings, and help/defaults. Preserve existing cancellation, pagination, retry, output and metrics regression coverage.
 - Target and known-total page schedulers enforce fixed or automatic worker budgets and respond to context cancellation. Automatic workers start lazily and drain on shrink; target/page waiting demand is visible to the shared HTTP feedback controller.
 - Aggregated `[]string` is guarded by a mutex.
 - Progress bar updates are serialized for race safety.
@@ -222,7 +229,7 @@ main.go
 ## HTTP measurement and fixed command-wide admission (#300)
 
 - `--http-metrics` (default false) emits one aggregate `http_metrics` JSON log event after initialized command execution finishes, to stderr or the existing `--logfile`. Pre-initialization validation/logger failures produce no event. Normal stdout, JSON schema, summary, progress and exit behavior are unchanged.
-- `--http-concurrency N` defaults to 0 (no additional HTTP cap); negative values fail validation. An explicit positive value fixes reservations shared across all user/mylist, target/page, normal/JSON/unordered and retry paths in one command, including automatic mode. HTTP admission is automatically adjusted only with the separate opt-in mode below and no explicit HTTP value.
+- `--concurrency-http N` defaults to 0 (no additional HTTP cap); negative values fail validation. An explicit positive value fixes reservations shared across all user/mylist, target/page, normal/JSON/unordered and retry paths in one command, including automatic mode. HTTP admission is automatically adjusted only with the separate opt-in mode below and no explicit HTTP value.
 - A command-owned domain control object provides admission, worker budgets and optional observations; no process-global controller or new dependency is used. Filtering, natural termination and partial/canceled result contracts remain intact.
 - Backoff/Retry-After waits occur without an HTTP reservation. Admission precedes rate-limit waiting, so rate grants do not accumulate while queued for a cap. Preserve the stricter rate/min-interval and retry deadlines without double waiting; relative reservation order across concurrent requests is not guaranteed. Existing rate reservation cancellation behavior is retained.
 - Hold a reservation until response body Close returns, including 200, 404, retry statuses, read failures and cancellation; release once. JSON decode occurs after release. Close errors remain observational and do not change existing error behavior.
@@ -237,15 +244,15 @@ main.go
 
 ## Adaptive concurrency
 
-- `--adaptive-concurrency` is the opt-in switch for automatic target, per-target page, and command-wide HTTP concurrency. The former HTTP-only option and constructor are removed; no compatibility aliases or wrappers are retained.
-- Explicit `--concurrency` (including `-n`), `--page-concurrency`, and `--http-concurrency` values fix only the corresponding layer. Detect explicit flags even when they equal defaults and regardless of flag order. Explicit HTTP zero preserves unlimited HTTP admission. Without automatic mode, existing defaults and fixed behavior remain unchanged.
+- `--concurrency-adaptive` is the opt-in switch for automatic target, per-target page, and command-wide HTTP concurrency. The former HTTP-only option and constructor remain removed; no alias for that removed option or wrapper for that constructor is retained.
+- Explicit `--concurrency-targets` (including `-T`), `--concurrency-pages`, and `--concurrency-http` values fix only the corresponding layer. Detect explicit flags even when they equal defaults and regardless of flag order. Explicit HTTP zero preserves unlimited HTTP admission. Without automatic mode, existing defaults and fixed behavior remain unchanged.
 - A shared HTTP feedback controller supplies the unspecified target/page layers with a positive changing worker budget. Worker gates follow the controller budget directly; blocked schedulers contribute pending demand without adding workers above the budget. Start workers lazily, wake schedulers on budget changes, and drain existing work on shrink. Fixed HTTP admission still permits feedback to tune unspecified workers. Preserve rate/min-interval, shared 429 cooldown, output, partial-result and cancellation behavior.
 - Automatically parallelize only the bounded remaining pages discovered from `totalCount`. Unknown totals remain sequential until empty/404, with no speculative fetches. Explicit page concurrency 1 retains its existing sequential termination behavior.
 - Controller policy below remains the basis for shared HTTP feedback. Automatic mode cannot guarantee a mathematical optimum, faster short commands, or prevention of OS resource exhaustion.
 
 ### HTTP feedback policy (#301)
 
-- `--adaptive-concurrency` defaults to false. With automatic mode and no explicit HTTP flag, HTTP admission follows a positive changing feedback limit with no configured hard maximum. Explicit HTTP zero disables the admission cap, while an explicit positive value fixes HTTP admission and sets the feedback controller maximum for unspecified workers. Negative values fail validation. Fixed/unlimited behavior remains unchanged when automatic mode is disabled.
+- `--concurrency-adaptive` defaults to false. With automatic mode and no explicit HTTP flag, HTTP admission follows a positive changing feedback limit with no configured hard maximum. Explicit HTTP zero disables the admission cap, while an explicit positive value fixes HTTP admission and sets the feedback controller maximum for unspecified workers. Negative values fail validation. Fixed/unlimited behavior remains unchanged when automatic mode is disabled.
 - Share one feedback limit across unspecified target/page/HTTP layers, preserving explicit layer values and user rate/min-interval settings. The feedback minimum is 1; initial limit is 8 without a configured maximum, or `min(8, explicit positive HTTP value)`. No public tuning knobs or persistent learned state are added.
 - A small deterministic state machine consumes explicit times and bounded per-attempt observations. It increases gradually only after healthy windows with sufficient samples, queued work and actual HTTP utilization. Low samples, low worker supply, rate limitation and recovery cause holds. Sustained relative latency or eligible error pressure reduces the limit; one slow request does not cause a decrease.
 - Controller observations are independent of optional full diagnostics. Successful HTTP service ends after complete body read and close and excludes admission/rate/backoff/decode. 404, caller cancellation, unrelated 4xx and decode errors are not congestion; client timeout while the caller context is live remains an eligible error. Preserve existing retry and result/exit-code contracts.

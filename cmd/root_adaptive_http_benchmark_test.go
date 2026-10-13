@@ -28,7 +28,7 @@ import (
 // timing. Each iteration must produce exactly the same IDs, including duplicates.
 // The server reports attempts/retries/429 even when diagnostics are disabled.
 // Adaptive HTTP ceiling cases inject a constructor ceiling for comparisons of the
-// controller with fixed worker supply. They do not represent --http-concurrency,
+// controller with fixed worker supply. They do not represent --concurrency-http,
 // which now fixes HTTP admission. adaptive_concurrency exercises the public flag
 // with automatic target, page, and HTTP concurrency and no worker overrides.
 //
@@ -155,7 +155,7 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 						cfg.RateLimit, cfg.MinInterval = workload.rate, workload.minInterval
 						args := slices.Clone(fixture.args)
 						if policy.name != "adaptive_concurrency" {
-							args = append([]string{fmt.Sprintf("--concurrency=%d", workload.targets), fmt.Sprintf("--page-concurrency=%d", workload.pageWorkers)}, args...)
+							args = append([]string{fmt.Sprintf("--concurrency-targets=%d", workload.targets), fmt.Sprintf("--concurrency-pages=%d", workload.pageWorkers)}, args...)
 						}
 						deps := newTestRootDeps()
 						deps.Stderr = io.Discard

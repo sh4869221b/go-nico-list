@@ -27,6 +27,10 @@ import (
 // diagnostic serialization. Fixture reset and ID-multiset assertions are outside
 // timing. Each iteration must produce exactly the same IDs, including duplicates.
 // The server reports attempts/retries/429 even when diagnostics are disabled.
+// Adaptive HTTP ceiling cases inject a constructor ceiling for comparisons of the
+// controller with fixed worker supply. They do not represent --http-concurrency,
+// which now fixes HTTP admission. adaptive_concurrency exercises the public flag
+// with automatic target, page, and HTTP concurrency and no worker overrides.
 //
 // Run focused five-repeat comparisons, for example:
 //
@@ -136,18 +140,23 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 				{name: "fixed32", max: 32},
 				{name: "fixed48", max: 48},
 				{name: "fixed64", max: 64},
-				{name: "adaptive32", max: 32, adaptive: true},
-				{name: "adaptive64", max: 64, adaptive: true},
-				{name: "adaptive_unlimited", adaptive: true},
+				{name: "adaptive_http_ceiling32", max: 32, adaptive: true},
+				{name: "adaptive_http_ceiling64", max: 64, adaptive: true},
+				{name: "adaptive_http_unlimited", adaptive: true},
+				{name: "adaptive_concurrency", adaptive: true},
 			} {
 				for _, metrics := range []bool{false, true} {
 					b.Run(fmt.Sprintf("%s/metrics=%t", policy.name, metrics), func(b *testing.B) {
 						b.StopTimer()
 						cfg := testFetchConfig(fixture.server.URL)
 						cfg.Concurrency, cfg.PageConcurrency = workload.targets, workload.pageWorkers
-						cfg.HTTPConcurrency, cfg.AdaptiveHTTPConcurrency, cfg.HTTPMetrics = policy.max, policy.adaptive, metrics
+						cfg.HTTPConcurrency, cfg.AdaptiveConcurrency, cfg.HTTPMetrics = policy.max, policy.adaptive, metrics
 						cfg.HTTPClientTimeout, cfg.Retries = 10*time.Second, 4
 						cfg.RateLimit, cfg.MinInterval = workload.rate, workload.minInterval
+						args := slices.Clone(fixture.args)
+						if policy.name != "adaptive_concurrency" {
+							args = append([]string{fmt.Sprintf("--concurrency=%d", workload.targets), fmt.Sprintf("--page-concurrency=%d", workload.pageWorkers)}, args...)
+						}
 						deps := newTestRootDeps()
 						deps.Stderr = io.Discard
 						var output, logs bytes.Buffer
@@ -166,7 +175,7 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 							logs.Reset()
 							b.StartTimer()
 							started := time.Now()
-							err := executeBenchmarkRootCommand(cfg, deps, fixture.args...)
+							err := executeBenchmarkRootCommand(cfg, deps, args...)
 							elapsed += time.Since(started)
 							b.StopTimer()
 							if err != nil {
@@ -176,7 +185,7 @@ func BenchmarkAdaptiveHTTPCommand(b *testing.B) {
 							fixture.mu.Lock()
 							stats := fixture.stats
 							fixture.mu.Unlock()
-							if stats.active != 0 || (policy.max > 0 && stats.peak > policy.max) || stats.peak > workload.targets*workload.pageWorkers || stats.success != workload.targets*workload.pages {
+							if stats.active != 0 || (policy.max > 0 && stats.peak > policy.max) || (policy.name != "adaptive_concurrency" && stats.peak > workload.targets*workload.pageWorkers) || stats.success != workload.targets*workload.pages {
 								b.Fatalf("invalid server totals: %+v; hard max %d", stats, policy.max)
 							}
 							if metrics {

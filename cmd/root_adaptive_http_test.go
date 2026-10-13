@@ -18,7 +18,7 @@ func TestAdaptiveHTTPInputFailuresPreserveErrorsAndCleanup(t *testing.T) {
 			for _, failure := range []string{"open", "read", "close"} {
 				t.Run(fmt.Sprintf("%s/maximum=%d/%s", mode.name, max, failure), func(t *testing.T) {
 					cfg := newTestRootConfig()
-					cfg.AdaptiveHTTPConcurrency, cfg.HTTPConcurrency, cfg.HTTPMetrics = true, max, true
+					cfg.AdaptiveConcurrency, cfg.HTTPConcurrency, cfg.HTTPMetrics = true, max, true
 					cfg.JSONOutput, cfg.NoSortOutput = mode.json, mode.noSort
 					cfg.InputFilePath = "synthetic-input"
 					wantErr := errors.New("synthetic input " + failure + " failure")
@@ -70,7 +70,7 @@ func TestAdaptiveHTTPUnknownCountAndDuplicateTargets(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/maximum=%d", mode.name, max), func(t *testing.T) {
 				cfg := testFetchConfig(server.URL)
 				cfg.Concurrency, cfg.PageConcurrency = 3, 8
-				cfg.HTTPConcurrency, cfg.AdaptiveHTTPConcurrency, cfg.HTTPMetrics = max, true, true
+				cfg.HTTPConcurrency, cfg.AdaptiveConcurrency, cfg.HTTPMetrics = max, true, true
 				cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
 				var logs bytes.Buffer
 				deps := newTestRootDeps()

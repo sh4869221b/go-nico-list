@@ -14,6 +14,7 @@ func TestRemovedFlagsReturnUnknownFlag(t *testing.T) {
 		{arg: "--tab", wantErr: "unknown flag: --tab"},
 		{arg: "--max-pages=1", wantErr: "unknown flag: --max-pages"},
 		{arg: "--max-videos=1", wantErr: "unknown flag: --max-videos"},
+		{arg: "--adaptive-http-concurrency", wantErr: "unknown flag: --adaptive-http-concurrency"},
 	}
 
 	for _, tt := range tests {

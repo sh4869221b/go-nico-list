@@ -31,74 +31,70 @@ func collectPagesParallel(
 	parsePage parsePageFunc,
 	control *HTTPControl,
 ) ([]string, error) {
-	pages := make(chan int)
-	results := make(chan pageResult, pageConcurrency)
-	stopScheduling := make(chan struct{})
-	var stopOnce sync.Once
+	gate := control.NewWorkerGate(pageConcurrency)
+	schedulingCtx, stopScheduling := context.WithCancel(ctx)
+	defer stopScheduling()
 	var stopBefore atomic.Int64
-	stopBefore.Store(int64(endPage + 1))
-	var wg sync.WaitGroup
-	for range pageConcurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for page := range pages {
-				if int64(page) >= stopBefore.Load() {
+	// A constant result buffer avoids allocating a pool from an uncapped budget.
+	results := make(chan pageResult, 1)
+	go func() {
+		var wg sync.WaitGroup
+		defer close(results)
+		defer wg.Wait()
+		for page := startPage; page <= endPage; {
+			if err := gate.Acquire(schedulingCtx); err != nil {
+				return
+			}
+			if schedulingCtx.Err() != nil {
+				gate.Release()
+				return
+			}
+			wg.Add(1)
+			go func(page int) {
+				defer wg.Done()
+				defer gate.Release()
+				if stopAt := stopBefore.Load(); stopAt > 0 && int64(page) >= stopAt {
 					return
 				}
 				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
 				if err != nil || parsed.NotFound || len(parsed.Items) == 0 {
+					// Stop only new scheduling; lower outstanding pages still determine
+					// the ordered result and may supersede this terminal outcome.
 					for {
 						current := stopBefore.Load()
-						if int64(page) >= current || stopBefore.CompareAndSwap(current, int64(page)) {
+						if current > 0 && int64(page) >= current || stopBefore.CompareAndSwap(current, int64(page)) {
 							break
 						}
 					}
-					stopOnce.Do(func() { close(stopScheduling) })
+					stopScheduling()
 					results <- pageResult{page: page, err: err, terminate: err == nil}
 					return
 				}
 				select {
 				case results <- pageResult{page: page, ids: filterItems(parsed.Items, commentCount, afterDate, beforeDate)}:
 				case <-ctx.Done():
-					return
 				}
-			}
-		}()
-	}
-	go func() {
-		defer close(results)
-		defer wg.Wait()
-		defer close(pages)
-		for page := startPage; page <= endPage; page++ {
-			select {
-			case <-stopScheduling:
+			}(page)
+			if page == endPage {
 				return
-			default:
 			}
-			select {
-			case <-stopScheduling:
-				return
-			case <-ctx.Done():
-				return
-			case pages <- page:
-			}
+			page++
 		}
 	}()
 
 	idsByPage := make(map[int][]string)
 	var firstErr error
-	stopAtPage := endPage + 1
+	stopAtPage := 0
 	for result := range results {
 		if result.err != nil {
-			if result.page < stopAtPage {
+			if stopAtPage == 0 || result.page < stopAtPage {
 				stopAtPage = result.page
 				firstErr = result.err
 			}
 			continue
 		}
 		if result.terminate {
-			if result.page < stopAtPage {
+			if stopAtPage == 0 || result.page < stopAtPage {
 				stopAtPage = result.page
 				firstErr = nil
 			}
@@ -110,8 +106,12 @@ func collectPagesParallel(
 		return nil, ctx.Err()
 	}
 	var ids []string
-	for page := startPage; page < stopAtPage; page++ {
+	for page := startPage; page <= endPage && (stopAtPage == 0 || page < stopAtPage); {
 		ids = append(ids, idsByPage[page]...)
+		if page == endPage {
+			break
+		}
+		page++
 	}
 	return ids, firstErr
 }

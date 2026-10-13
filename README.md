@@ -52,10 +52,10 @@ cat users.txt | go-nico-list --stdin
 | `-a, --dateafter` | date `YYYYMMDD` after | `10000101` |
 | `-b, --datebefore` | date `YYYYMMDD` before | `99991231` |
 | `-u, --url` | output id add url | `false` |
-| `-n, --concurrency` | number of concurrent requests | `3` |
+| `-n, --concurrency` | number of concurrently fetched input targets | `3` |
 | `--page-concurrency` | number of concurrent page requests per target | `1` |
 | `--http-concurrency` | maximum command-wide HTTP requests (0 means no additional maximum) | `0` |
-| `--adaptive-http-concurrency` | adapt HTTP concurrency with an optional `--http-concurrency` maximum | `false` |
+| `--adaptive-concurrency` | automatically adjust target, per-target page, and command-wide HTTP concurrency | `false` |
 | `--http-metrics` | log aggregate HTTP performance metrics | `false` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
@@ -80,11 +80,11 @@ Notes:
 - Setting `concurrency`, `page-concurrency`, or `retries` to a value less than 1, or `timeout` to a value less than or equal to 0, will cause a runtime error.
 - `--dateafter` must be on or before `--datebefore`; inverted ranges return a validation error.
 - Each target is fetched without a user-configurable page or video limit until the API's natural termination condition.
-- When the API reports `totalCount`, page 1 defines a bounded page range and `--page-concurrency` controls concurrent requests for the remaining pages. When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404.
+- When the API reports `totalCount`, page 1 defines a bounded page range and the page concurrency setting controls concurrent requests for the remaining pages. `--adaptive-concurrency` adjusts this setting unless `--page-concurrency` is explicitly provided. When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404.
 - There are no replacement fetch limits. Large targets can therefore take longer, issue more requests, and produce more output; global rate limiting, retry handling, and context cancellation still apply.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
-- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount`. Without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
+- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount`. In fixed mode without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
 - Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
@@ -107,22 +107,31 @@ go-nico-list --input-file users.txt -n 8 --page-concurrency 4 \
   --http-concurrency 8 --http-metrics --logfile run.jsonl
 ```
 
-`--http-concurrency 0` means no additional maximum; negative values are invalid. Without adaptive mode, zero preserves the existing uncapped behavior. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. Without `--adaptive-http-concurrency`, this is a fixed cap. It does not increase the supply of target/page workers.
+`--http-concurrency 0` means no additional maximum; negative values are invalid. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. This option fixes HTTP concurrency even with `--adaptive-concurrency`; it does not fix target or page concurrency. Without adaptive mode, the existing fixed target/page settings and uncapped HTTP default remain unchanged.
 
 `--http-metrics` adds one `http_metrics` structured log event at the end of an initialized execution. It contains attempts, dispatched retries, status/error counts, connection reuse, in-flight/reservation peaks, elapsed time and wait/network/body/decode timings. It does not change stdout, JSON results, the summary or exit status. The metrics event contains no request URLs, target IDs or response content; ordinary existing error logs are unchanged.
 
 Timing percentiles use the most recent 1024 samples per metric, with sample counts; p95 requires at least 20 samples and p99 at least 100. Trace intervals overlap and must not be added to obtain elapsed time. See [measurement definitions and reproducible local benchmarks](docs/HTTP_METRICS.md).
 
-## Experimental adaptive HTTP concurrency
+## Experimental automatic concurrency
 
 ```bash
-go-nico-list --input-file users.txt -n 16 --page-concurrency 8 \
-  --adaptive-http-concurrency --http-metrics
+# Automatically adjust all three concurrency layers with one option.
+go-nico-list --input-file users.txt --adaptive-concurrency
+
+# Fix page concurrency at 4; target and HTTP concurrency remain automatic.
+go-nico-list --input-file users.txt --adaptive-concurrency --page-concurrency 4
+
+# Fix target and HTTP concurrency; automatically adjust only page concurrency.
+go-nico-list --input-file users.txt --adaptive-concurrency -n 3 \
+  --http-concurrency 8 --http-metrics
 ```
 
-Adaptive mode works without a configured ceiling: omit `--http-concurrency` or set it to `0`. It starts at 8 and retains a positive, automatically adjusted admission limit. A positive `--http-concurrency` remains an optional hard ceiling and lowers the initial limit if it is below 8. The controller grows gradually with healthy, sufficiently supplied work and decreases after sustained latency or retry pressure. It never changes target/page concurrency or your rate/min-interval settings. Low worker supply, explicit rate limits and short runs can leave the limit unchanged; automatic tuning is not a promise of faster completion.
+`--adaptive-concurrency` adjusts concurrent input targets, remaining pages within each target, and command-wide HTTP admission using shared HTTP feedback. No other concurrency options are needed. The HTTP controller starts at 8, grows gradually with healthy, sufficiently supplied work, and decreases after sustained latency or retry pressure. Automatic target/page worker budgets follow the controller's current limit. Workers start as work becomes available; a decrease lets running work finish before admitting more.
 
-Removing the configured ceiling adds no hidden replacement cap or memory/file-descriptor resource guard. Available workers still bound actual work; unlimited adaptive mode does not guarantee prevention of out-of-memory or file-descriptor exhaustion.
+An explicitly supplied `--concurrency`/`-n`, `--page-concurrency`, or `--http-concurrency` fixes only that layer to the supplied value, even if it equals the default and regardless of flag order. For example, `-n 3` fixes target concurrency at 3 while unspecified page and HTTP concurrency remain automatic. Explicit `--http-concurrency 0` disables the HTTP cap while unspecified target/page workers still adjust. A positive explicit HTTP value stays fixed and bounds the feedback controller's worker budget; the controller starts at `min(8, value)`. Your rate/min-interval settings remain independent.
+
+Page 1 is fetched first to discover the page range. If the API omits `totalCount`, that target's pages stay sequential until empty/404; automatic mode does not issue speculative pages. Limited input/page supply, explicit rate limits and short runs can leave concurrency unchanged. Automatic tuning does not guarantee the fastest completion or a mathematical optimum. There is no hidden maximum or memory/file-descriptor resource guard.
 
 A 429 in adaptive mode pauses new requests command-wide for the applicable `Retry-After`/retry deadline, lets existing requests finish, and resumes with paced recovery. Fixed mode keeps the existing per-request retry policy. Output, filtering, partial results and exit behavior stay unchanged.
 

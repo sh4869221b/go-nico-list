@@ -60,8 +60,8 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}
 	targetGate := control.NewWorkerGate(targetConcurrency)
 	targetAdmissionCtx := ctx
-	if !cfg.AdaptiveConcurrency && !streamOutput {
-		// Preserve fixed buffered-output admission: finish the target already
+	if !streamOutput {
+		// Preserve buffered-output admission: finish the target already
 		// read from the input stream even when cancellation stops later input.
 		targetAdmissionCtx = context.WithoutCancel(ctx)
 	}

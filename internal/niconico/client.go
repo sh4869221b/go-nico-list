@@ -151,7 +151,7 @@ func collectVideoList(
 		return nil, nil
 	}
 	resStr := filterItems(firstPage.Items, commentCount, afterDate, beforeDate)
-	if pageConcurrency <= 1 || firstPage.TotalCount == nil {
+	if pageConcurrency == 1 || pageConcurrency < 0 || firstPage.TotalCount == nil {
 		for page := 2; ; page++ {
 			parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
 			if err != nil {
@@ -168,7 +168,7 @@ func collectVideoList(
 	}
 	totalPages := 0
 	if *firstPage.TotalCount > 0 {
-		totalPages = (*firstPage.TotalCount + pageSize - 1) / pageSize
+		totalPages = 1 + (*firstPage.TotalCount-1)/pageSize
 	}
 	if totalPages <= 1 {
 		return resStr, nil

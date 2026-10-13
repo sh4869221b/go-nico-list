@@ -38,8 +38,8 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		runLogger = slog.New(slog.NewJSONHandler(logFile, nil))
 	}
 	var control *niconico.HTTPControl
-	if cfg.AdaptiveHTTPConcurrency {
-		control = niconico.NewAdaptiveHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
+	if cfg.AdaptiveConcurrency {
+		control = niconico.NewAdaptiveConcurrencyControl(cfg.HTTPConcurrency, cmd.Flags().Changed("http-concurrency"), cfg.HTTPMetrics)
 	} else {
 		control = niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
 	}
@@ -49,6 +49,22 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
+	targetConcurrency, pageConcurrency := cfg.Concurrency, cfg.PageConcurrency
+	if cfg.AdaptiveConcurrency {
+		if !cmd.Flags().Changed("concurrency") {
+			targetConcurrency = 0
+		}
+		if !cmd.Flags().Changed("page-concurrency") {
+			pageConcurrency = 0
+		}
+	}
+	targetGate := control.NewWorkerGate(targetConcurrency)
+	targetAdmissionCtx := ctx
+	if !streamOutput {
+		// Preserve buffered-output admission: finish the target already
+		// read from the input stream even when cancellation stops later input.
+		targetAdmissionCtx = context.WithoutCancel(ctx)
+	}
 
 	errWriter := cmd.ErrOrStderr()
 	out := cmd.OutOrStdout()
@@ -88,7 +104,6 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		go writeUnorderedOutput(out, outputCh, cfg, cancel, writeDone)
 	}
 
-	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
 	errCh := make(chan error, cfg.Concurrency)
 	fetchErrCh := make(chan error, 1)
@@ -156,27 +171,21 @@ inputLoop:
 		}
 		targetOrder := nextTargetOrder
 		nextTargetOrder++
-		if streamOutput {
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				break inputLoop
-			}
-		} else {
-			sem <- struct{}{}
+		if err := targetGate.Acquire(targetAdmissionCtx); err != nil {
+			break inputLoop
 		}
 		wg.Add(1)
 		go func(target inputTarget, targetOrder int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer targetGate.Release()
 			defer addProgress()
 			var newList []string
 			var err error
 			switch target.Type {
 			case targetTypeUser:
-				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger, control)
+				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
 			case targetTypeMylist:
-				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, cfg.PageConcurrency, runLogger, control)
+				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
 			}
 			if err != nil {
 				atomic.AddInt64(&fetchErrCount, 1)

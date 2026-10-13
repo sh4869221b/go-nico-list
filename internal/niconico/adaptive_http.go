@@ -100,7 +100,7 @@ func (c *HTTPControl) adaptiveDispatch(ctx context.Context, rateWait time.Durati
 		return adaptiveAttempt{}, false, err
 	}
 	now := timeNow()
-	if pauseEpoch != c.pauseEpoch || c.adaptive.readyAt().After(now) || c.inFlight >= c.limit {
+	if pauseEpoch != c.pauseEpoch || c.adaptive.readyAt().After(now) || c.limit > 0 && c.inFlight >= c.limit {
 		return adaptiveAttempt{}, false, nil
 	}
 	c.adaptive.dispatched(now)
@@ -111,12 +111,12 @@ func (c *HTTPControl) adaptiveDispatch(ctx context.Context, rateWait time.Durati
 func (c *HTTPControl) throttleAdaptive(attempt *adaptiveAttempt, delay time.Duration) {
 	c.mu.Lock()
 	previous := c.adaptive.cooldownUntil
+	previousLimit := c.adaptive.limit
 	c.adaptive.throttle(timeNow(), attempt.generation, delay)
 	if c.adaptive.cooldownUntil.After(previous) {
 		c.pauseEpoch++
 	}
-	c.limit = c.adaptive.limit
-	c.grantLocked()
+	c.updateAdaptiveLimitLocked(previousLimit)
 	c.mu.Unlock()
 }
 
@@ -135,9 +135,9 @@ func (c *HTTPControl) finishAdaptive(attempt *adaptiveAttempt, ctx context.Conte
 	}
 	c.mu.Lock()
 	c.inFlight--
-	c.adaptive.observe(timeNow(), sample, adaptiveLoad{Pending: c.queue.Len(), InFlight: c.inFlight})
-	c.limit = c.adaptive.limit
+	previousLimit := c.adaptive.limit
+	c.adaptive.observe(timeNow(), sample, adaptiveLoad{Pending: c.pendingLocked(), InFlight: c.inFlight})
 	c.reserved--
-	c.grantLocked()
+	c.updateAdaptiveLimitLocked(previousLimit)
 	c.mu.Unlock()
 }

@@ -41,7 +41,7 @@ func useAdaptiveTestClock(t *testing.T) *adaptiveTestClock {
 
 func TestAdaptiveUnlimitedHeader429PrecedesSlowClose(t *testing.T) {
 	clock := useAdaptiveTestClock(t)
-	c := NewAdaptiveHTTPControl(0, false)
+	c := NewAdaptiveConcurrencyControl(0, false, false)
 	body := &blockingCloseBody{Reader: strings.NewReader(""), entered: make(chan struct{}), release: make(chan struct{})}
 	client := &http.Client{Transport: controlRoundTripper(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"2"}}, Body: body, Request: r}, nil
@@ -84,7 +84,7 @@ func TestAdaptiveUnlimitedHeader429PrecedesSlowClose(t *testing.T) {
 
 func TestAdaptiveRateWaiterRechecksNewCooldown(t *testing.T) {
 	clock := useAdaptiveTestClock(t)
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	rateStarted, releaseRate := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	sleepFn = func(ctx context.Context, d time.Duration) error {
@@ -149,7 +149,7 @@ func TestAdaptiveRetryCombinesSharedDeadline(t *testing.T) {
 		}
 		return &http.Response{StatusCode: status, Header: http.Header{"Retry-After": []string{"2"}}, Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
 	})
-	c := NewAdaptiveHTTPControl(8, true)
+	c := NewAdaptiveConcurrencyControl(8, false, true)
 	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestAdaptiveRetryCombinesSharedDeadline(t *testing.T) {
 
 func TestAdaptiveCanceledCooldownKeepsNoReservation(t *testing.T) {
 	useAdaptiveTestClock(t)
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	c.throttleAdaptive(&adaptiveAttempt{generation: 0}, time.Hour)
 	entered := make(chan struct{})
 	sleepFn = func(ctx context.Context, _ time.Duration) error { close(entered); <-ctx.Done(); return ctx.Err() }
@@ -188,7 +188,7 @@ func TestAdaptiveCanceledCooldownKeepsNoReservation(t *testing.T) {
 
 func TestAdaptiveShrunkLimitRejectsStaleReservation(t *testing.T) {
 	clock := useAdaptiveTestClock(t)
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	// Eight old admissions exist, but only four may start after a shrink to four.
 	for range 8 {
 		if err := c.acquire(context.Background()); err != nil {
@@ -252,7 +252,7 @@ func TestAdaptiveBodyOutcomeAndCallerCancellation(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: &failingControlBody{Reader: strings.NewReader(tc.payload), readErr: tc.readErr}, Request: r}, nil
 			})
-			c := NewAdaptiveHTTPControl(8, false)
+			c := NewAdaptiveConcurrencyControl(8, false, false)
 			_, _ = fetchPage(ctx, "http://fixture.invalid", time.Second, 1, nil, slog.New(slog.DiscardHandler), parseUserVideoPage, c)
 			if got := c.Snapshot().Adaptive.OverloadErrors; got != tc.wantOverload {
 				t.Fatalf("overload errors = %d, want %d", got, tc.wantOverload)
@@ -285,7 +285,7 @@ func TestAdaptiveRetryAfterDeadlineStartsAtHeaders(t *testing.T) {
 		retryStarted = clock.Now()
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
 	})
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +301,7 @@ func TestAdaptiveRetryAfterDeadlineStartsAtHeaders(t *testing.T) {
 
 func TestAdaptiveExpiredCooldownStillInvalidatesOldRateGrant(t *testing.T) {
 	clock := useAdaptiveTestClock(t)
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	sleeps := 0
 	sleepFn = func(ctx context.Context, d time.Duration) error {
 		sleeps++
@@ -335,7 +335,7 @@ func TestAdaptiveExpiredCooldownStillInvalidatesOldRateGrant(t *testing.T) {
 
 func TestAdaptiveStale429CreatesNewPauseIdentity(t *testing.T) {
 	clock := useAdaptiveTestClock(t)
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	c.throttleAdaptive(&adaptiveAttempt{generation: 0}, time.Second)
 	clock.Advance(2 * time.Second)
 	epoch := c.pauseEpoch
@@ -356,7 +356,7 @@ func TestAdaptiveStale429CreatesNewPauseIdentity(t *testing.T) {
 }
 
 func TestAdaptiveManyWorkersFinishAfterCooldown(t *testing.T) {
-	c := NewAdaptiveHTTPControl(8, false)
+	c := NewAdaptiveConcurrencyControl(8, false, false)
 	c.throttleAdaptive(&adaptiveAttempt{generation: 0}, retryBaseDelay)
 	client := &http.Client{Transport: controlRoundTripper(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
@@ -393,7 +393,7 @@ func TestAdaptiveManyWorkersFinishAfterCooldown(t *testing.T) {
 }
 
 func TestAdaptiveNoMaximumStillLimitsAdmission(t *testing.T) {
-	c := NewAdaptiveHTTPControl(0, false)
+	c := NewAdaptiveConcurrencyControl(0, false, false)
 	if c == nil || c.limit != 8 || c.hardMax != 0 || c.adaptive.maximum != 0 {
 		t.Fatalf("unexpected construction: %+v", c)
 	}

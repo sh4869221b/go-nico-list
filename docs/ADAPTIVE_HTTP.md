@@ -1,32 +1,40 @@
-# Experimental adaptive HTTP concurrency
+# Experimental automatic concurrency
 
-This implements the controller and CLI integration for #301 on the measurement foundation from PR #315. It remains opt-in. A successful safety/test pass is not a claim that automatic tuning beats a well-chosen fixed cap. The larger #313 roadmap and its adoption/evaluation gates remain separate.
+`--adaptive-concurrency` uses the HTTP feedback controller from #301 and the measurement foundation from PR #315 to adjust target, per-target page, and command-wide HTTP concurrency. It remains opt-in. A successful safety/test pass is not a claim that automatic tuning beats well-chosen fixed settings. The larger #313 roadmap and its adoption/evaluation gates remain separate.
 
 ## Use and rollback
 
 ```sh
-# No configured adaptive ceiling (equivalent to --http-concurrency 0):
-go-nico-list --input-file users.txt --adaptive-http-concurrency --http-metrics
-# Optionally impose an explicit hard ceiling:
-go-nico-list --input-file users.txt --adaptive-http-concurrency --http-concurrency 32 --http-metrics
+# Automatically adjust targets, pages and HTTP with one option:
+go-nico-list --input-file users.txt --adaptive-concurrency
+# Fix page concurrency only; targets and HTTP remain automatic:
+go-nico-list --input-file users.txt --adaptive-concurrency --page-concurrency 4
+# Fix HTTP concurrency; unspecified target/page workers still adjust:
+go-nico-list --input-file users.txt --adaptive-concurrency --http-concurrency 8 --http-metrics
+# Explicit zero disables the HTTP cap while target/page workers still adjust:
+go-nico-list --input-file users.txt --adaptive-concurrency --http-concurrency 0
 # Disable adaptive mode and use a fixed operating point while keeping diagnostics:
 go-nico-list --input-file users.txt --http-concurrency 32 --http-metrics
 ```
 
-The example ceiling is illustrative, not a recommendation for the live API. Adaptive mode accepts the default `--http-concurrency 0`, meaning no configured hard ceiling, and starts at 8. A positive value is an optional hard ceiling and starts at min(8, ceiling); negative values are invalid. Adaptive mode retains a positive current admission limit and never changes target/page worker settings or configured pacing. The default 3×1 workers cannot supply eight concurrent requests. With no adaptive flag, prior fixed/unlimited behavior remains intact.
+The example values are illustrative, not recommendations for the live API. Omitting all three concurrency options enables automatic control of all three layers. The HTTP controller starts at 8 with no configured maximum and supplies changing budgets for target/page workers. Blocked schedulers contribute pending demand to the feedback so growth does not require extra workers above the current budget. Schedulers start workers lazily as work becomes available, respond to budget changes, and let running work drain on shrink.
+
+Explicit `--concurrency`/`-n`, `--page-concurrency`, or `--http-concurrency` fixes only that layer. Explicit flags are recognized even when equal to defaults, independently of flag order. Positive HTTP values fix HTTP admission and serve as the feedback controller's maximum for tuning unspecified workers, with initial feedback limit `min(8, value)`. Explicit HTTP zero removes HTTP admission limits while feedback still tunes unspecified workers. Negative HTTP values are invalid. Rate/min-interval settings remain independent. With no automatic flag, prior target/page defaults and fixed/unlimited HTTP behavior remain intact.
+
+Page 1 discovers the page range before parallel work starts within a target. Only the remaining bounded pages from `totalCount` can run concurrently; unknown totals remain sequential until an empty page or HTTP 404. Explicit page concurrency 1 preserves its existing sequential termination behavior. Short runs, low input/page supply or configured pacing may leave the controller unchanged. Automatic control cannot guarantee a mathematical optimum or faster completion.
 
 ## Policy
 
 The controller observes completed HTTP work separately from optional full tracing. Service time excludes admission, retry/cooldown/rate waiting and JSON decode. Only complete HTTP 200 bodies with a successful close supply successful-service latency. Failed body reads reach the controller even if headers said 200. Decode errors and non-200 meta warnings do not become network congestion. Caller cancellation is neutral; a client timeout with a live caller remains an eligible error.
 
-- Bounds: minimum 1, initial 8 without a configured maximum or min(8,max) with a positive optional maximum. A positive maximum is immutable; zero means no configured maximum. Shrink drains current work.
+- Feedback bounds: minimum 1, initial 8 without a configured maximum or min(8,max) with explicitly fixed positive HTTP concurrency. A positive maximum is immutable; zero means no configured feedback maximum. Unspecified HTTP admission follows this positive feedback limit, while explicit HTTP admission stays fixed or unlimited. Automatic worker budgets follow the feedback limit directly, including its minimum of 1. Shrink drains current work.
 - Eligible window: at most 32 successful/overload observations, minimum 20 successes for p95. Neutral 404/cancel/other4xx outcomes do not erase valid observations by consuming this budget. Total completed counts remain scalar diagnostics.
 - Time: evaluate a qualified partial window after one second. Sparse windows may stay open longer, bounded in memory and by service-scaled freshness. This permits real limit 1 / 100ms operation to collect 20 samples instead of getting stuck forever. Post-idle samples cannot turn an expired population into healthy evidence.
 - Growth: two healthy windows, queued work, completion-sampled actual utilization ≥80%, rate-wait fraction ≤10%, no cooldown, and at least 25ms since an ordinary resize. Add 1 below 8; otherwise add 4, clamped only when a positive maximum is configured. Integer growth must not wrap.
 - Decrease: two windows with p95 >1.5×the successful baseline, or meaningful overload pressure (at least 4 errors, at least 10% of 20+ eligible observations), halve the limit. Isolated failures/outliers hold rather than decrease.
 - Baseline: healthy downward smoothing has weight 0.2. Pressure cannot ratchet the reference upward. Four stable error-free floor windows can rebaseline after a genuine latency step; there are no calibration requests or persisted learning.
 
-Removing the configured ceiling adds no hidden numeric replacement cap, extra workers, memory/file-descriptor guard, probes or ceiling-sized allocation. Worker supply and user pacing remain effective constraints. Unlimited adaptive mode does not guarantee prevention of out-of-memory or file-descriptor exhaustion.
+Omitting a feedback maximum adds no hidden numeric replacement cap, memory/file-descriptor guard, probes or maximum-sized allocation. Automatic workers grow only as work and feedback permit. Input/page supply and user pacing remain effective constraints. This mode does not guarantee prevention of out-of-memory or file-descriptor exhaustion.
 
 These coefficients are internal experimental choices. Their comparison and remaining performance failures are recorded below; they are not universal tuning advice.
 
@@ -36,7 +44,7 @@ These coefficients are internal experimental choices. Their comparison and remai
 
 Healthy growth does not consume a congestion episode: only a protective decrease sets the cutoff for deduplicating older responses, including ordinary latency/error decreases.
 
-Already-dispatched HTTP work completes normally. New dispatches stop. Cooldown and retry waiting retain no HTTP slot; a rate-waiter rechecks the pause epoch before dispatch, even if an entire pause elapsed during its wait. Stale pacing grants are reacquired rather than accumulated for a later burst. Already-granted reservations also check the new actual-in-flight limit after shrink.
+Already-dispatched HTTP work completes normally. New dispatches stop. Cooldown and retry waiting retain no HTTP slot; a rate-waiter rechecks the pause epoch before dispatch, even if an entire pause elapsed during its wait. Stale pacing grants are reacquired rather than accumulated for a later burst. When HTTP admission is automatic, already-granted reservations also check the new actual-in-flight limit after shrink. Explicit HTTP concurrency remains fixed, while the feedback decrease affects unspecified worker layers.
 
 Retry-status deadlines begin at header receipt in adaptive mode. A slow body close consumes that deadline rather than restarting the full wait afterward. Transport-error deadlines begin after cleanup. Fixed mode preserves its existing retry waiting behavior.
 
@@ -44,7 +52,7 @@ After a pause, the first current-limit dispatches are spaced by baseline/current
 
 ## Diagnostics
 
-`--http-metrics` adds `http.adaptive` to the existing final aggregate. It includes initial/current/max, resize counts, attempts/successes/eligible errors/429, stale completions, sample windows, successful p50/p95 and baseline, actual pending/in-flight, cooldown/recovery, last_reason, and a ring of the last 32 decisions (including holds). The adaptive `max` and admission `hard_max` fields are zero when no maximum is configured; the current adaptive limit remains positive. History is bounded and is not a full per-request audit log.
+`--http-metrics` adds `http.adaptive` to the existing final aggregate. It includes feedback initial/current/max, resize counts, attempts/successes/eligible errors/429, stale completions, sample windows, successful p50/p95 and baseline, actual pending/in-flight, cooldown/recovery, last_reason, and a ring of the last 32 decisions (including holds). The adaptive `max` and admission `hard_max` fields are zero when no maximum is configured; the current feedback limit remains positive. An explicitly fixed HTTP limit can differ from the current feedback limit. History is bounded and is not a full per-request audit log.
 
 Without that flag, controller observations still run but full httptrace, diagnostic windows and final serialization stay off. No extra stdout, schema, summary, progress or error-output changes are introduced. Snapshots contain no URL, target ID, headers, credentials or response bodies.
 
@@ -52,13 +60,15 @@ Without that flag, controller observations still run but full httptrace, diagnos
 
 Deterministic tests exercise growth/bounds, low samples, realistic sequential floor recovery, latency steps, synchronized long-latency batches, stale evidence after idle, neutral-heavy observation streams, error pressure, rate/worker-limited holds,429 generations, finite recovery pacing and detached bounded snapshots. Integration tests cover slow 429 Close, header-time Retry-After, pauses inside rate waits, stale 429 extensions, shrink with outstanding reservations, client versus caller timeouts, failed bodies, cancellation and many-worker completion after cooldown.
 
-CLI regression tests cover all output modes, unknown counts, duplicate inputs, dedupe, partial results, strict/best-effort, progress, input/output failures, diagnostic routing and command isolation. Default-zero and explicit-zero adaptive settings are exercised with and without metrics alongside optional positive caps; negative settings remain validation errors. No live niconico service is contacted by the tests or measurements.
+CLI regression tests cover all output modes, unknown counts, duplicate inputs, dedupe, partial results, strict/best-effort, progress, input/output failures, diagnostic routing and command isolation. Automatic scheduling tests cover flag-only operation, explicit per-layer overrides (including default values and HTTP zero), worker growth/draining, cancellation and bounded page ranges. Negative settings remain validation errors. No live niconico service is contacted by the tests or measurements.
 
-## Evaluation scope
+## Historical evaluation scope
 
-The synthetic server uses 16 targets×8 page workers, enough to supply a 64-request ceiling. Each page has two synthetic IDs; known totals select a fixed page range. This isolates HTTP scheduling and deliberately does not model a full 100-item production response. Cases include a stable capacity knee, capacity drop/recovery with 429, high latency, explicit rate limitation, low worker supply, unknown counts, short commands and a fresh-process short test helper. These sustained comparisons use sorted line output; other output modes are covered by functional regression tests rather than the full performance matrix. Every iteration checks the complete output ID multiset, applicable positive hard cap, worker-supply bound and server totals. Synthetic delay is intentional input, not sleep-based test ordering.
+The recorded evaluation below predates automatic target/page scheduling. It used fixed 16 targets×8 page workers, enough to supply a 64-request ceiling. Positive `--http-concurrency` values then acted as adaptive HTTP ceilings; in the current interface, explicitly supplied positive values instead fix HTTP admission. These historical results therefore do not measure flag-only automatic scheduling or the current mixed-override behavior.
 
-The historical matrix below compares fixed caps 4/8/16/32/48/64 and adaptive ceilings 32/64. The current benchmark also includes `adaptive_unlimited`; its measurements must be reported separately from the historical bounded-only matrix. Fixed 4 is a conservative zero429 reference for a phase whose capacity drops to 4; a faster fixed run with hundreds of rejections is not automatically an acceptable load-matched baseline. Adaptive transient feedback can still produce 429s, so fewer 429s alone does not prove it is best.
+Each page had two synthetic IDs; known totals selected a fixed page range. This isolated HTTP scheduling and deliberately did not model a full 100-item production response. Cases included a stable capacity knee, capacity drop/recovery with 429, high latency, explicit rate limitation, low worker supply, unknown counts, short commands and a fresh-process short test helper. These sustained comparisons used sorted line output; other output modes were covered by functional regression tests rather than the full performance matrix. Every iteration checked the complete output ID multiset, applicable positive hard cap, worker-supply bound and server totals. Synthetic delay was intentional input, not sleep-based test ordering.
+
+The historical matrix below compares fixed caps 4/8/16/32/48/64 and adaptive ceilings 32/64; its `adaptive32`/`adaptive64` labels retain the original names. Current benchmark cases `adaptive_http_ceiling32`, `adaptive_http_ceiling64`, and `adaptive_http_unlimited` inject synthetic constructor settings with fixed worker supply to isolate HTTP feedback; they do not represent explicit `--http-concurrency`, which now fixes HTTP admission. The `adaptive_concurrency` case exercises the public flag alone with automatic target/page/HTTP scheduling. Any later measurements must be reported separately. Fixed 4 is a conservative zero429 reference for a phase whose capacity drops to 4; a faster fixed run with hundreds of rejections is not automatically an acceptable load-matched baseline. Adaptive transient feedback can still produce 429s, so fewer 429s alone does not prove it is best.
 
 Each final comparison uses five repeats. The command benchmark includes command construction, first-page discovery and final output; the separate fresh-process benchmark uses the test executable as a CLI helper, not a release binary. In-process runs can reuse the shared default HTTP transport; the helper process starts with a fresh client transport. Allocation numbers for that process benchmark cover the parent harness, not child RSS. Results do not establish real-service capacity.
 
@@ -66,7 +76,7 @@ The controller has one global latency reference. Payload-size changes, new conne
 
 ## Local results and acceptance status (2026-10-05)
 
-These are historical measurements from before the pressure-cutoff correction described above and before support for unlimited adaptive mode. The measured adaptive policies all used positive ceilings; these results do not measure unlimited adaptive performance. They remain a baseline record, not measurements of the corrected controller. In particular,429/drop behavior can change after the correction; new research comparisons identify the corrected control separately. The earlier delivered artifact is superseded for use because of that known429 edge case, while its bytes/results are retained for comparison.
+These are historical measurements from before the pressure-cutoff correction described above, support for unlimited adaptive mode, and automatic target/page scheduling. The measured adaptive policies all used the former positive-ceiling semantics; these results do not measure the current option behavior. They remain a baseline record, not measurements of the current controller and scheduling. In particular,429/drop behavior can change after the correction; new research comparisons identify the corrected control separately. The earlier delivered artifact is superseded for use because of that known429 edge case, while its bytes/results are retained for comparison.
 
 Base: `a9e8446cc00d5ad299998a3e66f87cf294d05ef6`. Linux/amd64, Go 1.27.1, AMD EPYC 9V74, benchmark GOMAXPROCS 9. Results are local synthetic measurements, not live API predictions. The full matrix has 56 configurations (seven workloads×eight policies), five one-operation repeats each. All 280 runs passed ID-multiset, completed-work and hard-cap assertions. Metrics were off for the main matrix.
 
@@ -123,13 +133,16 @@ Fresh-process helper medians: fixed8 3.128ms [3.061–4.017], adaptive32 3.232ms
 
 ### What remains
 
-The controller, safety integration and local regression gates are implemented. Broad performance acceptance is still open. Improving cold-start convergence without causing a larger initial load burst needs a separate measured design decision; do not silently add an initial-concurrency flag, change the initial 8 or change defaults. Live-service load tests and publication/merge are separate authorization steps.
+The controller and automatic worker scheduling are implemented. Broad performance acceptance is still open, and the historical matrix does not establish performance of the expanded option. Improving cold-start convergence without causing a larger initial load burst needs a separate measured design decision; do not silently add an initial-concurrency flag, change the initial 8 or change defaults. Live-service load tests and publication/merge are separate authorization steps.
 
 ### Reproduction
 
+Run the historical revision above to reproduce the recorded matrix and its former adaptive-ceiling semantics. On the current revision, the full matrix includes both the synthetic HTTP feedback cases and the public `adaptive_concurrency` case; results require separate labels.
+
 ```sh
 go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPCommand/.*/.*/metrics=false$' -benchmem -benchtime=1x -count=5 -timeout=15m
-go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPCommand/(stable_capacity|capacity_drop_recovery_429|rate_bound|low_worker_supply)/adaptive32/metrics=true$' -benchmem -benchtime=1x -count=5
+go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPCommand/(stable_capacity|capacity_drop_recovery_429|rate_bound|low_worker_supply)/adaptive_http_ceiling32/metrics=true$' -benchmem -benchtime=1x -count=5
+go test ./cmd -run '^$' -bench '^BenchmarkAdaptiveHTTPCommand/(stable_capacity|capacity_drop_recovery_429|rate_bound|low_worker_supply)/adaptive_concurrency/metrics=true$' -benchmem -benchtime=1x -count=5
 ```
 
 Sustained comparisons take several minutes. Preserve all repeats and ID/load checks when modifying parameters. Raw final matrices, telemetry, coefficient comparisons and the intentionally interrupted pre-neutral-fix pass are retained in the delivery for auditability; that partial pass is not part of the final statistics.

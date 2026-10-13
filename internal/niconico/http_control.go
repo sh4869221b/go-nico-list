@@ -9,17 +9,20 @@ import (
 // HTTPControl owns admission and optional measurements for one command execution.
 // A nil control preserves the original unlimited, uninstrumented request path.
 type HTTPControl struct {
-	mu           sync.Mutex
-	hardMax      int
-	limit        int
-	reserved     int
-	peakReserved int
-	peakPending  int
-	queue        list.List
-	metrics      *HTTPMetrics
-	adaptive     *adaptiveController
-	inFlight     int
-	pauseEpoch   uint64
+	mu            sync.Mutex
+	hardMax       int
+	limit         int
+	reserved      int
+	peakReserved  int
+	peakPending   int
+	queue         list.List
+	metrics       *HTTPMetrics
+	adaptive      *adaptiveController
+	inFlight      int
+	pauseEpoch    uint64
+	httpFixed     bool
+	workerPending int
+	workerChanged chan struct{}
 }
 
 type httpWaiter struct {
@@ -57,18 +60,22 @@ func NewHTTPControl(limit int, metrics bool) *HTTPControl {
 	return c
 }
 
-// NewAdaptiveHTTPControl adds opt-in adaptive admission. Zero means no configured
-// hard maximum; admission still begins at a finite, positive controller limit.
-func NewAdaptiveHTTPControl(limit int, metrics bool) *HTTPControl {
+// NewAdaptiveConcurrencyControl shares HTTP feedback with target/page admission.
+// A fixed HTTP limit is preserved exactly, including zero for unlimited HTTP.
+func NewAdaptiveConcurrencyControl(limit int, httpFixed bool, metrics bool) *HTTPControl {
 	if limit < 0 {
 		return nil
 	}
-	c := &HTTPControl{hardMax: limit}
+	c := &HTTPControl{hardMax: limit, httpFixed: httpFixed, workerChanged: make(chan struct{})}
 	if metrics {
 		c.metrics = NewHTTPMetrics()
 	}
 	c.adaptive = newAdaptiveController(limit, timeNow())
-	c.limit = c.adaptive.limit
+	if httpFixed {
+		c.limit = limit
+	} else {
+		c.limit = c.adaptive.limit
+	}
 	return c
 }
 
@@ -82,11 +89,28 @@ func (c *HTTPControl) Snapshot() HTTPControlSnapshot {
 	var adaptive *AdaptiveSnapshot
 	if c.adaptive != nil {
 		state := c.adaptive.snapshot(timeNow())
-		state.Pending, state.InFlight = c.queue.Len(), c.inFlight
+		state.Pending, state.InFlight = c.pendingLocked(), c.inFlight
 		adaptive = &state
 	}
 	c.mu.Unlock()
 	return HTTPControlSnapshot{Admission: admission, Metrics: c.metrics.Snapshot(), Adaptive: adaptive}
+}
+
+func (c *HTTPControl) pendingLocked() int {
+	return c.queue.Len() + min(c.workerPending, int(^uint(0)>>1)-c.queue.Len())
+}
+
+// updateAdaptiveLimitLocked publishes a resize to both HTTP and worker admission.
+// Existing workers and requests drain normally after a decrease.
+func (c *HTTPControl) updateAdaptiveLimitLocked(previousLimit int) {
+	if !c.httpFixed {
+		c.limit = c.adaptive.limit
+	}
+	if previousLimit != c.adaptive.limit && c.workerChanged != nil {
+		close(c.workerChanged)
+		c.workerChanged = make(chan struct{})
+	}
+	c.grantLocked()
 }
 
 func (c *HTTPControl) acquire(ctx context.Context) error {

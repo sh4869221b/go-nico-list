@@ -64,8 +64,10 @@ main.go
     - Parsed by `time.Parse("20060102", ...)` (UTC).
     - `dateafter` must be on or before `datebefore`.
   - `--url` (default `false`): output formatting.
-  - `--concurrency` (default `3`): concurrent requests.
-  - `--page-concurrency` (default `1`): concurrent page requests per target; total in-flight requests are roughly `--concurrency * --page-concurrency`.
+  - `--concurrency` (default `3`): concurrently fetched input targets.
+  - `--page-concurrency` (default `1`): concurrent page requests per target. In fixed mode without an HTTP cap, total in-flight requests are roughly `--concurrency * --page-concurrency`.
+  - `--http-concurrency` (default `0`): command-wide HTTP cap; zero means no additional cap.
+  - `--adaptive-concurrency` (default `false`): automatically adjust unspecified target/page/HTTP concurrency.
   - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
   - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
   - `--timeout` (default `10s`): HTTP client timeout.
@@ -138,7 +140,7 @@ main.go
   - `X-Frontend-Id: 6`
   - `Accept: */*`
 - Pagination is uncapped and follows the API's natural termination conditions.
-- When `totalCount` is present, page 1 determines the bounded page range and later pages use bounded page concurrency up to `--page-concurrency`.
+- When `totalCount` is present, page 1 determines the bounded page range and later pages use bounded page concurrency: the automatic budget unless `--page-concurrency` is explicitly fixed, or the existing fixed setting without automatic mode.
 - When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404; page-level concurrency does not apply.
 - Filters:
   - `comment > commentCount`
@@ -163,7 +165,7 @@ main.go
 - Sort raw `sm*` IDs by numeric part in ascending order.
 
 ## Concurrency
-- `concurrency` limits goroutines via a semaphore.
+- Target and known-total page schedulers enforce fixed or automatic worker budgets and respond to context cancellation. Automatic workers start lazily and drain on shrink; target/page waiting demand is visible to the shared HTTP feedback controller.
 - Aggregated `[]string` is guarded by a mutex.
 - Progress bar updates are serialized for race safety.
 
@@ -220,8 +222,8 @@ main.go
 ## HTTP measurement and fixed command-wide admission (#300)
 
 - `--http-metrics` (default false) emits one aggregate `http_metrics` JSON log event after initialized command execution finishes, to stderr or the existing `--logfile`. Pre-initialization validation/logger failures produce no event. Normal stdout, JSON schema, summary, progress and exit behavior are unchanged.
-- `--http-concurrency N` defaults to 0 (no additional HTTP cap); negative values fail validation. A positive value limits reservations shared across all user/mylist, target/page, normal/JSON/unordered and retry paths in one command. Adaptive adjustment requires the separate opt-in mode below.
-- A command-owned domain control object provides admission and optional observations; no process-global controller or new dependency is used. Existing target/page parallelism, filtering, natural termination and partial/canceled result contracts remain intact.
+- `--http-concurrency N` defaults to 0 (no additional HTTP cap); negative values fail validation. An explicit positive value fixes reservations shared across all user/mylist, target/page, normal/JSON/unordered and retry paths in one command, including automatic mode. HTTP admission is automatically adjusted only with the separate opt-in mode below and no explicit HTTP value.
+- A command-owned domain control object provides admission, worker budgets and optional observations; no process-global controller or new dependency is used. Filtering, natural termination and partial/canceled result contracts remain intact.
 - Backoff/Retry-After waits occur without an HTTP reservation. Admission precedes rate-limit waiting, so rate grants do not accumulate while queued for a cap. Preserve the stricter rate/min-interval and retry deadlines without double waiting; relative reservation order across concurrent requests is not guaranteed. Existing rate reservation cancellation behavior is retained.
 - Hold a reservation until response body Close returns, including 200, 404, retry statuses, read failures and cancellation; release once. JSON decode occurs after release. Close errors remain observational and do not change existing error behavior.
 - Admission is FIFO and context-aware. Internal limit updates drain existing reservations on shrink without canceling them; reservations never exceed the original positive hard maximum. Fixed mode does not change the limit automatically.
@@ -233,10 +235,18 @@ main.go
 - Verification uses local synthetic servers only, five-run before/after and metrics-off/on comparisons, short and supplied workloads, exact deterministic output or unordered ID multisets, cancellation/body-close/retry/rate tests and race checks. Investigate a stable-workload median overhead above 5% and report noise and allocations; do not claim an adaptive speedup. Live API measurements and publication require separate authorization.
 
 
-## Adaptive HTTP concurrency (#301)
+## Adaptive concurrency
 
-- `--adaptive-http-concurrency` defaults to false. When enabled, `--http-concurrency 0` (the default) means no configured hard ceiling; a positive value remains an optional hard ceiling, and negative values fail validation. Fixed/unlimited behavior remains unchanged when adaptive mode is disabled.
-- Adapt only the shared HTTP admission limit. Target/page concurrency and user rate/min-interval settings are never rewritten. Minimum concurrency is 1; initial concurrency is 8 without a configured ceiling, or `min(8, hard maximum)` with a positive ceiling. No public tuning knobs or persistent learned state are added.
+- `--adaptive-concurrency` is the opt-in switch for automatic target, per-target page, and command-wide HTTP concurrency. The former HTTP-only option and constructor are removed; no compatibility aliases or wrappers are retained.
+- Explicit `--concurrency` (including `-n`), `--page-concurrency`, and `--http-concurrency` values fix only the corresponding layer. Detect explicit flags even when they equal defaults and regardless of flag order. Explicit HTTP zero preserves unlimited HTTP admission. Without automatic mode, existing defaults and fixed behavior remain unchanged.
+- A shared HTTP feedback controller supplies the unspecified target/page layers with a positive changing worker budget. Worker gates follow the controller budget directly; blocked schedulers contribute pending demand without adding workers above the budget. Start workers lazily, wake schedulers on budget changes, and drain existing work on shrink. Fixed HTTP admission still permits feedback to tune unspecified workers. Preserve rate/min-interval, shared 429 cooldown, output, partial-result and cancellation behavior.
+- Automatically parallelize only the bounded remaining pages discovered from `totalCount`. Unknown totals remain sequential until empty/404, with no speculative fetches. Explicit page concurrency 1 retains its existing sequential termination behavior.
+- Controller policy below remains the basis for shared HTTP feedback. Automatic mode cannot guarantee a mathematical optimum, faster short commands, or prevention of OS resource exhaustion.
+
+### HTTP feedback policy (#301)
+
+- `--adaptive-concurrency` defaults to false. With automatic mode and no explicit HTTP flag, HTTP admission follows a positive changing feedback limit with no configured hard maximum. Explicit HTTP zero disables the admission cap, while an explicit positive value fixes HTTP admission and sets the feedback controller maximum for unspecified workers. Negative values fail validation. Fixed/unlimited behavior remains unchanged when automatic mode is disabled.
+- Share one feedback limit across unspecified target/page/HTTP layers, preserving explicit layer values and user rate/min-interval settings. The feedback minimum is 1; initial limit is 8 without a configured maximum, or `min(8, explicit positive HTTP value)`. No public tuning knobs or persistent learned state are added.
 - A small deterministic state machine consumes explicit times and bounded per-attempt observations. It increases gradually only after healthy windows with sufficient samples, queued work and actual HTTP utilization. Low samples, low worker supply, rate limitation and recovery cause holds. Sustained relative latency or eligible error pressure reduces the limit; one slow request does not cause a decrease.
 - Controller observations are independent of optional full diagnostics. Successful HTTP service ends after complete body read and close and excludes admission/rate/backoff/decode. 404, caller cancellation, unrelated 4xx and decode errors are not congestion; client timeout while the caller context is live remains an eligible error. Preserve existing retry and result/exit-code contracts.
 - Observe 429 at header receipt before body close. In adaptive mode only, reduce once per congestion generation and extend a shared pause for new dispatches to honor Retry-After and applicable retry/backoff deadlines. Drain already-dispatched work without forced cancellation. Retry/cooldown waits hold no HTTP reservation; already admitted rate-waiters recheck the shared gate before dispatch. Resume gradually, with fresh healthy evidence required before growth.
@@ -246,10 +256,10 @@ main.go
 - Extra output remains gated by `--http-metrics`; adaptive state, reasons, window sample counts and decisions extend the existing final aggregate. Keep stdout/JSON, summary, progress, filters, natural termination, partial results and strict/best-effort precedence unchanged.
 - Validate the pure controller first, then all runner integrations and synthetic fixed/adaptive comparisons. Coefficients are internal and evaluated against startup-through-output behavior, sufficiently supplied and supply-limited work, overload/recovery and short commands. Do not claim an optimum or change defaults from a favorable isolated sample. Live API load and any subsequent PR merge require separate authorization.
 - Current internal coefficients: 32 eligible attempts per count window, at least 20 successful samples for p95, a one-second evaluation opportunity, and a 25ms minimum ordinary decision interval. Neutral completions count diagnostically but do not consume the eligible sample budget. Sparse evidence can remain open within `max(1s, 2*service, 40*service/current)` freshness, using the maximum of baseline, prior-window and current-window observed service; expire before adding a post-idle sample.
-- Healthy growth requires two windows, current queued work, completion-sampled actual utilization at least 80%, and rate wait at most 10% of aggregate service-plus-rate time. Increase by 1 below limit 8 and by 4 otherwise. Two windows above 1.5 times baseline p95, or at least four overloads representing at least 10% of at least 20 eligible attempts, can halve the limit. A single outlier cannot satisfy these rules.
+- Healthy growth requires two windows, current queued work (HTTP or blocked target/page schedulers), completion-sampled actual utilization at least 80%, and rate wait at most 10% of aggregate service-plus-rate time. Increase by 1 below limit 8 and by 4 otherwise. Two windows above 1.5 times baseline p95, or at least four overloads representing at least 10% of at least 20 eligible attempts, can halve the limit. A single outlier cannot satisfy these rules.
 - Smooth healthy downward baseline changes with weight 0.2; never ratchet upward during pressure. Four stable, error-free floor windows within 10% permit deliberate rebaselining after a persistent latency change. Existing work supplies all samples.
 - Adaptive retry eligibility is anchored at response headers for retry statuses, including body-close time in the wait deadline instead of reapplying the delay afterward. Transport-error retry eligibility begins after cleanup. A separate pause epoch invalidates rate grants even when a stale 429 extends a pause without changing the controller generation.
-- After a 429 pause, pace the first current-limit dispatches at baseline/current clamped to 25–250ms, while independently respecting the user's stricter rate/min-interval. Current in-flight work must be below the shrunken limit before a previously granted reservation starts new HTTP work.
+- After a 429 pause, pace the first current-limit dispatches at baseline/current clamped to 25–250ms, while independently respecting the user's stricter rate/min-interval. With automatic HTTP admission, current in-flight work must be below the shrunken limit before a previously granted reservation starts new HTTP work. Explicit HTTP admission remains fixed or unlimited; unspecified worker budgets still follow the feedback decrease.
 
-- Unlimited adaptive mode removes only the configured ceiling, not its current positive admission limit. Preserve conservative growth, rate limits, Retry-After and drain-on-shrink. No hidden numeric operational ceiling, additional workers, probing requests or ceiling-sized allocations are introduced. Represent absent maxima as zero in aggregate diagnostics; integer representability is an implementation boundary and growth must never wrap.
+- Automatic mode without an explicit HTTP value retains a positive changing admission limit with no configured maximum. Explicit HTTP zero removes the admission cap while retaining worker feedback. Preserve conservative growth, rate limits, Retry-After and drain-on-shrink. No hidden numeric operational ceiling, probing requests or maximum-sized allocations are introduced. Represent absent maxima as zero in aggregate diagnostics; integer representability is an implementation boundary and growth must never wrap.
 - Actual HTTP work remains limited by supplied target/page workers. The FIFO queue holds only actual waiting workers; samples and decision history stay fixed-size. Existing eligible-error and latency feedback may reduce pressure but cannot guarantee prevention of process/OS memory or descriptor exhaustion. No automatic memory-limit changes, platform-specific resource monitor or new resource-pressure heuristic is introduced by this change.

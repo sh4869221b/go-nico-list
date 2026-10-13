@@ -22,7 +22,7 @@ func TestHTTPControlsPreserveOutputFailureAndProgress(t *testing.T) {
 			for _, hide := range []bool{false, true} {
 				cfg := testFetchConfig(server.URL)
 				cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
-				cfg.AdaptiveHTTPConcurrency = mode.adaptive
+				cfg.AdaptiveConcurrency = mode.adaptive
 				cfg.HTTPConcurrency, cfg.HTTPMetrics = 1, true
 				cfg.ForceProgress, cfg.NoProgress = true, hide
 				var logs bytes.Buffer
@@ -65,7 +65,7 @@ func TestHTTPControlsCancelActiveBodyAndQueuedTargets(t *testing.T) {
 			t.Cleanup(server.Close)
 			cfg := testFetchConfig(server.URL)
 			cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
-			cfg.AdaptiveHTTPConcurrency = mode.adaptive
+			cfg.AdaptiveConcurrency = mode.adaptive
 			cfg.Concurrency, cfg.HTTPConcurrency, cfg.HTTPMetrics = 3, 1, true
 			cfg.HTTPClientTimeout = 5 * time.Second
 			var logs bytes.Buffer
@@ -75,7 +75,7 @@ func TestHTTPControlsCancelActiveBodyAndQueuedTargets(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			command.SetContext(ctx)
-			command.SetArgs([]string{"nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/3"})
+			command.SetArgs([]string{"--concurrency=3", "--http-concurrency=1", "nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/3"})
 			done := make(chan error, 1)
 			go func() { done <- command.Execute() }()
 			select {

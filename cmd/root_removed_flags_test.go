@@ -11,9 +11,14 @@ func TestRemovedFlagsReturnUnknownFlag(t *testing.T) {
 		wantErr string
 	}{
 		{arg: "-t", wantErr: "unknown shorthand flag: 't' in -t"},
+		{arg: "-n", wantErr: "unknown shorthand flag: 'n' in -n"},
 		{arg: "--tab", wantErr: "unknown flag: --tab"},
 		{arg: "--max-pages=1", wantErr: "unknown flag: --max-pages"},
 		{arg: "--max-videos=1", wantErr: "unknown flag: --max-videos"},
+		{arg: "--concurrency=3", wantErr: "unknown flag: --concurrency"},
+		{arg: "--page-concurrency=1", wantErr: "unknown flag: --page-concurrency"},
+		{arg: "--http-concurrency=0", wantErr: "unknown flag: --http-concurrency"},
+		{arg: "--adaptive-concurrency", wantErr: "unknown flag: --adaptive-concurrency"},
 		{arg: "--adaptive-http-concurrency", wantErr: "unknown flag: --adaptive-http-concurrency"},
 	}
 

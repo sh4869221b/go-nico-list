@@ -75,7 +75,7 @@ func TestHTTPControlsCancelActiveBodyAndQueuedTargets(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			command.SetContext(ctx)
-			command.SetArgs([]string{"--concurrency=3", "--http-concurrency=1", "nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/3"})
+			command.SetArgs([]string{"--concurrency-targets=3", "--concurrency-http=1", "nicovideo.jp/user/1", "nicovideo.jp/user/2", "nicovideo.jp/mylist/3"})
 			done := make(chan error, 1)
 			go func() { done <- command.Execute() }()
 			select {

@@ -68,7 +68,7 @@ func TestAdaptiveBufferedInputErrorCompletesCountedTarget(t *testing.T) {
 					command.SetIn(reader)
 					// Fixing HTTP to one also starts automatic target admission at
 					// one, so the first request fills the automatic worker gate.
-					command.SetArgs([]string{"--adaptive-concurrency", "--http-concurrency=1"})
+					command.SetArgs([]string{"--concurrency-adaptive", "--concurrency-http=1"})
 					done := make(chan error, 1)
 					go func() { done <- command.Execute() }()
 					select {

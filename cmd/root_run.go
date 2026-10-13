@@ -39,7 +39,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}
 	var control *niconico.HTTPControl
 	if cfg.AdaptiveConcurrency {
-		control = niconico.NewAdaptiveConcurrencyControl(cfg.HTTPConcurrency, cmd.Flags().Changed("http-concurrency"), cfg.HTTPMetrics)
+		control = niconico.NewAdaptiveConcurrencyControl(cfg.HTTPConcurrency, cmd.Flags().Changed("concurrency-http"), cfg.HTTPMetrics)
 	} else {
 		control = niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
 	}
@@ -51,10 +51,10 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	defer cancel()
 	targetConcurrency, pageConcurrency := cfg.Concurrency, cfg.PageConcurrency
 	if cfg.AdaptiveConcurrency {
-		if !cmd.Flags().Changed("concurrency") {
+		if !cmd.Flags().Changed("concurrency-targets") {
 			targetConcurrency = 0
 		}
-		if !cmd.Flags().Changed("page-concurrency") {
+		if !cmd.Flags().Changed("concurrency-pages") {
 			pageConcurrency = 0
 		}
 	}

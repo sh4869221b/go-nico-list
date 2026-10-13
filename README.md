@@ -28,7 +28,7 @@ Examples:
 ```bash
 go-nico-list nicovideo.jp/user/12345
 go-nico-list https://www.nicovideo.jp/user/12345/video --url
-go-nico-list nicovideo.jp/user/1 nicovideo.jp/mylist/847130 --concurrency 10
+go-nico-list nicovideo.jp/user/1 nicovideo.jp/mylist/847130 --concurrency-targets 10
 go-nico-list --input-file users.txt
 cat users.txt | go-nico-list --stdin
 ```
@@ -41,7 +41,7 @@ cat users.txt | go-nico-list --stdin
 ## Exit status
 - `0`: no fetch errors (invalid inputs are skipped; may produce no output).
 - non-zero: at least one fetch failed (any successfully retrieved IDs are still printed).
-- Validation errors (for example, `--concurrency < 1`) return non-zero.
+- Validation errors (for example, `--concurrency-targets < 1`) return non-zero.
 - `context.Canceled` / `context.DeadlineExceeded` during fetch is treated as a successful empty result.
 
 ## Flags
@@ -52,10 +52,10 @@ cat users.txt | go-nico-list --stdin
 | `-a, --dateafter` | date `YYYYMMDD` after | `10000101` |
 | `-b, --datebefore` | date `YYYYMMDD` before | `99991231` |
 | `-u, --url` | output id add url | `false` |
-| `-n, --concurrency` | number of concurrently fetched input targets | `3` |
-| `--page-concurrency` | number of concurrent page requests per target | `1` |
-| `--http-concurrency` | maximum command-wide HTTP requests (0 means no additional maximum) | `0` |
-| `--adaptive-concurrency` | automatically adjust target, per-target page, and command-wide HTTP concurrency | `false` |
+| `-T, --concurrency-targets` | number of concurrently fetched input targets | `3` |
+| `-P, --concurrency-pages` | number of concurrent page requests per target | `1` |
+| `-H, --concurrency-http` | maximum command-wide HTTP requests (0 means no additional maximum) | `0` |
+| `-A, --concurrency-adaptive` | automatically adjust target, per-target page, and command-wide HTTP concurrency | `false` |
 | `--http-metrics` | log aggregate HTTP performance metrics | `false` |
 | `--rate-limit` | maximum requests per second (0 disables) | `0` |
 | `--min-interval` | minimum interval between requests | `0s` |
@@ -72,19 +72,31 @@ cat users.txt | go-nico-list --stdin
 | `--no-sort` | skip sorting output IDs for faster output | `false` |
 | `--json` | emit JSON output to stdout | `false` |
 
+Concurrency options share the `--concurrency-` prefix: `targets`, `pages`, and `http` select a layer, while `adaptive` enables automatic adjustment across all three layers. The matching uppercase short forms are `-T`, `-P`, `-H`, and `-A`.
+
+The old long names and `-n` have been removed. Update existing commands as follows:
+
+| Removed name | Replacement |
+| --- | --- |
+| `--concurrency` | `--concurrency-targets` |
+| `-n` | `-T` |
+| `--page-concurrency` | `--concurrency-pages` |
+| `--http-concurrency` | `--concurrency-http` |
+| `--adaptive-concurrency` | `--concurrency-adaptive` |
+
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
 - Input lines from `--input-file` and `--stdin` are limited to 1 MiB per line; longer lines fail with an input read error.
 - Each input must contain `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` (scheme optional). Plain digits or paths without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
-- Setting `concurrency`, `page-concurrency`, or `retries` to a value less than 1, or `timeout` to a value less than or equal to 0, will cause a runtime error.
+- Setting `--concurrency-targets`, `--concurrency-pages`, or `--retries` to a value less than 1, or `--timeout` to a value less than or equal to 0, will cause a runtime error.
 - `--dateafter` must be on or before `--datebefore`; inverted ranges return a validation error.
 - Each target is fetched without a user-configurable page or video limit until the API's natural termination condition.
-- When the API reports `totalCount`, page 1 defines a bounded page range and the page concurrency setting controls concurrent requests for the remaining pages. `--adaptive-concurrency` adjusts this setting unless `--page-concurrency` is explicitly provided. When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404.
+- When the API reports `totalCount`, page 1 defines a bounded page range and the page concurrency setting controls concurrent requests for the remaining pages. `--concurrency-adaptive` adjusts this setting unless `--concurrency-pages` is explicitly provided. When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404.
 - There are no replacement fetch limits. Large targets can therefore take longer, issue more requests, and produce more output; global rate limiting, retry handling, and context cancellation still apply.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
-- `--page-concurrency` controls concurrent page requests inside each input target only when the API reports `totalCount`. In fixed mode without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency * --page-concurrency` in that bounded-page path.
+- `--concurrency-pages` controls concurrent page requests inside each input target only when the API reports `totalCount`. In fixed mode without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency-targets * --concurrency-pages` in that bounded-page path.
 - Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
 - A run summary is printed to stderr after processing (even when the exit code is non-zero).
@@ -103,11 +115,11 @@ Notes:
 go-nico-list --input-file users.txt --http-metrics
 
 # Bound HTTP work across all targets/pages/retries and save diagnostics in the log.
-go-nico-list --input-file users.txt -n 8 --page-concurrency 4 \
-  --http-concurrency 8 --http-metrics --logfile run.jsonl
+go-nico-list --input-file users.txt -T 8 -P 4 \
+  -H 8 --http-metrics --logfile run.jsonl
 ```
 
-`--http-concurrency 0` means no additional maximum; negative values are invalid. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. This option fixes HTTP concurrency even with `--adaptive-concurrency`; it does not fix target or page concurrency. Without adaptive mode, the existing fixed target/page settings and uncapped HTTP default remain unchanged.
+`--concurrency-http 0` means no additional maximum; negative values are invalid. A positive cap includes response body reading and closing. Retry waits release their slots, and existing rate limits still apply. This option fixes HTTP concurrency even with `--concurrency-adaptive`; it does not fix target or page concurrency. Without adaptive mode, the existing fixed target/page settings and uncapped HTTP default remain unchanged.
 
 `--http-metrics` adds one `http_metrics` structured log event at the end of an initialized execution. It contains attempts, dispatched retries, status/error counts, connection reuse, in-flight/reservation peaks, elapsed time and wait/network/body/decode timings. It does not change stdout, JSON results, the summary or exit status. The metrics event contains no request URLs, target IDs or response content; ordinary existing error logs are unchanged.
 
@@ -117,19 +129,19 @@ Timing percentiles use the most recent 1024 samples per metric, with sample coun
 
 ```bash
 # Automatically adjust all three concurrency layers with one option.
-go-nico-list --input-file users.txt --adaptive-concurrency
+go-nico-list --input-file users.txt --concurrency-adaptive
 
 # Fix page concurrency at 4; target and HTTP concurrency remain automatic.
-go-nico-list --input-file users.txt --adaptive-concurrency --page-concurrency 4
+go-nico-list --input-file users.txt --concurrency-adaptive --concurrency-pages 4
 
 # Fix target and HTTP concurrency; automatically adjust only page concurrency.
-go-nico-list --input-file users.txt --adaptive-concurrency -n 3 \
-  --http-concurrency 8 --http-metrics
+go-nico-list --input-file users.txt -A -T 3 \
+  -H 8 --http-metrics
 ```
 
-`--adaptive-concurrency` adjusts concurrent input targets, remaining pages within each target, and command-wide HTTP admission using shared HTTP feedback. No other concurrency options are needed. The HTTP controller starts at 8, grows gradually with healthy, sufficiently supplied work, and decreases after sustained latency or retry pressure. Automatic target/page worker budgets follow the controller's current limit. Workers start as work becomes available; a decrease lets running work finish before admitting more.
+`--concurrency-adaptive` adjusts concurrent input targets, remaining pages within each target, and command-wide HTTP admission using shared HTTP feedback. No other concurrency options are needed. The HTTP controller starts at 8, grows gradually with healthy, sufficiently supplied work, and decreases after sustained latency or retry pressure. Automatic target/page worker budgets follow the controller's current limit. Workers start as work becomes available; a decrease lets running work finish before admitting more.
 
-An explicitly supplied `--concurrency`/`-n`, `--page-concurrency`, or `--http-concurrency` fixes only that layer to the supplied value, even if it equals the default and regardless of flag order. For example, `-n 3` fixes target concurrency at 3 while unspecified page and HTTP concurrency remain automatic. Explicit `--http-concurrency 0` disables the HTTP cap while unspecified target/page workers still adjust. A positive explicit HTTP value stays fixed and bounds the feedback controller's worker budget; the controller starts at `min(8, value)`. Your rate/min-interval settings remain independent.
+An explicitly supplied `--concurrency-targets`/`-T`, `--concurrency-pages`/`-P`, or `--concurrency-http`/`-H` fixes only that layer to the supplied value, even if it equals the default and regardless of its position relative to `--concurrency-adaptive`. If the same option is supplied repeatedly, including mixed long and short forms, the last value wins. For example, `-T 3` fixes target concurrency at 3 while unspecified page and HTTP concurrency remain automatic. Explicit `--concurrency-http 0` disables the HTTP cap while unspecified target/page workers still adjust. A positive explicit HTTP value stays fixed and bounds the feedback controller's worker budget; the controller starts at `min(8, value)`. Your rate/min-interval settings remain independent.
 
 Page 1 is fetched first to discover the page range. If the API omits `totalCount`, that target's pages stay sequential until empty/404; automatic mode does not issue speculative pages. Limited input/page supply, explicit rate limits and short runs can leave concurrency unchanged. Automatic tuning does not guarantee the fastest completion or a mathematical optimum. There is no hidden maximum or memory/file-descriptor resource guard.
 

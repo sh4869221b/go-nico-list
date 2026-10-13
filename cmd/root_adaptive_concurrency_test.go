@@ -26,13 +26,18 @@ func TestAdaptiveConcurrencyTargetOverrides(t *testing.T) {
 		fixedHTTP bool
 	}{
 		{name: "unchanged_defaults", peak: 3},
-		{name: "flag_alone", flags: []string{"--adaptive-concurrency"}, peak: 8, adaptive: true},
-		{name: "explicit_default_target", flags: []string{"--adaptive-concurrency", "--concurrency=3"}, peak: 3, adaptive: true},
-		{name: "shorthand_before_auto", flags: []string{"-n", "2", "--adaptive-concurrency"}, peak: 2, adaptive: true},
-		{name: "page_override_keeps_targets_auto", flags: []string{"--page-concurrency=1", "--adaptive-concurrency"}, peak: 8, adaptive: true},
-		{name: "fixed_http_keeps_worker_feedback", flags: []string{"--http-concurrency=2", "--adaptive-concurrency"}, peak: 2, httpMax: 2, adaptive: true, fixedHTTP: true},
-		{name: "explicit_unlimited_http", flags: []string{"--adaptive-concurrency", "-n", "12", "--http-concurrency=0"}, peak: 12, adaptive: true, fixedHTTP: true},
-		{name: "all_overrides", flags: []string{"--adaptive-concurrency", "--concurrency=3", "--page-concurrency=1", "--http-concurrency=4"}, peak: 3, httpMax: 4, adaptive: true, fixedHTTP: true},
+		{name: "last_auto_value_false", flags: []string{"--concurrency-adaptive", "--concurrency-adaptive=false"}, peak: 3},
+		{name: "flag_alone", flags: []string{"--concurrency-adaptive"}, peak: 8, adaptive: true},
+		{name: "shorthand_flag_alone", flags: []string{"-A"}, peak: 8, adaptive: true},
+		{name: "explicit_default_target", flags: []string{"--concurrency-adaptive", "--concurrency-targets=3"}, peak: 3, adaptive: true},
+		{name: "shorthand_explicit_default_target", flags: []string{"-A", "-T", "3"}, peak: 3, adaptive: true},
+		{name: "shorthand_before_auto", flags: []string{"-T", "2", "--concurrency-adaptive"}, peak: 2, adaptive: true},
+		{name: "page_override_keeps_targets_auto", flags: []string{"--concurrency-pages=1", "--concurrency-adaptive"}, peak: 8, adaptive: true},
+		{name: "fixed_http_keeps_worker_feedback", flags: []string{"--concurrency-http=2", "--concurrency-adaptive"}, peak: 2, httpMax: 2, adaptive: true, fixedHTTP: true},
+		{name: "shorthand_fixed_http", flags: []string{"-H", "2", "-A"}, peak: 2, httpMax: 2, adaptive: true, fixedHTTP: true},
+		{name: "explicit_unlimited_http", flags: []string{"--concurrency-adaptive", "-T", "12", "--concurrency-http=0"}, peak: 12, adaptive: true, fixedHTTP: true},
+		{name: "shorthand_explicit_unlimited_http", flags: []string{"-A", "-T", "12", "-H", "0"}, peak: 12, adaptive: true, fixedHTTP: true},
+		{name: "all_overrides", flags: []string{"--concurrency-adaptive", "--concurrency-targets=3", "--concurrency-pages=1", "--concurrency-http=4"}, peak: 3, httpMax: 4, adaptive: true, fixedHTTP: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			barrier := newAdaptiveCommandBarrier(t)
@@ -72,13 +77,14 @@ func TestAdaptiveConcurrencyKnownPageOverrides(t *testing.T) {
 			fixedHTTP bool
 			serial    bool
 		}{
-			{name: "flag_alone", flags: []string{"--adaptive-concurrency"}, peak: 8},
-			{name: "target_override_keeps_pages_auto", flags: []string{"--adaptive-concurrency", "--concurrency=1"}, peak: 8},
-			{name: "page_override_before_auto", flags: []string{"--page-concurrency=3", "--adaptive-concurrency"}, peak: 3},
-			{name: "explicit_default_page", flags: []string{"--adaptive-concurrency", "--page-concurrency=1"}, peak: 1, serial: true},
-			{name: "fixed_http_keeps_pages_auto", flags: []string{"--adaptive-concurrency", "--http-concurrency=16"}, peak: 8, httpMax: 16, fixedHTTP: true},
-			{name: "all_overrides", flags: []string{"-n", "1", "--page-concurrency=3", "--http-concurrency=2", "--adaptive-concurrency"}, peak: 2, httpMax: 2, fixedHTTP: true},
-			{name: "explicit_unlimited_http", flags: []string{"--adaptive-concurrency", "--concurrency=1", "--page-concurrency=16", "--http-concurrency=0"}, peak: 16, fixedHTTP: true},
+			{name: "flag_alone", flags: []string{"--concurrency-adaptive"}, peak: 8},
+			{name: "target_override_keeps_pages_auto", flags: []string{"--concurrency-adaptive", "--concurrency-targets=1"}, peak: 8},
+			{name: "page_override_before_auto", flags: []string{"--concurrency-pages=3", "--concurrency-adaptive"}, peak: 3},
+			{name: "explicit_default_page", flags: []string{"--concurrency-adaptive", "--concurrency-pages=1"}, peak: 1, serial: true},
+			{name: "shorthand_explicit_default_page", flags: []string{"-A", "-P", "1"}, peak: 1, serial: true},
+			{name: "fixed_http_keeps_pages_auto", flags: []string{"--concurrency-adaptive", "--concurrency-http=16"}, peak: 8, httpMax: 16, fixedHTTP: true},
+			{name: "all_shorthand_overrides", flags: []string{"-T", "1", "-P", "3", "-H", "2", "-A"}, peak: 2, httpMax: 2, fixedHTTP: true},
+			{name: "explicit_unlimited_http", flags: []string{"--concurrency-adaptive", "--concurrency-targets=1", "--concurrency-pages=16", "--concurrency-http=0"}, peak: 16, fixedHTTP: true},
 		} {
 			t.Run(fmt.Sprintf("mylist=%t/%s", mylist, test.name), func(t *testing.T) {
 				const pages = 17
@@ -156,7 +162,7 @@ func TestAdaptiveConcurrencyUnlimitedHTTPKeepsBothWorkerLayersAutomatic(t *testi
 	t.Cleanup(server.Close)
 	cfg := newTestRootConfig()
 	cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, cfg.HTTPMetrics = server.URL, 1, 10*time.Second, true
-	args := []string{"--adaptive-concurrency", "--http-concurrency=0"}
+	args := []string{"--concurrency-adaptive", "--concurrency-http=0"}
 	for target := 1; target <= targets; target++ {
 		args = append(args, fmt.Sprintf("nicovideo.jp/user/%d", target))
 	}

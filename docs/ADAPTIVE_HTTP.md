@@ -1,25 +1,25 @@
 # Experimental automatic concurrency
 
-`--adaptive-concurrency` uses the HTTP feedback controller from #301 and the measurement foundation from PR #315 to adjust target, per-target page, and command-wide HTTP concurrency. It remains opt-in. A successful safety/test pass is not a claim that automatic tuning beats well-chosen fixed settings. The larger #313 roadmap and its adoption/evaluation gates remain separate.
+`--concurrency-adaptive` uses the HTTP feedback controller from #301 and the measurement foundation from PR #315 to adjust target, per-target page, and command-wide HTTP concurrency. It remains opt-in. A successful safety/test pass is not a claim that automatic tuning beats well-chosen fixed settings. The larger #313 roadmap and its adoption/evaluation gates remain separate.
 
 ## Use and rollback
 
 ```sh
 # Automatically adjust targets, pages and HTTP with one option:
-go-nico-list --input-file users.txt --adaptive-concurrency
+go-nico-list --input-file users.txt --concurrency-adaptive
 # Fix page concurrency only; targets and HTTP remain automatic:
-go-nico-list --input-file users.txt --adaptive-concurrency --page-concurrency 4
+go-nico-list --input-file users.txt --concurrency-adaptive --concurrency-pages 4
 # Fix HTTP concurrency; unspecified target/page workers still adjust:
-go-nico-list --input-file users.txt --adaptive-concurrency --http-concurrency 8 --http-metrics
+go-nico-list --input-file users.txt --concurrency-adaptive --concurrency-http 8 --http-metrics
 # Explicit zero disables the HTTP cap while target/page workers still adjust:
-go-nico-list --input-file users.txt --adaptive-concurrency --http-concurrency 0
+go-nico-list --input-file users.txt --concurrency-adaptive --concurrency-http 0
 # Disable adaptive mode and use a fixed operating point while keeping diagnostics:
-go-nico-list --input-file users.txt --http-concurrency 32 --http-metrics
+go-nico-list --input-file users.txt --concurrency-http 32 --http-metrics
 ```
 
 The example values are illustrative, not recommendations for the live API. Omitting all three concurrency options enables automatic control of all three layers. The HTTP controller starts at 8 with no configured maximum and supplies changing budgets for target/page workers. Blocked schedulers contribute pending demand to the feedback so growth does not require extra workers above the current budget. Schedulers start workers lazily as work becomes available, respond to budget changes, and let running work drain on shrink.
 
-Explicit `--concurrency`/`-n`, `--page-concurrency`, or `--http-concurrency` fixes only that layer. Explicit flags are recognized even when equal to defaults, independently of flag order. Positive HTTP values fix HTTP admission and serve as the feedback controller's maximum for tuning unspecified workers, with initial feedback limit `min(8, value)`. Explicit HTTP zero removes HTTP admission limits while feedback still tunes unspecified workers. Negative HTTP values are invalid. Rate/min-interval settings remain independent. With no automatic flag, prior target/page defaults and fixed/unlimited HTTP behavior remain intact.
+Explicit `--concurrency-targets`/`-T`, `--concurrency-pages`/`-P`, or `--concurrency-http`/`-H` fixes only that layer. Explicit flags are recognized even when equal to defaults, independently of their position relative to `--concurrency-adaptive`. Repeating an option uses the last value, including mixed long and short forms. `-A` is shorthand for `--concurrency-adaptive`. Positive HTTP values fix HTTP admission and serve as the feedback controller's maximum for tuning unspecified workers, with initial feedback limit `min(8, value)`. Explicit HTTP zero removes HTTP admission limits while feedback still tunes unspecified workers. Negative HTTP values are invalid. Rate/min-interval settings remain independent. With no automatic flag, prior target/page defaults and fixed/unlimited HTTP behavior remain intact.
 
 Page 1 discovers the page range before parallel work starts within a target. Only the remaining bounded pages from `totalCount` can run concurrently; unknown totals remain sequential until an empty page or HTTP 404. Explicit page concurrency 1 preserves its existing sequential termination behavior. Short runs, low input/page supply or configured pacing may leave the controller unchanged. Automatic control cannot guarantee a mathematical optimum or faster completion.
 
@@ -64,11 +64,11 @@ CLI regression tests cover all output modes, unknown counts, duplicate inputs, d
 
 ## Historical evaluation scope
 
-The recorded evaluation below predates automatic target/page scheduling. It used fixed 16 targets×8 page workers, enough to supply a 64-request ceiling. Positive `--http-concurrency` values then acted as adaptive HTTP ceilings; in the current interface, explicitly supplied positive values instead fix HTTP admission. These historical results therefore do not measure flag-only automatic scheduling or the current mixed-override behavior.
+The recorded evaluation below predates automatic target/page scheduling. It used fixed 16 targets×8 page workers, enough to supply a 64-request ceiling. Positive HTTP limits then acted as adaptive HTTP ceilings; in the current interface, explicitly supplied positive `--concurrency-http` values instead fix HTTP admission. These historical results therefore do not measure flag-only automatic scheduling or the current mixed-override behavior.
 
 Each page had two synthetic IDs; known totals selected a fixed page range. This isolated HTTP scheduling and deliberately did not model a full 100-item production response. Cases included a stable capacity knee, capacity drop/recovery with 429, high latency, explicit rate limitation, low worker supply, unknown counts, short commands and a fresh-process short test helper. These sustained comparisons used sorted line output; other output modes were covered by functional regression tests rather than the full performance matrix. Every iteration checked the complete output ID multiset, applicable positive hard cap, worker-supply bound and server totals. Synthetic delay was intentional input, not sleep-based test ordering.
 
-The historical matrix below compares fixed caps 4/8/16/32/48/64 and adaptive ceilings 32/64; its `adaptive32`/`adaptive64` labels retain the original names. Current benchmark cases `adaptive_http_ceiling32`, `adaptive_http_ceiling64`, and `adaptive_http_unlimited` inject synthetic constructor settings with fixed worker supply to isolate HTTP feedback; they do not represent explicit `--http-concurrency`, which now fixes HTTP admission. The `adaptive_concurrency` case exercises the public flag alone with automatic target/page/HTTP scheduling. Any later measurements must be reported separately. Fixed 4 is a conservative zero429 reference for a phase whose capacity drops to 4; a faster fixed run with hundreds of rejections is not automatically an acceptable load-matched baseline. Adaptive transient feedback can still produce 429s, so fewer 429s alone does not prove it is best.
+The historical matrix below compares fixed caps 4/8/16/32/48/64 and adaptive ceilings 32/64; its `adaptive32`/`adaptive64` labels retain the original names. Current benchmark cases `adaptive_http_ceiling32`, `adaptive_http_ceiling64`, and `adaptive_http_unlimited` inject synthetic constructor settings with fixed worker supply to isolate HTTP feedback; they do not represent explicit `--concurrency-http`, which now fixes HTTP admission. The `adaptive_concurrency` case exercises the public flag alone with automatic target/page/HTTP scheduling. Any later measurements must be reported separately. Fixed 4 is a conservative zero429 reference for a phase whose capacity drops to 4; a faster fixed run with hundreds of rejections is not automatically an acceptable load-matched baseline. Adaptive transient feedback can still produce 429s, so fewer 429s alone does not prove it is best.
 
 Each final comparison uses five repeats. The command benchmark includes command construction, first-page discovery and final output; the separate fresh-process benchmark uses the test executable as a CLI helper, not a release binary. In-process runs can reuse the shared default HTTP transport; the helper process starts with a fresh client transport. Allocation numbers for that process benchmark cover the parent harness, not child RSS. Results do not establish real-service capacity.
 

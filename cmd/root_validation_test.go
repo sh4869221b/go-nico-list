@@ -16,8 +16,8 @@ func TestFlagValidation(t *testing.T) {
 		{"--dateafter=2025-01-01", "dateafter format error"},
 		{"--datebefore=2025-01-01", "datebefore format error"},
 		{"--min-interval=-1s", "min-interval must be at least 0"},
-		{"--concurrency=0", "concurrency must be at least 1"},
-		{"--page-concurrency=0", "page-concurrency must be at least 1"},
+		{"--concurrency-targets=0", "concurrency-targets must be at least 1"},
+		{"--concurrency-pages=0", "concurrency-pages must be at least 1"},
 	} {
 		t.Run(test.arg, func(t *testing.T) {
 			out, errOut, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), test.arg, "nicovideo.jp/user/1")

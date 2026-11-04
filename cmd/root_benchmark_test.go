@@ -19,7 +19,7 @@ func BenchmarkBuildJSONOutputLarge(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		payload := buildJSONOutput(100, 100, 0, nil, targets, nil, len(outputIDs), outputIDs)
+		payload := buildJSONOutput(100, 100, 0, nil, targets, nil, outputIDs)
 		if payload.OutputCount != len(outputIDs) {
 			b.Fatalf("unexpected output_count: %d", payload.OutputCount)
 		}

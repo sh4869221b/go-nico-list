@@ -41,7 +41,6 @@ func buildJSONOutput(
 	invalidInputsList []string,
 	targetResults []targetResult,
 	errorsList []string,
-	outputCount int,
 	outputIDs []string,
 ) jsonOutputPayload {
 	targets := make([]targetResult, 0, len(targetResults))
@@ -49,7 +48,7 @@ func buildJSONOutput(
 		targets = append(targets, targetResult{
 			Type:  target.Type,
 			ID:    target.ID,
-			Items: normalizeOutputList(target.Items),
+			Items: append([]string{}, target.Items...),
 			Error: target.Error,
 		})
 	}
@@ -62,8 +61,8 @@ func buildJSONOutput(
 		Invalid:     append([]string{}, invalidInputsList...),
 		Targets:     targets,
 		Errors:      append([]string{}, errorsList...),
-		OutputCount: outputCount,
-		Items:       normalizeOutputList(outputIDs),
+		OutputCount: len(outputIDs),
+		Items:       append([]string{}, outputIDs...),
 	}
 }
 
@@ -99,13 +98,4 @@ func flattenTargetItemsByInputOrder(results []targetResult) []string {
 		outputIDs = append(outputIDs, result.Items...)
 	}
 	return outputIDs
-}
-
-// normalizeOutputList normalizes a list of output IDs.
-func normalizeOutputList(items []string) []string {
-	normalized := make([]string, 0, len(items))
-	for _, item := range items {
-		normalized = append(normalized, strings.TrimPrefix(item, nicoWatchURLPrefix))
-	}
-	return normalized
 }

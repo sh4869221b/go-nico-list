@@ -266,7 +266,6 @@ inputLoop:
 				invalidInputsList,
 				targetResults,
 				errorsList,
-				outputCount,
 				outputIDs,
 			)
 			outputErr = json.NewEncoder(out).Encode(jsonPayload)

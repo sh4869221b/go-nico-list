@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"context"
-	jsonv1 "encoding/json"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -270,8 +268,12 @@ inputLoop:
 				errorsList,
 				outputIDs,
 			)
-			// MarshalEncode preserves the trailing newline; v1 options preserve escaping and errors.
-			outputErr = json.MarshalEncode(jsontext.NewEncoder(out), jsonPayload, jsonv1.DefaultOptionsV1())
+			// Encode before writing so invalid strings cannot leave a partial JSON object.
+			jsonBytes, marshalErr := json.Marshal(jsonPayload)
+			outputErr = marshalErr
+			if outputErr == nil {
+				_, outputErr = out.Write(append(jsonBytes, '\n'))
+			}
 		} else if outputCount > 0 {
 			outputErr = writeLineOutput(out, outputIDs, cfg.URL)
 		}

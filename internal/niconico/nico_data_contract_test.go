@@ -1,7 +1,6 @@
 package niconico
 
 import (
-	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -16,7 +15,7 @@ func TestNicoDataContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var payload NicoData
-	if err := json.Unmarshal(raw, &payload, jsonv1.DefaultOptionsV1()); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if payload.Meta.Status != http.StatusOK {

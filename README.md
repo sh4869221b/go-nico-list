@@ -106,6 +106,7 @@ Notes:
 - `--dedupe` removes duplicate video IDs before sorting/output. With `--no-sort`, the first occurrence that reaches the writer is kept.
 - `--no-sort` is an unordered fast mode for line output: input target order, page order, and API item order are not guaranteed. Results are written as soon as target fetches finish.
 - `--json` emits a single JSON object to stdout. `--url` does not affect JSON `items`, and the summary still prints to stderr.
+- JSON processing requires Go 1.27 or newer and uses `encoding/json/v2` defaults. API field names are case-sensitive; duplicate keys, invalid UTF-8 and invalid timestamps fail decoding. Unknown fields are ignored. JSON output keeps empty arrays and a trailing newline, emits HTML-sensitive characters without extra escaping, and returns an encoding error with no JSON payload for invalid UTF-8 in output strings. Decode-error messages follow v2.
 - In JSON output, `targets` include `type` (`user` or `mylist`) and `id`, sorted by type and numeric id in ascending order.
 
 ## HTTP performance diagnostics

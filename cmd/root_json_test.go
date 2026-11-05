@@ -2,7 +2,8 @@ package cmd
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,31 +12,44 @@ import (
 	"testing"
 )
 
-func TestRunRootCmdJSONEncodingCompatibility(t *testing.T) {
-	for _, invalid := range []string{"invalid <>&\u2028\u2029", "invalid\xff"} {
-		cfg := newTestRootConfig()
-		cfg.JSONOutput = true
-		out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), invalid)
-		if err != nil {
-			t.Fatal(err)
+func TestRunRootCmdJSONV2Encoding(t *testing.T) {
+	const invalid = "invalid <>&\u2028\u2029"
+	cfg := newTestRootConfig()
+	cfg.JSONOutput = true
+	out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte(invalid)) || !bytes.HasSuffix(out.Bytes(), []byte("}\n")) || bytes.Count(out.Bytes(), []byte("\n")) != 1 {
+		t.Fatalf("expected v2 escaping and one trailing newline, got %q", out.Bytes())
+	}
+	var fields map[string]jsontext.Value
+	if err := json.Unmarshal(out.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"targets", "errors", "items"} {
+		if string(fields[name]) != "[]" {
+			t.Fatalf("%s must remain an empty array, got %s", name, fields[name])
 		}
-		var want bytes.Buffer
-		payload := buildJSONOutput(1, 0, 1, []string{invalid}, nil, nil, nil)
-		if err := json.NewEncoder(&want).Encode(payload); err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(out.Bytes(), want.Bytes()) {
-			t.Fatalf("JSON encoding changed: got %q, want %q", out.Bytes(), want.Bytes())
-		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(out.Bytes(), &fields); err != nil {
-			t.Fatal(err)
-		}
-		for _, name := range []string{"targets", "errors", "items"} {
-			if string(fields[name]) != "[]" {
-				t.Fatalf("%s must remain an empty array, got %s", name, fields[name])
-			}
-		}
+	}
+	var inputs []string
+	if err := json.Unmarshal(fields["invalid"], &inputs); err != nil || len(inputs) != 1 || inputs[0] != invalid {
+		t.Fatalf("invalid inputs changed: %v, %v", inputs, err)
+	}
+}
+
+func TestRunRootCmdJSONRejectsInvalidUTF8WithoutPartialOutput(t *testing.T) {
+	cfg := newTestRootConfig()
+	cfg.JSONOutput = true
+	out, errOut, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "invalid\xff")
+	if err == nil {
+		t.Fatal("expected v2 encoding error for invalid UTF-8")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("encoding failure wrote a partial JSON object: %q", out.Bytes())
+	}
+	if !strings.Contains(errOut.String(), "summary inputs=1 valid=0 invalid=1") {
+		t.Fatalf("missing stderr summary: %q", errOut.String())
 	}
 }
 
@@ -64,7 +78,7 @@ func TestRunRootCmdJSONOutput(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to parse JSON output: %v", err)
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(out.Bytes(), &fields); err != nil {
 		t.Fatal(err)
 	}

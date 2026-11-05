@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -268,7 +270,8 @@ inputLoop:
 				errorsList,
 				outputIDs,
 			)
-			outputErr = json.NewEncoder(out).Encode(jsonPayload)
+			// MarshalEncode preserves the trailing newline; v1 options preserve escaping and errors.
+			outputErr = json.MarshalEncode(jsontext.NewEncoder(out), jsonPayload, jsonv1.DefaultOptionsV1())
 		} else if outputCount > 0 {
 			outputErr = writeLineOutput(out, outputIDs, cfg.URL)
 		}

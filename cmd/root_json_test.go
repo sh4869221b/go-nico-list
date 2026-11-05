@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,34 @@ import (
 	"sync"
 	"testing"
 )
+
+func TestRunRootCmdJSONEncodingCompatibility(t *testing.T) {
+	for _, invalid := range []string{"invalid <>&\u2028\u2029", "invalid\xff"} {
+		cfg := newTestRootConfig()
+		cfg.JSONOutput = true
+		out, _, err := executeTestRootCommand(t, cfg, newTestRootDeps(), invalid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want bytes.Buffer
+		payload := buildJSONOutput(1, 0, 1, []string{invalid}, nil, nil, nil)
+		if err := json.NewEncoder(&want).Encode(payload); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(out.Bytes(), want.Bytes()) {
+			t.Fatalf("JSON encoding changed: got %q, want %q", out.Bytes(), want.Bytes())
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(out.Bytes(), &fields); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"targets", "errors", "items"} {
+			if string(fields[name]) != "[]" {
+				t.Fatalf("%s must remain an empty array, got %s", name, fields[name])
+			}
+		}
+	}
+}
 
 func TestRunRootCmdJSONOutput(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

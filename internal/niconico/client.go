@@ -2,7 +2,8 @@ package niconico
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -64,8 +65,9 @@ func GetMylistVideoList(
 }
 
 func parseUserVideoPage(body []byte) (parsedPage, error) {
+	// Preserve accepted API payloads and decode errors while using the v2 API.
 	var nicoData NicoData
-	if err := json.Unmarshal(body, &nicoData); err != nil {
+	if err := json.Unmarshal(body, &nicoData, jsonv1.DefaultOptionsV1()); err != nil {
 		return parsedPage{}, err
 	}
 	items := make([]videoItem, 0, len(nicoData.Data.Items))
@@ -101,7 +103,7 @@ func parseMylistPage(body []byte) (parsedPage, error) {
 			} `json:"mylist"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := json.Unmarshal(body, &payload, jsonv1.DefaultOptionsV1()); err != nil {
 		return parsedPage{}, err
 	}
 	items := make([]videoItem, 0, len(payload.Data.Mylist.Items))

@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -268,7 +268,12 @@ inputLoop:
 				errorsList,
 				outputIDs,
 			)
-			outputErr = json.NewEncoder(out).Encode(jsonPayload)
+			// Encode before writing so invalid strings cannot leave a partial JSON object.
+			jsonBytes, marshalErr := json.Marshal(jsonPayload)
+			outputErr = marshalErr
+			if outputErr == nil {
+				_, outputErr = out.Write(append(jsonBytes, '\n'))
+			}
 		} else if outputCount > 0 {
 			outputErr = writeLineOutput(out, outputIDs, cfg.URL)
 		}

@@ -3,7 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -478,7 +479,7 @@ type httpCommandMetricEvent struct {
 			Counters map[string]int64 `json:"counters"`
 		} `json:"metrics"`
 	} `json:"http"`
-	RawHTTP json.RawMessage `json:"-"`
+	RawHTTP jsontext.Value `json:"-"`
 }
 
 func httpMetricEvents(tb testing.TB, logs string) []httpCommandMetricEvent {
@@ -489,8 +490,8 @@ func httpMetricEvents(tb testing.TB, logs string) []httpCommandMetricEvent {
 			continue
 		}
 		var envelope struct {
-			Message string          `json:"msg"`
-			HTTP    json.RawMessage `json:"http"`
+			Message string         `json:"msg"`
+			HTTP    jsontext.Value `json:"http"`
 		}
 		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
 			tb.Fatalf("invalid log event: %v: %s", err, line)

@@ -99,6 +99,9 @@ main.go
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
     - `output_count` uses the actual emitted count.
+  - JSON processing uses `encoding/json/v2` defaults without v1 compatibility options (Go 1.27 or newer).
+    - API field names match JSON tags exactly; unmatched fields are ignored. Duplicate object names, invalid UTF-8 and invalid timestamps are decode errors. JSON null resets the corresponding Go value; missing/null/empty item lists yield an empty page.
+    - JSON output retains its schema, non-null empty arrays and trailing newline. HTML-sensitive characters and U+2028/U+2029 are emitted without extra escaping. Encoding errors (including invalid UTF-8 in input/error strings) return a non-zero result and write no JSON payload; stderr still receives the run summary. Decode-error text follows v2 and can appear in partial-result error fields.
   - `--json` emits a minimal schema to stdout (single JSON object; line output is disabled).
     - Summary still prints to stderr.
     - Schema:

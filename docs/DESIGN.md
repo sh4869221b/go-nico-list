@@ -159,9 +159,10 @@ main.go
 ### Retry (`internal/niconico.retriesRequest`)
 - Retry on anything other than HTTP 200/404.
 - When retries are exhausted and the final status is not 200/404, return an error and do not return a closed body.
-- Exponential backoff starting at `100ms`, max `30s`.
+- Exponential backoff starting at `100ms`, max `30s`, including arbitrarily large retry counts.
 - Skip backoff sleep after the final attempt; backoff sleep is canceled by `ctx.Done()`.
 - Apply global rate limiting before each request (including retries).
+- Rate intervals beyond the `time.Duration` range saturate at its maximum; a small positive rate must never disable pacing.
 - When both `--rate-limit` and `--min-interval` are set, use the stricter limit (max of `min-interval` and `1/rate-limit`).
 - On HTTP 429 with `Retry-After`, wait for the longer of `Retry-After` and the computed backoff/interval delay.
 

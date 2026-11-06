@@ -22,7 +22,10 @@ var (
 
 // nextRetryDelay calculates the next backoff delay, honoring Retry-After when larger.
 func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
-	wait := min(retryBaseDelay*time.Duration(1<<uint(attempt-1)), retryMaxDelay)
+	wait := retryBaseDelay
+	for i := 1; i < attempt && wait < retryMaxDelay; i++ {
+		wait = min(wait*2, retryMaxDelay)
+	}
 	return max(retryAfter, wait)
 }
 

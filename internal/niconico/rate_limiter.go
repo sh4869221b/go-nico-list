@@ -2,6 +2,7 @@ package niconico
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 )
@@ -18,7 +19,10 @@ func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
 	interval := time.Duration(0)
 	if rateLimit > 0 {
 		seconds := float64(time.Second) / rateLimit
-		if seconds < float64(time.Nanosecond) {
+		if seconds >= float64(math.MaxInt64) {
+			// float64(MaxInt64) rounds up to 2^63, outside Duration's range.
+			interval = time.Duration(math.MaxInt64)
+		} else if seconds < float64(time.Nanosecond) {
 			interval = time.Nanosecond
 		} else {
 			interval = time.Duration(seconds)

@@ -151,6 +151,7 @@ main.go
   - `registeredAt` <= `datebefore` (inclusive via an exclusive upper bound: `registeredAt < beforeDate.AddDate(0,0,1)`)
 - An empty page or HTTP 404 stops fetching and returns the IDs accumulated so far.
 - `context.Canceled/DeadlineExceeded` returns empty result without error.
+- Successful response bodies are limited to 8 MiB (8,388,608 bytes), after automatic HTTP gzip decompression. Read at most the limit plus one byte; reject larger bodies before JSON decoding with `response body exceeds 8 MiB limit`, close the body and propagate a fetch error without retrying the successful HTTP status. This applies to user and mylist pages regardless of Content-Length or chunked transfer. Existing partial-result, cancellation, metrics and best-effort behavior applies. This bounds individual body buffering, not total process memory or JSON-decoding allocations.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings and treated as successful responses.
 - Returned IDs are raw `sm*` values (no output-formatting prefix).
 - On errors during fetch, return partial results plus error (caller logs and continues).

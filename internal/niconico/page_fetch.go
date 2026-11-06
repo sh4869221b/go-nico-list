@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// maxPageBodyBytes allows generous metadata for a 100-item API page while
+// bounding buffering even when Content-Length is absent or gzip is expanded.
+const maxPageBodyBytes = 8 << 20
+
+var errPageBodyTooLarge = errors.New("response body exceeds 8 MiB limit")
+
 type parsedPage struct {
 	Items      []videoItem
 	Status     int
@@ -55,7 +61,10 @@ func fetchPage(
 	if metrics != nil {
 		started = time.Now()
 	}
-	body, err := io.ReadAll(res.Body)
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxPageBodyBytes+1))
+	if len(body) > maxPageBodyBytes {
+		err = errPageBodyTooLarge
+	}
 	if metrics != nil {
 		metrics.observe("body_read", time.Since(started))
 		metrics.addCounter("body_bytes", int64(len(body)))

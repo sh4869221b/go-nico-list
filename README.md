@@ -94,6 +94,7 @@ Notes:
 - Each target is fetched without a user-configurable page or video limit until the API's natural termination condition.
 - When the API reports `totalCount`, page 1 defines a bounded page range and the page concurrency setting controls concurrent requests for the remaining pages. `--concurrency-adaptive` adjusts this setting unless `--concurrency-pages` is explicitly provided. When `totalCount` is unavailable, pages are fetched sequentially until an empty page or HTTP 404.
 - There are no replacement fetch limits. Large targets can therefore take longer, issue more requests, and produce more output; global rate limiting, retry handling, and context cancellation still apply.
+- Successful API response bodies are limited to 8 MiB after automatic gzip decompression. Larger responses fail with `response body exceeds 8 MiB limit` without decoding or retrying that page; previously collected results and `--best-effort` follow the usual fetch-error behavior. This is a per-response buffer limit, not a total memory cap.
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
 - `--concurrency-pages` controls concurrent page requests inside each input target only when the API reports `totalCount`. In fixed mode without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency-targets * --concurrency-pages` in that bounded-page path.

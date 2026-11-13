@@ -2,7 +2,7 @@ module github.com/sh4869221b/go-nico-list
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/schollz/progressbar/v3 v3.19.1

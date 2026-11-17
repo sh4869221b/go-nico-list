@@ -330,6 +330,27 @@ func (p *httpTracePending) pop() (time.Time, bool) {
 	return started, active
 }
 
+// startPhase records a DNS or TLS start while the request trace is active.
+func (t *httpTraceTimes) startPhase(phase *httpTracePending, m *HTTPMetrics, now func() time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.stopped {
+		m.addCounter("trace_dropped", phase.add(now()))
+	}
+}
+
+// finishPhase records elapsed time for a matching start while the trace is active.
+func (t *httpTraceTimes) finishPhase(phase *httpTracePending, m *HTTPMetrics, now func() time.Time, name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		return
+	}
+	if started, ok := phase.pop(); ok {
+		m.observe(name, now().Sub(started))
+	}
+}
+
 // trace builds a separate race-safe trace for each application attempt. Go may
 // invoke hooks after Do has returned or concurrently with other hooks. Calling
 // finalize at body-close completion (or transport failure) stops those late
@@ -370,23 +391,8 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 			}
 			m.mu.Unlock()
 		},
-		DNSStart: func(httptrace.DNSStartInfo) {
-			times.mu.Lock()
-			defer times.mu.Unlock()
-			if !times.stopped {
-				m.addCounter("trace_dropped", times.dns.add(now()))
-			}
-		},
-		DNSDone: func(httptrace.DNSDoneInfo) {
-			times.mu.Lock()
-			defer times.mu.Unlock()
-			if times.stopped {
-				return
-			}
-			if started, ok := times.dns.pop(); ok {
-				m.observe("dns", now().Sub(started))
-			}
-		},
+		DNSStart: func(httptrace.DNSStartInfo) { times.startPhase(&times.dns, m, now) },
+		DNSDone:  func(httptrace.DNSDoneInfo) { times.finishPhase(&times.dns, m, now, "dns") },
 		ConnectStart: func(network, address string) {
 			times.mu.Lock()
 			defer times.mu.Unlock()
@@ -423,23 +429,8 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 				m.observe("connect", now().Sub(started))
 			}
 		},
-		TLSHandshakeStart: func() {
-			times.mu.Lock()
-			defer times.mu.Unlock()
-			if !times.stopped {
-				m.addCounter("trace_dropped", times.tls.add(now()))
-			}
-		},
-		TLSHandshakeDone: func(tls.ConnectionState, error) {
-			times.mu.Lock()
-			defer times.mu.Unlock()
-			if times.stopped {
-				return
-			}
-			if started, ok := times.tls.pop(); ok {
-				m.observe("tls", now().Sub(started))
-			}
-		},
+		TLSHandshakeStart: func() { times.startPhase(&times.tls, m, now) },
+		TLSHandshakeDone:  func(tls.ConnectionState, error) { times.finishPhase(&times.tls, m, now, "tls") },
 		GotFirstResponseByte: func() {
 			times.mu.Lock()
 			defer times.mu.Unlock()

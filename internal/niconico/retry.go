@@ -38,15 +38,14 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 	req.Header.Set("X-Frontend-Id", "6")
 	req.Header.Set("Accept", "*/*")
 	client := &http.Client{Timeout: httpClientTimeout}
+	adaptive := control != nil && control.adaptive != nil
 
 	var lastErr error
-
-	delay := time.Duration(0)
+	var delay time.Duration
 	var adaptiveRetryAt time.Time
 	for attempt := 1; attempt <= retries; attempt++ {
 		var res *http.Response
-		var err error
-		if control != nil && control.adaptive != nil {
+		if adaptive {
 			res, err = adaptiveHTTPAttempt(client, req, attempt, adaptiveRetryAt, limiter, control)
 			adaptiveRetryAt = time.Time{}
 		} else {
@@ -81,7 +80,7 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 		}
 
 		delay = nextRetryDelay(delay, attempt)
-		if control != nil && control.adaptive != nil && adaptiveRetryAt.IsZero() {
+		if adaptive && adaptiveRetryAt.IsZero() {
 			adaptiveRetryAt = timeNow().Add(delay)
 		}
 	}

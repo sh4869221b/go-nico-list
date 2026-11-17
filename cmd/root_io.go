@@ -10,16 +10,16 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
 // inputStream bundles input channels and total count metadata.
 type inputStream struct {
-	inputs     <-chan string
-	errs       <-chan error
-	totalKnown bool
-	total      int64
+	inputs        <-chan string
+	errs          <-chan error
+	progressTotal int64
 }
 
 // onceReadCloser ensures shared cancellation and cleanup paths close a reader once.
@@ -35,6 +35,16 @@ func (r *onceReadCloser) Close() error {
 		r.closeErr = r.ReadCloser.Close()
 	})
 	return r.closeErr
+}
+
+// newInputProgress creates the progress bar with the writer selected by the visibility flags.
+func newInputProgress(total int64, errWriter io.Writer, cfg *RootConfig, deps RootDeps) *progressbar.ProgressBar {
+	visible := shouldShowProgressWithConfig(errWriter, cfg, deps)
+	writer := errWriter
+	if !visible {
+		writer = io.Discard
+	}
+	return deps.ProgressBarNew(total, writer, visible)
 }
 
 func shouldShowProgressWithConfig(errWriter io.Writer, cfg *RootConfig, deps RootDeps) bool {
@@ -53,8 +63,10 @@ func defaultIsTerminal(w io.Writer) bool {
 func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) inputStream {
 	out := make(chan string)
 	errCh := make(chan error, 1)
-	totalKnown := cfg.InputFilePath == "" && !cfg.ReadStdin
-	total := int64(len(args))
+	progressTotal := int64(len(args))
+	if cfg.InputFilePath != "" || cfg.ReadStdin {
+		progressTotal = -1
+	}
 
 	go func() {
 		defer close(out)
@@ -92,10 +104,9 @@ func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []stri
 	}()
 
 	return inputStream{
-		inputs:     out,
-		errs:       errCh,
-		totalKnown: totalKnown,
-		total:      total,
+		inputs:        out,
+		errs:          errCh,
+		progressTotal: progressTotal,
 	}
 }
 

@@ -5,6 +5,12 @@ import (
 	"io"
 )
 
+// outputWriteResult records the output count reported in the summary and any write error.
+type outputWriteResult struct {
+	count int
+	err   error
+}
+
 // writeLineOutput writes line output directly without building a joined string.
 func writeLineOutput(out io.Writer, items []string, withURL bool) error {
 	writer := bufio.NewWriter(out)

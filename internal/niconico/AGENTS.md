@@ -8,7 +8,8 @@ Scope: files under `internal/niconico/`.
 - Public entry points are `GetVideoList`, `GetMylistVideoList`, `NiconicoSort`, `NewRateLimiter`, and `RateLimiter.Wait`.
 
 ## Key Files
-- `client.go`: user/mylist fetch entry points, shared collection loop, retry/backoff, `Retry-After`, rate limiting, response body handling, and sorting.
+- `client.go` builds user and mylist requests. `collection.go` schedules pages, filters items, and assembles partial results in page order.
+- `page_fetch.go` reads and checks each response. `retry.go` handles backoff and `Retry-After`, `rate_limiter.go` paces requests, and `sort.go` orders video IDs.
 - `nico_data.go`: decode target for user-video API responses and fixture contract tests.
 - `client_test.go`: low-level behavior coverage for fetch, retry, backoff, cancellation, timeout, 404 handling, and rate limiting.
 - `nico_data_contract_test.go`: fixture-backed API shape contract.

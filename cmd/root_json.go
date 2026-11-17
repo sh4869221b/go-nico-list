@@ -35,9 +35,7 @@ type jsonOutputPayload struct {
 
 // buildJSONOutput assembles the JSON payload from run results.
 func buildJSONOutput(
-	totalInputs int64,
-	validInputs int64,
-	invalidInputs int64,
+	inputs jsonInputs,
 	invalidInputsList []string,
 	targetResults []targetResult,
 	errorsList []string,
@@ -53,11 +51,7 @@ func buildJSONOutput(
 		})
 	}
 	return jsonOutputPayload{
-		Inputs: jsonInputs{
-			Total:   totalInputs,
-			Valid:   validInputs,
-			Invalid: invalidInputs,
-		},
+		Inputs:      inputs,
 		Invalid:     append([]string{}, invalidInputsList...),
 		Targets:     targets,
 		Errors:      append([]string{}, errorsList...),

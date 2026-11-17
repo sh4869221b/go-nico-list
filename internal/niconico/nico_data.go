@@ -1,6 +1,9 @@
 package niconico
 
-import "time"
+import (
+	"encoding/json/v2"
+	"time"
+)
 
 // NicoData represents the niconico API response payload.
 type NicoData struct {
@@ -52,4 +55,80 @@ type NicoData struct {
 			} `json:"essential"`
 		} `json:"items"`
 	} `json:"data"`
+}
+
+// videoItem holds the common fields needed to filter user and mylist entries.
+type videoItem struct {
+	ID           string
+	CommentCount int
+	RegisteredAt time.Time
+}
+
+// parseUserVideoPage extracts video items and pagination metadata from a user response.
+func parseUserVideoPage(body []byte) (parsedPage, error) {
+	var nicoData NicoData
+	if err := json.Unmarshal(body, &nicoData); err != nil {
+		return parsedPage{}, err
+	}
+	items := make([]videoItem, 0, len(nicoData.Data.Items))
+	for _, item := range nicoData.Data.Items {
+		items = append(items, videoItem{
+			ID:           item.Essential.ID,
+			CommentCount: item.Essential.Count.Comment,
+			RegisteredAt: item.Essential.RegisteredAt,
+		})
+	}
+	return parsedPage{
+		Items:      items,
+		Status:     nicoData.Meta.Status,
+		TotalCount: nicoData.Data.TotalCount,
+	}, nil
+}
+
+// parseMylistPage extracts videos and resolves the alternative total-count fields in a mylist response.
+func parseMylistPage(body []byte) (parsedPage, error) {
+	var payload struct {
+		Meta struct {
+			Status int `json:"status"`
+		} `json:"meta"`
+		Data struct {
+			TotalCount *int `json:"totalCount"`
+			Mylist     struct {
+				TotalCount     *int `json:"totalCount"`
+				TotalItemCount *int `json:"totalItemCount"`
+				Items          []struct {
+					Video struct {
+						ID           string    `json:"id"`
+						RegisteredAt time.Time `json:"registeredAt"`
+						Count        struct {
+							Comment int `json:"comment"`
+						} `json:"count"`
+					} `json:"video"`
+				} `json:"items"`
+			} `json:"mylist"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return parsedPage{}, err
+	}
+	items := make([]videoItem, 0, len(payload.Data.Mylist.Items))
+	for _, item := range payload.Data.Mylist.Items {
+		items = append(items, videoItem{
+			ID:           item.Video.ID,
+			CommentCount: item.Video.Count.Comment,
+			RegisteredAt: item.Video.RegisteredAt,
+		})
+	}
+	totalCount := payload.Data.Mylist.TotalCount
+	if totalCount == nil {
+		totalCount = payload.Data.Mylist.TotalItemCount
+	}
+	if totalCount == nil {
+		totalCount = payload.Data.TotalCount
+	}
+	return parsedPage{
+		Items:      items,
+		Status:     payload.Meta.Status,
+		TotalCount: totalCount,
+	}, nil
 }

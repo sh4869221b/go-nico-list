@@ -126,13 +126,25 @@ func (w *adaptiveWindow) snapshot() AdaptiveWindowSnapshot {
 		p95 := w.p95().Seconds()
 		s.P95Seconds = &p95
 	}
-	if w.eligible > 0 {
-		s.Utilization = w.saturation / float64(w.eligible)
-	}
-	if total := w.serviceSeconds + w.rateSeconds; total > 0 {
-		s.RateWaitFraction = w.rateSeconds / total
-	}
+	s.Utilization = w.utilization()
+	s.RateWaitFraction = w.rateWaitFraction()
 	return s
+}
+
+// utilization returns the mean fraction of HTTP capacity in use at eligible completions.
+func (w *adaptiveWindow) utilization() float64 {
+	if w.eligible == 0 {
+		return 0
+	}
+	return w.saturation / float64(w.eligible)
+}
+
+// rateWaitFraction reports the share of observed time spent waiting for rate permission.
+func (w *adaptiveWindow) rateWaitFraction() float64 {
+	if total := w.serviceSeconds + w.rateSeconds; total > 0 {
+		return w.rateSeconds / total
+	}
+	return 0
 }
 
 func (w *adaptiveWindow) p95() time.Duration {
@@ -211,9 +223,7 @@ func (a *adaptiveController) observe(now time.Time, sample adaptiveSample, load 
 			return
 		}
 		// A one-second window cannot contain 20 sequential 100ms successes.
-		// Retain this bounded, fresh population until it is adequate, instead
-		// of trapping low concurrency in insufficient_samples forever. These
-		// are nonoverlapping windows: retained observations earn credit once.
+		// Keep sparse observations until they qualify or reach the freshness limit.
 		if a.window.eligible < adaptiveMinimumSamples && elapsed.Seconds() < a.windowFreshSeconds() {
 			return
 		}
@@ -253,16 +263,7 @@ func (a *adaptiveController) evaluate(now time.Time) {
 		a.baseline, a.hasBaseline = p95, true
 	}
 	if float64(p95) > 1.5*float64(a.baseline) {
-		a.healthyWindows = 0
-		a.slowWindows++
-		if a.rebaselineAtFloor(now, p95) {
-			return
-		}
-		if a.slowWindows >= 2 {
-			a.decrease(now, "latency")
-		} else {
-			a.record(now, a.limit, "latency")
-		}
+		a.observeHighLatency(now, p95)
 		return
 	}
 	a.slowWindows, a.floorWindows = 0, 0
@@ -270,12 +271,11 @@ func (a *adaptiveController) evaluate(now time.Time) {
 	if a.window.overloads == 0 && p95 < a.baseline {
 		a.baseline -= (a.baseline - p95) / 5
 	}
-	window := a.window.snapshot()
-	if window.RateWaitFraction > 0.1 {
+	if a.window.rateWaitFraction() > 0.1 {
 		a.hold(now, "rate_limited")
 		return
 	}
-	if a.load.Pending <= 0 || window.Utilization < 0.8 {
+	if a.load.Pending <= 0 || a.window.utilization() < 0.8 {
 		a.hold(now, "scheduler_limited")
 		return
 	}
@@ -285,6 +285,25 @@ func (a *adaptiveController) evaluate(now time.Time) {
 		a.hold(now, "retry_pressure")
 		return
 	}
+	a.observeHealthyWindow(now)
+}
+
+// observeHighLatency tracks consecutive slow windows before reducing concurrency or resetting the baseline.
+func (a *adaptiveController) observeHighLatency(now time.Time, p95 time.Duration) {
+	a.healthyWindows = 0
+	a.slowWindows++
+	if a.rebaselineAtFloor(now, p95) {
+		return
+	}
+	if a.slowWindows >= 2 {
+		a.decrease(now, "latency")
+	} else {
+		a.record(now, a.limit, "latency")
+	}
+}
+
+// observeHealthyWindow increases concurrency once enough healthy windows and time have elapsed.
+func (a *adaptiveController) observeHealthyWindow(now time.Time) {
 	a.healthyWindows = min(a.healthyWindows+1, 2)
 	if a.healthyWindows < 2 || now.Sub(a.lastChange) < adaptiveDecisionInterval {
 		reason := "healthy"
@@ -324,19 +343,24 @@ func (a *adaptiveController) evaluate(now time.Time) {
 
 func (a *adaptiveController) decrease(now time.Time, reason string) {
 	a.healthyWindows = 0
+	from := a.limit
 	if a.limit > 1 && now.Sub(a.lastChange) >= adaptiveDecisionInterval {
-		from := a.limit
-		a.limit = max(1, a.limit/2)
-		a.pressureCutoff, a.hasPressureCutoff = a.generation, true
-		a.generation++
-		a.decreases++
-		a.lastChange = now
+		a.applyPressure(now)
 		a.slowWindows, a.floorWindows = 0, 0
 		a.recovering = true
-		a.record(now, from, reason)
-		return
 	}
-	a.record(now, a.limit, reason)
+	a.record(now, from, reason)
+}
+
+// applyPressure halves the limit down to one and starts a new observation generation.
+func (a *adaptiveController) applyPressure(now time.Time) {
+	if a.limit > 1 {
+		a.limit /= 2
+		a.decreases++
+	}
+	a.pressureCutoff, a.hasPressureCutoff = a.generation, true
+	a.generation++ // A new 429 episode also invalidates observations at the floor.
+	a.lastChange = now
 }
 
 func (a *adaptiveController) rebaselineAtFloor(now time.Time, p95 time.Duration) bool {
@@ -392,13 +416,7 @@ func (a *adaptiveController) throttle(now time.Time, generation uint64, delay ti
 	a.resetWindow(now)
 	from := a.limit
 	if !a.hasPressureCutoff || generation > a.pressureCutoff {
-		a.limit = max(1, a.limit/2)
-		a.pressureCutoff, a.hasPressureCutoff = a.generation, true
-		a.generation++ // Also invalidates observations when already at the floor.
-		a.lastChange = now
-		if a.limit < from {
-			a.decreases++
-		}
+		a.applyPressure(now)
 	}
 	a.recoveryStarts = a.limit
 	a.record(now, from, "http_429")

@@ -11,7 +11,7 @@
 | Runner | `root_run.go` | Validation, goroutine fan-out, fetch aggregation, summary, output, final error. |
 | Input targets | `input_target.go` | Partial-match user/mylist regexes and named submatch extraction. |
 | Input streams/progress | `root_io.go` | Args/input-file/stdin merge, scanner limit, progress auto-disable. |
-| JSON output | `root_json.go` | JSON schema, target ordering, normalized item output. |
+| Buffered output | `root_buffered_output.go`, `root_json.go` | Concurrent result collection, sorted line output, JSON schema, and target ordering. |
 | Test harness | `root_test_helpers_test.go` | Shared `httptest`, command runner, buffers, fake readers/writers. |
 
 ## BOUNDARIES

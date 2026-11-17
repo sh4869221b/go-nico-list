@@ -26,8 +26,8 @@ go-nico-list/
 | Flags and defaults | `cmd/root_config.go` | `RootConfig`, `RootDeps`, `NewRootCommand`, normalization. |
 | Runtime flow | `cmd/root_run.go` | validation, input stream, goroutines, summary, output, error selection. |
 | Input parsing | `cmd/input_target.go`, `cmd/root_io.go` | URL regexes, stdin/input-file scanner, progress gating. |
-| JSON output | `cmd/root_json.go` | target ordering, flattened items, and `--url` exclusion from JSON. |
-| API/domain logic | `internal/niconico/client.go` | fetch, pagination, retry, rate limit, response evaluation, sorting. |
+| Buffered output | `cmd/root_buffered_output.go`, `cmd/root_json.go` | Sorted lines, JSON assembly, target ordering, and flattened items. |
+| API entry points and pagination | `internal/niconico/client.go`, `internal/niconico/collection.go` | User/mylist endpoints, page scheduling, filtering, and partial results. |
 | API schema | `internal/niconico/nico_data.go` | `NicoData` decode target for fixtures and live API responses. |
 | Current behavior spec | `docs/DESIGN.md` | Update before user-facing/design-boundary implementation and get explicit OK. |
 | User docs | `README.md`, `docs/README.ja.md` | Update when user-facing behavior changes. |
@@ -47,10 +47,10 @@ go-nico-list/
 | `parseInputTarget` | function | `cmd/input_target.go` | Extracts first matching niconico user/mylist target. |
 | `GetVideoList` | function | `internal/niconico/client.go` | Fetches filtered user video IDs. |
 | `GetMylistVideoList` | function | `internal/niconico/client.go` | Fetches filtered mylist video IDs. |
-| `collectVideoList` | function | `internal/niconico/client.go` | Shared uncapped pagination and filtering loop. |
-| `retriesRequest` | function | `internal/niconico/client.go` | HTTP retry, rate-limit, timeout, and retry-after handling. |
-| `NiconicoSort` | function | `internal/niconico/client.go` | Sorts raw `sm*` IDs by numeric part. |
-| `RateLimiter.Wait` | method | `internal/niconico/client.go` | Global request pacing across concurrent fetches and retries. |
+| `collectVideoList` | function | `internal/niconico/collection.go` | Shared uncapped pagination and filtering loop. |
+| `retriesRequest` | function | `internal/niconico/retry.go` | HTTP retry, rate-limit, timeout, and retry-after handling. |
+| `NiconicoSort` | function | `internal/niconico/sort.go` | Sorts raw `sm*` IDs by numeric part. |
+| `RateLimiter.Wait` | method | `internal/niconico/rate_limiter.go` | Global request pacing across concurrent fetches and retries. |
 
 ## DEVELOPMENT RULES
 - Use `branch-helper` for repository-modifying tasks unless explicitly told otherwise.

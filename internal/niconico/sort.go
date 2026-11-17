@@ -28,6 +28,10 @@ func videoIDSortText(id string) string {
 	if len(id) >= 2 {
 		text = id[2:]
 	}
+	// Only a leading zero can change the sort key.
+	if len(text) < 2 || text[0] != '0' {
+		return text
+	}
 	for i := range text {
 		if text[i] < '0' || text[i] > '9' {
 			return text

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,11 +18,17 @@ func BenchmarkNiconicoSort(b *testing.B) {
 	for i := range numeric {
 		numeric[i] = fmt.Sprintf("sm%d", 1000-i)
 	}
+	shuffled := make([]string, len(numeric))
+	rng := rand.New(rand.NewPCG(1, 2))
+	for i, n := range rng.Perm(len(shuffled)) {
+		shuffled[i] = fmt.Sprintf("sm%d", 40000000+n)
+	}
 	for _, tc := range []struct {
 		name string
 		base []string
 	}{
 		{name: "numeric", base: numeric},
+		{name: "shuffled", base: shuffled},
 		{name: "mixed", base: mixedSortIDs()},
 	} {
 		b.Run(tc.name, func(b *testing.B) {

@@ -40,7 +40,7 @@ main.go
   - Call into `internal/niconico` and aggregate results.
 - `internal/niconico/`:
   - API response types (`nico_data.go`).
-  - Domain logic for fetch/retry/sort on raw video IDs (`client.go`).
+  - Fetch entry points in `client.go`, pagination and filtering in `collection.go`, retry handling in `retry.go`, and raw ID sorting in `sort.go`.
 
 ## Documentation
 - `README.md` remains at the repository root.

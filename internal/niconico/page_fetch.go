@@ -33,7 +33,7 @@ func fetchPage(
 	logger *slog.Logger,
 	parsePage parsePageFunc,
 	control *HTTPControl,
-) (page parsedPage, retErr error) {
+) (_ parsedPage, retErr error) {
 	var metrics *HTTPMetrics
 	if control != nil {
 		metrics = control.metrics
@@ -83,7 +83,7 @@ func fetchPage(
 	if metrics != nil {
 		started = time.Now()
 	}
-	page, err = parsePage(body)
+	page, err := parsePage(body)
 	if metrics != nil {
 		metrics.observe("decode", time.Since(started))
 		if err != nil {
@@ -98,22 +98,4 @@ func fetchPage(
 		logger.Warn("unexpected meta status", "status", page.Status)
 	}
 	return page, nil
-}
-
-func filterItems(items []videoItem, commentCount int, afterDate time.Time, beforeDate time.Time) []string {
-	ids := make([]string, 0, len(items))
-	exclusiveBefore := beforeDate.AddDate(0, 0, 1)
-	for _, item := range items {
-		if item.CommentCount <= commentCount {
-			continue
-		}
-		if item.RegisteredAt.Before(afterDate) {
-			continue
-		}
-		if !item.RegisteredAt.Before(exclusiveBefore) {
-			continue
-		}
-		ids = append(ids, item.ID)
-	}
-	return ids
 }

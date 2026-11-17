@@ -2,20 +2,12 @@ package niconico
 
 import (
 	"context"
-	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 )
 
 const pageSize = 100
-
-type videoItem struct {
-	ID           string
-	CommentCount int
-	RegisteredAt time.Time
-}
 
 // GetVideoList retrieves video IDs for a user.
 func GetVideoList(
@@ -61,125 +53,4 @@ func GetMylistVideoList(
 		},
 		parseMylistPage, control,
 	)
-}
-
-func parseUserVideoPage(body []byte) (parsedPage, error) {
-	var nicoData NicoData
-	if err := json.Unmarshal(body, &nicoData); err != nil {
-		return parsedPage{}, err
-	}
-	items := make([]videoItem, 0, len(nicoData.Data.Items))
-	for _, s := range nicoData.Data.Items {
-		items = append(items, videoItem{ID: s.Essential.ID, CommentCount: s.Essential.Count.Comment, RegisteredAt: s.Essential.RegisteredAt})
-	}
-	return parsedPage{
-		Items:      items,
-		Status:     nicoData.Meta.Status,
-		TotalCount: nicoData.Data.TotalCount,
-	}, nil
-}
-
-func parseMylistPage(body []byte) (parsedPage, error) {
-	var payload struct {
-		Meta struct {
-			Status int `json:"status"`
-		} `json:"meta"`
-		Data struct {
-			TotalCount *int `json:"totalCount"`
-			Mylist     struct {
-				TotalCount     *int `json:"totalCount"`
-				TotalItemCount *int `json:"totalItemCount"`
-				Items          []struct {
-					Video struct {
-						ID           string    `json:"id"`
-						RegisteredAt time.Time `json:"registeredAt"`
-						Count        struct {
-							Comment int `json:"comment"`
-						} `json:"count"`
-					} `json:"video"`
-				} `json:"items"`
-			} `json:"mylist"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return parsedPage{}, err
-	}
-	items := make([]videoItem, 0, len(payload.Data.Mylist.Items))
-	for _, it := range payload.Data.Mylist.Items {
-		items = append(items, videoItem{ID: it.Video.ID, CommentCount: it.Video.Count.Comment, RegisteredAt: it.Video.RegisteredAt})
-	}
-	totalCount := payload.Data.Mylist.TotalCount
-	if totalCount == nil {
-		totalCount = payload.Data.Mylist.TotalItemCount
-	}
-	if totalCount == nil {
-		totalCount = payload.Data.TotalCount
-	}
-	return parsedPage{
-		Items:      items,
-		Status:     payload.Meta.Status,
-		TotalCount: totalCount,
-	}, nil
-}
-
-func collectVideoList(
-	ctx context.Context,
-	commentCount int,
-	afterDate time.Time,
-	beforeDate time.Time,
-	retries int,
-	httpClientTimeout time.Duration,
-	limiter *RateLimiter,
-	pageConcurrency int,
-	logger *slog.Logger,
-	requestURL func(page int) string,
-	parsePage parsePageFunc,
-	control *HTTPControl,
-) ([]string, error) {
-	if logger == nil {
-		logger = slog.Default()
-	}
-
-	firstPage, err := fetchPage(ctx, requestURL(1), httpClientTimeout, retries, limiter, logger, parsePage, control)
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if firstPage.NotFound || len(firstPage.Items) == 0 {
-		return nil, nil
-	}
-	resStr := filterItems(firstPage.Items, commentCount, afterDate, beforeDate)
-	if pageConcurrency == 1 || pageConcurrency < 0 || firstPage.TotalCount == nil {
-		for page := 2; ; page++ {
-			parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
-			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return nil, nil
-				}
-				return resStr, err
-			}
-			if parsed.NotFound || len(parsed.Items) == 0 {
-				return resStr, nil
-			}
-			resStr = append(resStr, filterItems(parsed.Items, commentCount, afterDate, beforeDate)...)
-		}
-	}
-	totalPages := 0
-	if *firstPage.TotalCount > 0 {
-		totalPages = 1 + (*firstPage.TotalCount-1)/pageSize
-	}
-	if totalPages <= 1 {
-		return resStr, nil
-	}
-	parallelIDs, err := collectPagesParallel(ctx, 2, totalPages, pageConcurrency, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, logger, requestURL, parsePage, control)
-	resStr = append(resStr, parallelIDs...)
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, nil
-		}
-		return resStr, err
-	}
-	return resStr, nil
 }

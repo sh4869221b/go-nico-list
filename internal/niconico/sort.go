@@ -1,21 +1,24 @@
 package niconico
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 const maxUint64Text = "18446744073709551615"
 
 // NiconicoSort sorts video IDs by their numeric part in ascending order.
-func NiconicoSort(slice []string) {
-	sort.Slice(slice, func(i, j int) bool {
-		left := videoIDSortText(slice[i])
-		right := videoIDSortText(slice[j])
-		if len(left) != len(right) {
-			return len(left) < len(right)
+func NiconicoSort(ids []string) {
+	slices.SortFunc(ids, func(a, b string) int {
+		left := videoIDSortText(a)
+		right := videoIDSortText(b)
+		if order := cmp.Compare(len(left), len(right)); order != 0 {
+			return order
 		}
-		if left != right {
-			return left < right
+		if order := cmp.Compare(left, right); order != 0 {
+			return order
 		}
-		return slice[i] < slice[j]
+		return cmp.Compare(a, b)
 	})
 }
 

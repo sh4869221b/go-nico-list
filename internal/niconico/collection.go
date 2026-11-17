@@ -2,33 +2,99 @@ package niconico
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
+// pageResult holds filtered IDs and the API state used to decide whether pagination should continue.
 type pageResult struct {
-	page      int
-	ids       []string
-	err       error
-	terminate bool
+	page       int
+	ids        []string
+	err        error
+	exhausted  bool
+	totalCount *int
 }
 
-func collectPagesParallel(
+// terminal reports whether an error, a missing page, or an empty API page ends collection.
+func (r pageResult) terminal() bool {
+	return r.err != nil || r.exhausted
+}
+
+// collectVideoList fetches and filters pages using the available total count and worker budget.
+func collectVideoList(
 	ctx context.Context,
-	startPage int,
-	endPage int,
-	pageConcurrency int,
 	commentCount int,
 	afterDate time.Time,
 	beforeDate time.Time,
 	retries int,
 	httpClientTimeout time.Duration,
 	limiter *RateLimiter,
+	pageConcurrency int,
 	logger *slog.Logger,
 	requestURL func(page int) string,
 	parsePage parsePageFunc,
+	control *HTTPControl,
+) ([]string, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	fetch := func(page int) pageResult {
+		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
+		result := pageResult{
+			page:       page,
+			err:        err,
+			exhausted:  parsed.NotFound || len(parsed.Items) == 0,
+			totalCount: parsed.TotalCount,
+		}
+		if !result.terminal() {
+			result.ids = filterItems(parsed.Items, commentCount, afterDate, beforeDate)
+		}
+		return result
+	}
+
+	first := fetch(1)
+	if first.terminal() {
+		return collectionResult(nil, first.err)
+	}
+	ids := first.ids
+	if pageConcurrency == 1 || pageConcurrency < 0 || first.totalCount == nil {
+		for page := 2; ; page++ {
+			result := fetch(page)
+			if result.terminal() {
+				return collectionResult(ids, result.err)
+			}
+			ids = append(ids, result.ids...)
+		}
+	}
+
+	totalCount := *first.totalCount
+	if totalCount <= pageSize {
+		return ids, nil
+	}
+	totalPages := 1 + (totalCount-1)/pageSize
+	parallelIDs, err := collectPagesParallel(ctx, 2, totalPages, pageConcurrency, fetch, control)
+	return collectionResult(append(ids, parallelIDs...), err)
+}
+
+// collectionResult suppresses canceled fetches and preserves partial results for other errors.
+func collectionResult(ids []string, err error) ([]string, error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return nil, nil
+	}
+	return ids, err
+}
+
+// collectPagesParallel fetches a bounded range and returns IDs preceding the earliest terminal page.
+func collectPagesParallel(
+	ctx context.Context,
+	startPage int,
+	endPage int,
+	pageConcurrency int,
+	fetch func(page int) pageResult,
 	control *HTTPControl,
 ) ([]string, error) {
 	gate := control.NewWorkerGate(pageConcurrency)
@@ -56,8 +122,8 @@ func collectPagesParallel(
 				if stopAt := stopBefore.Load(); stopAt > 0 && int64(page) >= stopAt {
 					return
 				}
-				parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
-				if err != nil || parsed.NotFound || len(parsed.Items) == 0 {
+				result := fetch(page)
+				if result.terminal() {
 					// Stop only new scheduling; lower outstanding pages still determine
 					// the ordered result and may supersede this terminal outcome.
 					for {
@@ -67,11 +133,11 @@ func collectPagesParallel(
 						}
 					}
 					stopScheduling()
-					results <- pageResult{page: page, err: err, terminate: err == nil}
+					results <- result
 					return
 				}
 				select {
-				case results <- pageResult{page: page, ids: filterItems(parsed.Items, commentCount, afterDate, beforeDate)}:
+				case results <- result:
 				case <-ctx.Done():
 				}
 			}(page)
@@ -83,35 +149,45 @@ func collectPagesParallel(
 	}()
 
 	idsByPage := make(map[int][]string)
-	var firstErr error
-	stopAtPage := 0
+	var terminal pageResult
 	for result := range results {
-		if result.err != nil {
-			if stopAtPage == 0 || result.page < stopAtPage {
-				stopAtPage = result.page
-				firstErr = result.err
-			}
-			continue
-		}
-		if result.terminate {
-			if stopAtPage == 0 || result.page < stopAtPage {
-				stopAtPage = result.page
-				firstErr = nil
+		if result.terminal() {
+			if terminal.page == 0 || result.page < terminal.page {
+				terminal = result
 			}
 			continue
 		}
 		idsByPage[result.page] = result.ids
 	}
-	if firstErr == nil && ctx.Err() != nil {
+	if terminal.err == nil && ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	var ids []string
-	for page := startPage; page <= endPage && (stopAtPage == 0 || page < stopAtPage); {
+	for page := startPage; page <= endPage && (terminal.page == 0 || page < terminal.page); {
 		ids = append(ids, idsByPage[page]...)
 		if page == endPage {
 			break
 		}
 		page++
 	}
-	return ids, firstErr
+	return ids, terminal.err
+}
+
+// filterItems keeps videos above the comment threshold within the inclusive date range.
+func filterItems(items []videoItem, commentCount int, afterDate time.Time, beforeDate time.Time) []string {
+	ids := make([]string, 0, len(items))
+	exclusiveBefore := beforeDate.AddDate(0, 0, 1)
+	for _, item := range items {
+		if item.CommentCount <= commentCount {
+			continue
+		}
+		if item.RegisteredAt.Before(afterDate) {
+			continue
+		}
+		if !item.RegisteredAt.Before(exclusiveBefore) {
+			continue
+		}
+		ids = append(ids, item.ID)
+	}
+	return ids
 }

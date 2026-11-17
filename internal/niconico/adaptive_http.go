@@ -47,16 +47,14 @@ func adaptiveHTTPAttempt(client *http.Client, req *http.Request, attempt int, re
 			}
 		}
 		permit, ready, err := control.adaptiveDispatch(ctx, rateWait, pauseEpoch)
+		if ready {
+			return performHTTPAttempt(client, req, attempt, control, &permit)
+		}
+		control.release()
 		if err != nil {
-			control.release()
 			control.metrics.addCounter("wait_cancellations", 1)
 			return nil, err
 		}
-		if !ready {
-			control.release()
-			continue
-		}
-		return performHTTPAttempt(client, req, attempt, control, &permit)
 	}
 }
 

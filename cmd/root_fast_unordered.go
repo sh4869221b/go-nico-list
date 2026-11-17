@@ -5,12 +5,7 @@ import (
 	"io"
 )
 
-type unorderedWriteResult struct {
-	count int
-	err   error
-}
-
-func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConfig, cancel context.CancelFunc, done chan<- unorderedWriteResult) {
+func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConfig, cancel context.CancelFunc, done chan<- outputWriteResult) {
 	var seen map[string]struct{}
 	if cfg.DedupeOutput {
 		seen = make(map[string]struct{})
@@ -23,13 +18,13 @@ func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConf
 		if len(items) > 0 {
 			if err := writeLineOutput(out, items, cfg.URL); err != nil {
 				cancel()
-				done <- unorderedWriteResult{count: outputCount, err: err}
+				done <- outputWriteResult{count: outputCount, err: err}
 				return
 			}
 			outputCount += len(items)
 		}
 	}
-	done <- unorderedWriteResult{count: outputCount}
+	done <- outputWriteResult{count: outputCount}
 }
 
 func dedupeItems(items []string, seen map[string]struct{}) []string {

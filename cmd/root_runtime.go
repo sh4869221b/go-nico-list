@@ -3,6 +3,9 @@ package cmd
 import (
 	"errors"
 	"time"
+
+	"github.com/sh4869221b/go-nico-list/internal/niconico"
+	"github.com/spf13/cobra"
 )
 
 func validateFlagsFor(cfg *RootConfig) error {
@@ -45,4 +48,22 @@ func parseDateRange(after, before string) (time.Time, time.Time, error) {
 		return time.Time{}, time.Time{}, errors.New("dateafter must be on or before datebefore")
 	}
 	return parsedAfter, parsedBefore, nil
+}
+
+// resolveConcurrency configures shared HTTP admission and applies explicit target and page worker limits.
+func resolveConcurrency(cmd *cobra.Command, cfg *RootConfig) (control *niconico.HTTPControl, targets, pages int) {
+	targets, pages = cfg.Concurrency, cfg.PageConcurrency
+	if !cfg.AdaptiveConcurrency {
+		return niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics), targets, pages
+	}
+
+	flags := cmd.Flags()
+	control = niconico.NewAdaptiveConcurrencyControl(cfg.HTTPConcurrency, flags.Changed("concurrency-http"), cfg.HTTPMetrics)
+	if !flags.Changed("concurrency-targets") {
+		targets = 0
+	}
+	if !flags.Changed("concurrency-pages") {
+		pages = 0
+	}
+	return control, targets, pages
 }

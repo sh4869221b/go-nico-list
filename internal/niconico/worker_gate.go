@@ -39,25 +39,11 @@ func (g *WorkerGate) Acquire(ctx context.Context) error {
 	c := g.control
 	c.mu.Lock()
 	waiting := false
-	for {
-		if err := ctx.Err(); err != nil {
-			if waiting {
-				c.workerPending--
-			}
-			c.mu.Unlock()
-			return err
-		}
+	err := ctx.Err()
+	for err == nil {
 		if g.active < g.limitLocked() {
 			g.active++
-			if waiting {
-				c.workerPending--
-			}
-			c.mu.Unlock()
-			if err := ctx.Err(); err != nil {
-				g.Release()
-				return err
-			}
-			return nil
+			break
 		}
 		if !waiting {
 			c.workerPending++
@@ -71,7 +57,20 @@ func (g *WorkerGate) Acquire(ctx context.Context) error {
 		case <-resized:
 		}
 		c.mu.Lock()
+		err = ctx.Err()
 	}
+	if waiting {
+		c.workerPending--
+	}
+	c.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		g.Release()
+		return err
+	}
+	return nil
 }
 
 // Release makes a completed worker slot available to waiting scheduling work.

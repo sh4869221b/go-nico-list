@@ -2,20 +2,17 @@ package cmd
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
 	"github.com/spf13/cobra"
 )
 
+// runRootCmdWithConfig fetches the requested targets and reports the command result.
 func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) (retErr error) {
-	streamOutput := cfg.NoSortOutput && !cfg.JSONOutput
 	if err := validateFlagsFor(cfg); err != nil {
 		return err
 	}
@@ -37,28 +34,15 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		}()
 		runLogger = slog.New(slog.NewJSONHandler(logFile, nil))
 	}
-	var control *niconico.HTTPControl
-	if cfg.AdaptiveConcurrency {
-		control = niconico.NewAdaptiveConcurrencyControl(cfg.HTTPConcurrency, cmd.Flags().Changed("concurrency-http"), cfg.HTTPMetrics)
-	} else {
-		control = niconico.NewHTTPControl(cfg.HTTPConcurrency, cfg.HTTPMetrics)
-	}
+	control, targetConcurrency, pageConcurrency := resolveConcurrency(cmd, cfg)
 	if cfg.HTTPMetrics {
 		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
 	}
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
-	targetConcurrency, pageConcurrency := cfg.Concurrency, cfg.PageConcurrency
-	if cfg.AdaptiveConcurrency {
-		if !cmd.Flags().Changed("concurrency-targets") {
-			targetConcurrency = 0
-		}
-		if !cmd.Flags().Changed("concurrency-pages") {
-			pageConcurrency = 0
-		}
-	}
 	targetGate := control.NewWorkerGate(targetConcurrency)
+	streamOutput := cfg.NoSortOutput && !cfg.JSONOutput
 	targetAdmissionCtx := ctx
 	if !streamOutput {
 		// Preserve buffered-output admission: finish the target already
@@ -69,67 +53,40 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	errWriter := cmd.ErrOrStderr()
 	out := cmd.OutOrStdout()
 
-	var idList []string
-	var mu sync.Mutex
+	var buffered bufferedOutput
 	stream := streamInputsWithConfig(ctx, cmd, args, cfg, deps)
 	limiter := niconico.NewRateLimiter(cfg.RateLimit, cfg.MinInterval)
-	var totalInputs int64
-	var validInputs int64
-	var invalidInputs int64
-	var fetchOKCount int64
-	var fetchErrCount int64
-	var invalidInputsList []string
-	var targetResults []targetResult
-	var errorsList []string
+	var inputs jsonInputs
 
-	progressTotal := stream.total
-	if !stream.totalKnown {
-		progressTotal = -1
-	}
-	progressWriter := errWriter
-	visible := shouldShowProgressWithConfig(errWriter, cfg, deps)
-	if !visible {
-		progressWriter = io.Discard
-	}
-	bar := deps.ProgressBarNew(progressTotal, progressWriter, visible)
+	bar := newInputProgress(stream.progressTotal, errWriter, cfg, deps)
 	addProgress := func() {
 		_ = bar.Add(1)
 	}
 
 	var outputCh chan []string
-	var writeDone chan unorderedWriteResult
+	var streamWriteDone chan outputWriteResult
 	if streamOutput {
 		outputCh = make(chan []string, cfg.Concurrency)
-		writeDone = make(chan unorderedWriteResult, 1)
-		go writeUnorderedOutput(out, outputCh, cfg, cancel, writeDone)
+		streamWriteDone = make(chan outputWriteResult, 1)
+		go writeUnorderedOutput(out, outputCh, cfg, cancel, streamWriteDone)
 	}
 
 	var wg sync.WaitGroup
-	errCh := make(chan error, cfg.Concurrency)
-	fetchErrCh := make(chan error, 1)
-	go func() {
-		var firstErr error
-		for err := range errCh {
-			runLogger.Error("failed to get video list", "error", err)
-			if firstErr == nil {
-				firstErr = err
-			}
-		}
-		fetchErrCh <- firstErr
-	}()
+	fetchErrors := make(chan error, cfg.Concurrency)
+	fetchLogDone := logFetchErrors(runLogger, fetchErrors)
 
-	inputErrCh := make(chan error, 1)
+	inputErrors := make(chan error, 1)
 	go func() {
 		if err := <-stream.errs; err != nil {
-			inputErrCh <- err
+			inputErrors <- err
 			cancel()
 		}
-		close(inputErrCh)
+		close(inputErrors)
 	}()
 
 	var inputErr error
 	inputClosed := false
-	nextTargetOrder := 0
+	var admittedTargets int64
 inputLoop:
 	for {
 		var input string
@@ -147,136 +104,83 @@ inputLoop:
 			inputClosed = true
 			break
 		}
-		totalInputs++
+		inputs.Total++
 		if inputErr == nil {
 			select {
-			case inputErr = <-inputErrCh:
+			case inputErr = <-inputErrors:
 			default:
 			}
 		}
 		target, ok := parseInputTarget(input)
 		if !ok {
-			invalidInputs++
+			inputs.Invalid++
 			if cfg.JSONOutput {
-				invalidInputsList = append(invalidInputsList, input)
+				buffered.invalidInputs = append(buffered.invalidInputs, input)
 			}
 			runLogger.Warn("invalid input", "input", input)
 			addProgress()
 			continue
 		}
-		validInputs++
+		inputs.Valid++
 		if inputErr != nil {
 			addProgress()
 			continue
 		}
-		targetOrder := nextTargetOrder
-		nextTargetOrder++
 		if err := targetGate.Acquire(targetAdmissionCtx); err != nil {
 			break inputLoop
 		}
+		targetOrder := int(admittedTargets)
+		admittedTargets++
 		wg.Add(1)
 		go func(target inputTarget, targetOrder int) {
 			defer wg.Done()
 			defer targetGate.Release()
 			defer addProgress()
-			var newList []string
-			var err error
-			switch target.Type {
-			case targetTypeUser:
-				newList, err = niconico.GetVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
-			case targetTypeMylist:
-				newList, err = niconico.GetMylistVideoList(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
+			fetch := niconico.GetVideoList
+			if target.Type == targetTypeMylist {
+				fetch = niconico.GetMylistVideoList
+			}
+			items, err := fetch(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
+			if !streamOutput {
+				buffered.addTarget(target, targetOrder, items, err, cfg.JSONOutput)
 			}
 			if err != nil {
-				atomic.AddInt64(&fetchErrCount, 1)
-			} else {
-				atomic.AddInt64(&fetchOKCount, 1)
+				fetchErrors <- err
 			}
-			if streamOutput {
-				if err != nil {
-					errCh <- err
-					if len(newList) == 0 {
-						return
-					}
-				}
+			if streamOutput && (err == nil || len(items) > 0) {
 				select {
-				case outputCh <- newList:
+				case outputCh <- items:
 				case <-ctx.Done():
 				}
-				return
-			}
-			mu.Lock()
-			if cfg.JSONOutput {
-				result := targetResult{Order: targetOrder, Type: target.Type, ID: target.ID, Items: newList}
-				if err != nil {
-					result.Error = err.Error()
-					errorsList = append(errorsList, result.Error)
-				}
-				targetResults = append(targetResults, result)
-			}
-			idList = append(idList, newList...)
-			mu.Unlock()
-			if err != nil {
-				errCh <- err
 			}
 		}(target, targetOrder)
 	}
 	wg.Wait()
-	var outputErr error
-	outputCount := 0
+	var outputResult outputWriteResult
 	if streamOutput {
 		close(outputCh)
 	}
-	close(errCh)
-	fetchErrRet := <-fetchErrCh
+	close(fetchErrors)
+	failures := <-fetchLogDone
 	if streamOutput {
-		writeResult := <-writeDone
-		outputCount, outputErr = writeResult.count, writeResult.err
+		outputResult = <-streamWriteDone
 		if inputErr == nil {
 			select {
-			case inputErr = <-inputErrCh:
+			case inputErr = <-inputErrors:
 			default:
 			}
 		}
 	}
-	if inputErr == nil && (!streamOutput || inputClosed && outputErr == nil) {
-		inputErr = <-inputErrCh
+	// Streaming can stop on cancellation or a write failure while an input read
+	// is still blocked. Wait for the reader only after normal stream completion.
+	if inputErr == nil && (!streamOutput || (inputClosed && outputResult.err == nil)) {
+		inputErr = <-inputErrors
 	}
 	if streamOutput {
-		runLogger.Info("video list", "count", outputCount)
+		runLogger.Info("video list", "count", outputResult.count)
 	} else {
-		runLogger.Info("video list", "count", len(idList))
-		outputIDs := idList
-		if cfg.NoSortOutput {
-			outputIDs = flattenTargetItemsByInputOrder(targetResults)
-		}
-		if cfg.DedupeOutput && len(outputIDs) > 0 {
-			outputIDs = dedupeItems(outputIDs, make(map[string]struct{}, len(outputIDs)))
-		}
-		outputCount = len(outputIDs)
-		if outputCount > 0 && !cfg.NoSortOutput {
-			niconico.NiconicoSort(outputIDs)
-		}
-		if cfg.JSONOutput {
-			sortTargetResults(targetResults)
-			jsonPayload := buildJSONOutput(
-				totalInputs,
-				validInputs,
-				invalidInputs,
-				invalidInputsList,
-				targetResults,
-				errorsList,
-				outputIDs,
-			)
-			// Encode before writing so invalid strings cannot leave a partial JSON object.
-			jsonBytes, marshalErr := json.Marshal(jsonPayload)
-			outputErr = marshalErr
-			if outputErr == nil {
-				_, outputErr = out.Write(append(jsonBytes, '\n'))
-			}
-		} else if outputCount > 0 {
-			outputErr = writeLineOutput(out, outputIDs, cfg.URL)
-		}
+		runLogger.Info("video list", "count", len(buffered.items))
+		outputResult = buffered.write(out, inputs, cfg)
 	}
 	if shouldShowProgressWithConfig(errWriter, cfg, deps) {
 		if _, err := fmt.Fprintln(errWriter); err != nil {
@@ -286,26 +190,49 @@ inputLoop:
 	if _, err := fmt.Fprintf(
 		errWriter,
 		"summary inputs=%d valid=%d invalid=%d fetch_ok=%d fetch_err=%d output_count=%d\n",
-		totalInputs,
-		validInputs,
-		invalidInputs,
-		atomic.LoadInt64(&fetchOKCount),
-		atomic.LoadInt64(&fetchErrCount),
-		outputCount,
+		inputs.Total,
+		inputs.Valid,
+		inputs.Invalid,
+		admittedTargets-failures.count,
+		failures.count,
+		outputResult.count,
 	); err != nil {
 		return err
 	}
-	if outputErr != nil {
-		return outputErr
+	if outputResult.err != nil {
+		return outputResult.err
 	}
 	if inputErr != nil {
 		return inputErr
 	}
-	if cfg.StrictInput && invalidInputs > 0 {
+	if cfg.StrictInput && inputs.Invalid > 0 {
 		return errors.New("invalid input detected")
 	}
 	if cfg.BestEffort {
 		return nil
 	}
-	return fetchErrRet
+	return failures.first
+}
+
+// fetchFailures records the number of failed targets and the first error reported.
+type fetchFailures struct {
+	count int64
+	first error
+}
+
+// logFetchErrors logs target failures as they arrive and reports the final count and first error.
+func logFetchErrors(logger *slog.Logger, fetchErrors <-chan error) <-chan fetchFailures {
+	done := make(chan fetchFailures, 1)
+	go func() {
+		var failures fetchFailures
+		for err := range fetchErrors {
+			logger.Error("failed to get video list", "error", err)
+			failures.count++
+			if failures.first == nil {
+				failures.first = err
+			}
+		}
+		done <- failures
+	}()
+	return done
 }

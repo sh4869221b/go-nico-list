@@ -16,21 +16,19 @@ type RateLimiter struct {
 
 // NewRateLimiter builds a RateLimiter from rate and minimum interval settings.
 func NewRateLimiter(rateLimit float64, minInterval time.Duration) *RateLimiter {
-	interval := time.Duration(0)
+	var interval time.Duration
 	if rateLimit > 0 {
-		seconds := float64(time.Second) / rateLimit
-		if seconds >= float64(math.MaxInt64) {
+		nanoseconds := float64(time.Second) / rateLimit
+		if nanoseconds >= float64(math.MaxInt64) {
 			// float64(MaxInt64) rounds up to 2^63, outside Duration's range.
 			interval = time.Duration(math.MaxInt64)
-		} else if seconds < float64(time.Nanosecond) {
+		} else if nanoseconds < float64(time.Nanosecond) {
 			interval = time.Nanosecond
 		} else {
-			interval = time.Duration(seconds)
+			interval = time.Duration(nanoseconds)
 		}
 	}
-	if minInterval > interval {
-		interval = minInterval
-	}
+	interval = max(interval, minInterval)
 	if interval <= 0 {
 		return nil
 	}

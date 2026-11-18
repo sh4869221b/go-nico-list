@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,7 +36,7 @@ func collectVideoList(
 	limiter *RateLimiter,
 	pageConcurrency int,
 	logger *slog.Logger,
-	requestURL func(page int) string,
+	pageURLPrefix string,
 	parsePage parsePageFunc,
 	control *HTTPControl,
 ) ([]string, error) {
@@ -44,8 +45,8 @@ func collectVideoList(
 	}
 
 	exclusiveBefore := beforeDate.AddDate(0, 0, 1)
-	fetch := func(page int) pageResult {
-		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
+	fetch := func(page int, ids []string) pageResult {
+		parsed, err := fetchPage(ctx, pageURLPrefix+strconv.Itoa(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
 		result := pageResult{
 			page:       page,
 			err:        err,
@@ -53,24 +54,24 @@ func collectVideoList(
 			totalCount: parsed.TotalCount,
 		}
 		if !result.terminal() {
-			result.ids = filterItems(parsed.Items, commentCount, afterDate, exclusiveBefore)
+			result.ids = appendFilteredItems(ids, parsed.Items, commentCount, afterDate, exclusiveBefore)
 		}
 		parsed.releaseItems()
 		return result
 	}
 
-	first := fetch(1)
+	first := fetch(1, []string{})
 	if first.terminal() {
 		return collectionResult(nil, first.err)
 	}
 	ids := first.ids
 	if pageConcurrency == 1 || pageConcurrency < 0 || first.totalCount == nil {
 		for page := 2; ; page++ {
-			result := fetch(page)
+			result := fetch(page, ids)
 			if result.terminal() {
 				return collectionResult(ids, result.err)
 			}
-			ids = append(ids, result.ids...)
+			ids = result.ids
 		}
 	}
 
@@ -98,7 +99,7 @@ func collectPagesParallel(
 	startPage int,
 	endPage int,
 	pageConcurrency int,
-	fetch func(page int) pageResult,
+	fetch func(page int, ids []string) pageResult,
 	control *HTTPControl,
 ) ([]string, error) {
 	gate := control.NewWorkerGate(pageConcurrency)
@@ -126,7 +127,7 @@ func collectPagesParallel(
 				if stopAt := stopBefore.Load(); stopAt > 0 && int64(page) >= stopAt {
 					return
 				}
-				result := fetch(page)
+				result := fetch(page, nil)
 				if result.terminal() {
 					// Stop only new scheduling; lower outstanding pages still determine
 					// the ordered result and may supersede this terminal outcome.
@@ -182,9 +183,9 @@ func collectPagesParallel(
 	return ids, terminal.err
 }
 
-// filterItems keeps videos above the comment threshold in [afterDate, exclusiveBefore).
-func filterItems(items []videoItem, commentCount int, afterDate, exclusiveBefore time.Time) []string {
-	ids := []string{}
+// appendFilteredItems appends videos above the comment threshold in [afterDate, exclusiveBefore).
+func appendFilteredItems(ids []string, items []videoItem, commentCount int, afterDate, exclusiveBefore time.Time) []string {
+	initialLen := len(ids)
 	for i := range items {
 		item := &items[i]
 		if item.CommentCount <= commentCount {
@@ -196,8 +197,9 @@ func filterItems(items []videoItem, commentCount int, afterDate, exclusiveBefore
 		if !item.RegisteredAt.Before(exclusiveBefore) {
 			continue
 		}
-		if len(ids) == 0 {
-			ids = make([]string, 0, len(items)-i)
+		if len(ids) == initialLen {
+			// Oversized API pages can contain many items that the filter rejects.
+			ids = slices.Grow(ids, min(pageSize, len(items)-i))
 		}
 		ids = append(ids, item.ID)
 	}

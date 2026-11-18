@@ -19,18 +19,78 @@ import (
 	"time"
 )
 
+// BenchmarkReadPageBody measures read and assembly costs independently of JSON decoding.
+func BenchmarkReadPageBody(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		size int
+	}{
+		{"ordinary", 32 << 10},
+		{"large", 200 << 10},
+		{"limit", maxPageBodyBytes},
+		{"oversized", maxPageBodyBytes + 1},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			data := make([]byte, tc.size)
+			var reader bytes.Reader
+			var scratch bytes.Buffer
+			b.SetBytes(int64(tc.size))
+			b.ReportAllocs()
+			for b.Loop() {
+				reader.Reset(data)
+				scratch.Reset()
+				body, count, err := readPageBody(&reader, &scratch)
+				if count != tc.size {
+					b.Fatalf("read %d bytes, want %d", count, tc.size)
+				}
+				if tc.size > maxPageBodyBytes {
+					if !errors.Is(err, errPageBodyTooLarge) {
+						b.Fatalf("expected oversized response error, got %v", err)
+					}
+				} else if err != nil || len(body) != tc.size {
+					b.Fatalf("unexpected body length %d, error %v", len(body), err)
+				}
+			}
+		})
+	}
+}
+
 func TestReadPageBodyBufferBoundary(t *testing.T) {
 	boundary := maxPooledPageBodyBytes - bytes.MinRead
 	for _, size := range []int{boundary - 1, boundary, boundary + 1} {
 		want := strings.Repeat("a", size-1) + "b"
 		var buffer bytes.Buffer
-		body, err := readPageBody(iotest.DataErrReader(strings.NewReader(want)), -1, &buffer)
-		if err != nil || string(body) != want {
-			t.Fatalf("read %d bytes with error %v, want %d matching bytes", len(body), err, size)
+		body, n, err := readPageBody(iotest.DataErrReader(strings.NewReader(want)), &buffer)
+		if err != nil || n != size || string(body) != want {
+			t.Fatalf("read %d bytes with error %v, want %d matching bytes", n, err, size)
 		}
 		if buffer.Cap() > maxPooledPageBodyBytes {
 			t.Fatalf("buffer capacity %d exceeds %d bytes", buffer.Cap(), maxPooledPageBodyBytes)
 		}
+	}
+}
+
+func TestFetchPageCountsPartialLargeBody(t *testing.T) {
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	payload := strings.Repeat(" ", 200<<10)
+	http.DefaultTransport = controlRoundTripper(func(r *http.Request) (*http.Response, error) {
+		body := io.MultiReader(strings.NewReader(payload), iotest.ErrReader(context.Canceled))
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(body), ContentLength: -1, Header: make(http.Header), Request: r}, nil
+	})
+	control := NewHTTPControl(1, true)
+	parse := func([]byte) (parsedPage, error) {
+		t.Fatal("partial body decoded")
+		return parsedPage{}, nil
+	}
+	_, err := fetchPage(context.Background(), "http://fixture.invalid", time.Second, 1, nil, slog.New(slog.DiscardHandler), parse, control)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("read error = %v, want context cancellation", err)
+	}
+	got := control.Snapshot()
+	counters := got.Metrics.Counters
+	if got.Admission.Reserved != 0 || counters["body_bytes"] != int64(len(payload)) || counters["body_errors"] != 1 || counters["body_cancellations"] != 1 {
+		t.Fatalf("unexpected observations: %+v", got)
 	}
 }
 

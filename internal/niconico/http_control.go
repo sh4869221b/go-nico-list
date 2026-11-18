@@ -25,11 +25,6 @@ type HTTPControl struct {
 	workerChanged chan struct{}
 }
 
-type httpWaiter struct {
-	ready   chan struct{}
-	granted bool
-}
-
 // HTTPAdmissionSnapshot distinguishes reserved slots (including rate waiting)
 // from requests actually executing in HTTPMetricsSnapshot.
 type HTTPAdmissionSnapshot struct {
@@ -66,7 +61,7 @@ func NewAdaptiveConcurrencyControl(limit int, httpFixed bool, metrics bool) *HTT
 	if limit < 0 {
 		return nil
 	}
-	c := &HTTPControl{hardMax: limit, httpFixed: httpFixed, workerChanged: make(chan struct{})}
+	c := &HTTPControl{hardMax: limit, httpFixed: httpFixed}
 	if metrics {
 		c.metrics = NewHTTPMetrics()
 	}
@@ -108,7 +103,7 @@ func (c *HTTPControl) updateAdaptiveLimitLocked(previousLimit int) {
 	}
 	if previousLimit != c.adaptive.limit && c.workerChanged != nil {
 		close(c.workerChanged)
-		c.workerChanged = make(chan struct{})
+		c.workerChanged = nil
 	}
 	c.grantLocked()
 }
@@ -130,19 +125,21 @@ func (c *HTTPControl) acquire(ctx context.Context) error {
 		}
 		return nil
 	}
-	waiter := &httpWaiter{ready: make(chan struct{})}
-	element := c.queue.PushBack(waiter)
+	ready := make(chan struct{})
+	element := c.queue.PushBack(ready)
 	c.peakPending = max(c.peakPending, c.queue.Len())
 	c.mu.Unlock()
 	select {
 	case <-ctx.Done():
-	case <-waiter.ready:
+	case <-ready:
 	}
 	c.mu.Lock()
 	if err := ctx.Err(); err != nil {
-		if waiter.granted {
+		// Closing ready also records that this waiter owns a reserved slot.
+		select {
+		case <-ready:
 			c.reserved--
-		} else {
+		default:
 			c.queue.Remove(element)
 		}
 		c.grantLocked()
@@ -161,11 +158,10 @@ func (c *HTTPControl) reserveLocked() {
 func (c *HTTPControl) grantLocked() {
 	for c.queue.Len() > 0 && (c.limit == 0 || c.reserved < c.limit) {
 		element := c.queue.Front()
-		waiter := element.Value.(*httpWaiter)
+		ready := element.Value.(chan struct{})
 		c.queue.Remove(element)
 		c.reserveLocked()
-		waiter.granted = true
-		close(waiter.ready)
+		close(ready)
 	}
 }
 

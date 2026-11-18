@@ -55,7 +55,10 @@ func (d *httpDurationMetric) observe(elapsed time.Duration) {
 		return
 	}
 	d.samples[d.next] = elapsed
-	d.next = (d.next + 1) % len(d.samples)
+	d.next++
+	if d.next == len(d.samples) {
+		d.next = 0
+	}
 }
 
 // HTTPDurationSnapshot contains cumulative totals and recent-window quantiles.
@@ -365,7 +368,7 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 	m.initLocked()
 	now := m.now
 	m.mu.Unlock()
-	times := &httpTraceTimes{connects: make(map[httpConnectKey]time.Time)}
+	times := &httpTraceTimes{}
 	trace := &httptrace.ClientTrace{
 		GetConn: func(string) {
 			times.mu.Lock()
@@ -413,6 +416,9 @@ func (m *HTTPMetrics) trace(start time.Time) (*httptrace.ClientTrace, func()) {
 				times.connects = nil
 				times.connectsDisabled = true
 				return
+			}
+			if times.connects == nil {
+				times.connects = make(map[httpConnectKey]time.Time)
 			}
 			times.connects[key] = now()
 		},

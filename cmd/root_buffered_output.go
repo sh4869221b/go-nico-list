@@ -13,6 +13,7 @@ type bufferedOutput struct {
 	mu        sync.Mutex
 	itemCount int
 	items     []string
+	batches   [][]string
 	targets   []targetResult
 	errors    []string
 
@@ -26,10 +27,18 @@ func (b *bufferedOutput) addTarget(target inputTarget, order int, items []string
 	defer b.mu.Unlock()
 	b.itemCount += len(items)
 	if !jsonOutput {
-		// Take ownership of a full first batch without retaining unused capacity.
-		if b.items == nil && len(items) == cap(items) {
+		if len(items) == 0 {
+			return
+		}
+		dense := len(items) >= cap(items)-len(items)
+		switch {
+		case dense && b.items == nil:
 			b.items = items
-		} else {
+		case dense && len(items) > cap(b.items)-len(b.items):
+			// Save dense batches for one final copy. Sparse batches would retain
+			// too much of their backing arrays, so copy them into items now.
+			b.batches = append(b.batches, items)
+		default:
 			b.items = append(b.items, items...)
 		}
 		return
@@ -47,6 +56,15 @@ func (b *bufferedOutput) write(out io.Writer, inputs jsonInputs, cfg *RootConfig
 	items := b.items
 	if cfg.JSONOutput {
 		items = flattenTargetItems(b.targets, b.itemCount, cfg.NoSortOutput)
+	} else if len(b.batches) > 0 {
+		// Buffered line output is always sorted, so sparse and dense
+		// batches can be accumulated separately.
+		items = append(make([]string, 0, b.itemCount), items...)
+		for _, batch := range b.batches {
+			items = append(items, batch...)
+		}
+		b.items = items
+		b.batches = nil
 	}
 	if cfg.DedupeOutput && len(items) > 0 {
 		items = dedupeItems(items, make(map[string]struct{}, len(items)))

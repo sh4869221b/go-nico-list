@@ -40,21 +40,58 @@ func (p *parsedPage) releaseItems() {
 type parsePageFunc func([]byte) (parsedPage, error)
 
 // readPageBody reads at most one byte past the limit, reusing scratch space for typical pages.
-func readPageBody(r io.Reader, contentLength int64, buffer *bytes.Buffer) ([]byte, error) {
+// The returned byte count includes bytes received before a read error.
+func readPageBody(r io.Reader, buffer *bytes.Buffer) ([]byte, int, error) {
 	// ReadFrom may grow its buffer to make room for an EOF read. Leave room
-	// for that read and use ReadAll for large pages to avoid doubling capacity.
+	// for that read so the reusable buffer stays within its capacity limit.
 	const reusableLimit = maxPooledPageBodyBytes - bytes.MinRead
-	if contentLength >= reusableLimit {
-		return io.ReadAll(io.LimitReader(r, maxPageBodyBytes+1))
-	}
-	limited := &io.LimitedReader{R: r, N: reusableLimit}
-	n, err := buffer.ReadFrom(limited)
+	_, err := buffer.ReadFrom(io.LimitReader(r, reusableLimit))
 	body := buffer.Bytes()
-	if err == nil && n == reusableLimit {
-		limited.N = maxPageBodyBytes + 1 - n
-		return io.ReadAll(io.MultiReader(bytes.NewReader(body), limited))
+	if err == nil && len(body) == reusableLimit {
+		return readLargePageBody(r, body)
 	}
-	return body, err
+	return body, len(body), err
+}
+
+// readLargePageBody assembles the prefix and subsequent chunks only after a successful final read.
+func readLargePageBody(r io.Reader, prefix []byte) ([]byte, int, error) {
+	// Keep chunks separate until EOF so rejected bodies need no contiguous copy.
+	const maxChunkSize = 512 << 10
+	chunks := make([][]byte, 1, 8)
+	chunks[0] = prefix
+	total := len(prefix)
+	chunk := make([]byte, 0, 16<<10)
+	chunkSize := 64 << 10
+	for {
+		if len(chunk) == cap(chunk) {
+			chunks = append(chunks, chunk)
+			chunk = make([]byte, 0, min(chunkSize, maxPageBodyBytes+1-total))
+			chunkSize = min(2*chunkSize, maxChunkSize)
+		}
+		n, err := r.Read(chunk[len(chunk):cap(chunk)])
+		chunk = chunk[:len(chunk)+n]
+		total += n
+		if total > maxPageBodyBytes {
+			return nil, total, errPageBodyTooLarge
+		}
+		if err == io.EOF {
+			if total == len(prefix) {
+				return prefix, total, nil
+			}
+			return bytes.Join(append(chunks, chunk), nil), total, nil
+		}
+		if err != nil {
+			return nil, total, err
+		}
+	}
+}
+
+// putPageBodyBuffer resets reusable scratch space after the caller releases its contents.
+func putPageBodyBuffer(buffer *bytes.Buffer) {
+	if buffer.Cap() <= maxPooledPageBodyBytes {
+		buffer.Reset()
+		pageBodyBuffers.Put(buffer)
+	}
 }
 
 func fetchPage(
@@ -95,13 +132,10 @@ func fetchPage(
 		started = time.Now()
 	}
 	buffer := pageBodyBuffers.Get().(*bytes.Buffer)
-	body, err := readPageBody(res.Body, res.ContentLength, buffer)
-	if len(body) > maxPageBodyBytes {
-		err = errPageBodyTooLarge
-	}
+	body, bodyBytes, err := readPageBody(res.Body, buffer)
 	if metrics != nil {
 		metrics.observe("body_read", time.Since(started))
-		metrics.addCounter("body_bytes", int64(len(body)))
+		metrics.addCounter("body_bytes", int64(bodyBytes))
 		if err != nil {
 			metrics.addCounter("body_errors", 1)
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -111,6 +145,7 @@ func fetchPage(
 	}
 	_ = res.Body.Close()
 	if err != nil {
+		putPageBodyBuffer(buffer)
 		logger.Error("failed to read response body", "error", err)
 		return parsedPage{}, err
 	}
@@ -128,10 +163,7 @@ func fetchPage(
 		logger.Error("failed to unmarshal response body", "error", err)
 		return parsedPage{}, err
 	}
-	if buffer.Cap() <= maxPooledPageBodyBytes {
-		buffer.Reset()
-		pageBodyBuffers.Put(buffer)
-	}
+	putPageBodyBuffer(buffer)
 	if page.Status != http.StatusOK {
 		logger.Warn("unexpected meta status", "status", page.Status)
 	}

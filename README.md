@@ -87,6 +87,7 @@ The old long names and `-n` have been removed. Update existing commands as follo
 Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
 - Input lines from `--input-file` and `--stdin` are limited to 1 MiB per line; longer lines fail with an input read error.
+- `--input-file` and `--logfile` must refer to different files. An interrupt stops input processing even if a pipe or stdin is waiting for data.
 - Each input must contain `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` (scheme optional). Plain digits or paths without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `--concurrency-targets`, `--concurrency-pages`, or `--retries` to a value less than 1, or `--timeout` to a value less than or equal to 0, will cause a runtime error.
@@ -98,9 +99,9 @@ Notes:
 - Responses with HTTP status other than 200/404 after retries are treated as fetch errors.
 - HTTP 200 responses with `meta.status != 200` are logged as warnings but still processed.
 - `--concurrency-pages` controls concurrent page requests inside each input target only when the API reports `totalCount`. In fixed mode without an additional HTTP cap, the maximum in-flight request count is roughly `--concurrency-targets * --concurrency-pages` in that bounded-page path.
-- Rate limiting applies globally to all requests (including retries). HTTP 429 `Retry-After` is honored when present. Use `--rate-limit` or `--min-interval` with high concurrency to reduce API load. Extremely small positive rates saturate at the maximum representable wait (about 292 years) and remain cancelable.
+- Rate limiting applies globally to all requests (including retries). Use a finite, non-negative `--rate-limit` or set `--min-interval` to reduce API load. HTTP 429 `Retry-After` is honored when present. Extremely small positive rates and oversized `Retry-After` values saturate at the maximum representable wait (about 292 years) and remain cancelable.
 - Progress is auto-disabled when stderr is not a TTY. Use `--progress` to force-enable or `--no-progress` to disable (takes precedence).
-- A run summary is printed to stderr after processing (even when the exit code is non-zero).
+- A run summary is printed to stderr after processing (even when the exit code is non-zero). Its `output_count` counts complete ID lines or the items in a complete JSON object.
 - `--strict` makes invalid inputs return a non-zero exit code while still outputting valid results.
 - `--best-effort` forces exit code 0 even when fetch errors occur (errors are still logged).
 - Normal line output sorts IDs by numeric video ID unless `--no-sort` is set.

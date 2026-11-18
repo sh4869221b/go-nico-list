@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
@@ -22,7 +23,11 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}
 
 	runLogger := deps.Logger
+	var logInfo os.FileInfo
 	if cfg.LogFilePath != "" {
+		if err := validateInputLogPaths(cfg.InputFilePath, cfg.LogFilePath); err != nil {
+			return err
+		}
 		logFile, err := deps.OpenLogFile(cfg.LogFilePath)
 		if err != nil {
 			return err
@@ -32,6 +37,11 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 				retErr = err
 			}
 		}()
+		if cfg.InputFilePath != "" {
+			if file, ok := logFile.(interface{ Stat() (os.FileInfo, error) }); ok {
+				logInfo, _ = file.Stat()
+			}
+		}
 		runLogger = slog.New(slog.NewJSONHandler(logFile, nil))
 	}
 	control, targetConcurrency, pageConcurrency := resolveConcurrency(cmd, cfg)
@@ -43,18 +53,18 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	defer cancel()
 	targetGate := control.NewWorkerGate(targetConcurrency)
 	streamOutput := cfg.NoSortOutput && !cfg.JSONOutput
-	targetAdmissionCtx := ctx
+	inputCtx := ctx
 	if !streamOutput {
 		// Preserve buffered-output admission: finish the target already
-		// read from the input stream even when cancellation stops later input.
-		targetAdmissionCtx = context.WithoutCancel(ctx)
+		// read when an input error cancels the fetch work.
+		inputCtx = cmd.Context()
 	}
 
 	errWriter := cmd.ErrOrStderr()
 	out := cmd.OutOrStdout()
 
 	var buffered bufferedOutput
-	stream := streamInputsWithConfig(ctx, cmd, args, cfg, deps)
+	stream := streamInputsWithConfig(ctx, cancel, cmd, args, cfg, deps, logInfo)
 	limiter := niconico.NewRateLimiter(cfg.RateLimit, cfg.MinInterval)
 	var inputs jsonInputs
 
@@ -65,49 +75,35 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 
 	var outputCh chan []string
 	var streamWriteDone chan outputWriteResult
+	// Queue storage stays bounded independently of the worker concurrency.
 	if streamOutput {
-		outputCh = make(chan []string, cfg.Concurrency)
+		outputCh = make(chan []string, 1)
 		streamWriteDone = make(chan outputWriteResult, 1)
 		go writeUnorderedOutput(out, outputCh, cfg, cancel, streamWriteDone)
 	}
 
 	var wg sync.WaitGroup
-	fetchErrors := make(chan error, cfg.Concurrency)
+	fetchErrors := make(chan error, 1)
 	fetchLogDone := logFetchErrors(runLogger, fetchErrors)
 
-	inputErrors := make(chan error, 1)
-	go func() {
-		if err := <-stream.errs; err != nil {
-			inputErrors <- err
-			cancel()
-		}
-		close(inputErrors)
-	}()
-
 	var inputErr error
-	inputClosed := false
 	var admittedTargets int64
 inputLoop:
 	for {
 		var input string
 		var ok bool
-		if streamOutput {
-			select {
-			case <-ctx.Done():
-				break inputLoop
-			case input, ok = <-stream.inputs:
-			}
-		} else {
-			input, ok = <-stream.inputs
+		select {
+		case <-inputCtx.Done():
+			break inputLoop
+		case input, ok = <-stream.inputs:
 		}
 		if !ok {
-			inputClosed = true
 			break
 		}
 		inputs.Total++
 		if inputErr == nil {
 			select {
-			case inputErr = <-inputErrors:
+			case inputErr = <-stream.errs:
 			default:
 			}
 		}
@@ -126,7 +122,7 @@ inputLoop:
 			addProgress()
 			continue
 		}
-		if err := targetGate.Acquire(targetAdmissionCtx); err != nil {
+		if err := targetGate.Acquire(inputCtx); err != nil {
 			break inputLoop
 		}
 		targetOrder := int(admittedTargets)
@@ -164,17 +160,13 @@ inputLoop:
 	failures := <-fetchLogDone
 	if streamOutput {
 		outputResult = <-streamWriteDone
-		if inputErr == nil {
-			select {
-			case inputErr = <-inputErrors:
-			default:
-			}
-		}
 	}
-	// Streaming can stop on cancellation or a write failure while an input read
-	// is still blocked. Wait for the reader only after normal stream completion.
-	if inputErr == nil && (!streamOutput || (inputClosed && outputResult.err == nil)) {
-		inputErr = <-inputErrors
+	// Opening or reading input can stay blocked after cancellation.
+	if inputErr == nil {
+		select {
+		case inputErr = <-stream.errs:
+		default:
+		}
 	}
 	if streamOutput {
 		runLogger.Info("video list", "count", outputResult.count)

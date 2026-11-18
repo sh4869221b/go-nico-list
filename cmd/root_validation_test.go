@@ -11,6 +11,9 @@ func TestFlagValidation(t *testing.T) {
 	}{
 		{"--retries=0", "retries must be at least 1"},
 		{"--rate-limit=-1", "rate-limit must be at least 0"},
+		{"--rate-limit=NaN", "rate-limit must be finite"},
+		{"--rate-limit=+Inf", "rate-limit must be finite"},
+		{"--rate-limit=-Inf", "rate-limit must be finite"},
 		{"--timeout=0s", "timeout must be greater than 0"},
 		{"--timeout=-1s", "timeout must be greater than 0"},
 		{"--dateafter=2025-01-01", "dateafter format error"},

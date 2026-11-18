@@ -1,9 +1,32 @@
 package cmd
 
 import (
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestLargeTargetConcurrencyDoesNotSizeQueues(t *testing.T) {
+	server := newSingleVideoServer(t)
+	for _, mode := range []httpCommandOutputMode{
+		{name: "sorted"},
+		{name: "no-sort", noSort: true},
+		{name: "json", json: true},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			cfg := testFetchConfig(server.URL)
+			cfg.NoSortOutput, cfg.JSONOutput = mode.noSort, mode.json
+			_, stderr, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "-T", strconv.Itoa(math.MaxInt), "nicovideo.jp/user/1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stderr.String(), "fetch_ok=1 fetch_err=0 output_count=1") {
+				t.Fatalf("target result missing: %q", stderr.String())
+			}
+		})
+	}
+}
 
 func TestConcurrencyFlagHelpAndDefaults(t *testing.T) {
 	command, out, errOut := newTestRootCommand(t, newTestRootConfig(), newTestRootDeps())

@@ -8,12 +8,30 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
+
+var errInputLogConflict = errors.New("input-file and logfile must refer to different files")
+
+// validateInputLogPaths catches aliases before the log is opened, which can
+// itself block when both paths refer to a named pipe.
+func validateInputLogPaths(inputPath, logPath string) error {
+	if inputPath == "" || logPath == "" {
+		return nil
+	}
+	if inputPath == logPath {
+		return errInputLogConflict
+	}
+	if inputInfo, err := os.Stat(inputPath); err == nil {
+		if logInfo, err := os.Stat(logPath); err == nil && os.SameFile(inputInfo, logInfo) {
+			return errInputLogConflict
+		}
+	}
+	return nil
+}
 
 // inputStream bundles input channels and total count metadata.
 type inputStream struct {
@@ -60,17 +78,26 @@ func defaultIsTerminal(w io.Writer) bool {
 	return false
 }
 
-func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps) inputStream {
+func streamInputsWithConfig(ctx context.Context, cancel context.CancelFunc, cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps, logInfo os.FileInfo) inputStream {
 	out := make(chan string)
 	errCh := make(chan error, 1)
+	inputPath := cfg.InputFilePath
+	var stdin io.Reader
+	if cfg.ReadStdin {
+		stdin = cmd.InOrStdin()
+	}
 	progressTotal := int64(len(args))
-	if cfg.InputFilePath != "" || cfg.ReadStdin {
+	if inputPath != "" || stdin != nil {
 		progressTotal = -1
 	}
 
 	go func() {
 		defer close(out)
 		defer close(errCh)
+		reportError := func(err error) {
+			errCh <- err
+			cancel()
+		}
 
 		count := 0
 		for _, arg := range args {
@@ -80,26 +107,26 @@ func streamInputsWithConfig(ctx context.Context, cmd *cobra.Command, args []stri
 			count++
 		}
 
-		if cfg.InputFilePath != "" {
-			n, err := streamLinesFromFile(ctx, cfg.InputFilePath, out, deps)
+		if inputPath != "" && ctx.Err() == nil {
+			n, err := streamLinesFromFile(ctx, inputPath, out, deps, logInfo)
 			count += n
 			if err != nil {
-				errCh <- err
+				reportError(err)
 				return
 			}
 		}
 
-		if cfg.ReadStdin {
-			n, err := streamLines(ctx, cmd.InOrStdin(), out)
+		if stdin != nil {
+			n, err := streamLines(ctx, stdin, out)
 			count += n
 			if err != nil {
-				errCh <- err
+				reportError(err)
 				return
 			}
 		}
 
-		if count == 0 {
-			errCh <- errors.New("no inputs provided")
+		if count == 0 && ctx.Err() == nil {
+			reportError(errors.New("no inputs provided"))
 		}
 	}()
 
@@ -121,12 +148,21 @@ func sendInput(ctx context.Context, out chan<- string, input string) bool {
 }
 
 // streamLinesFromFile streams trimmed lines from a file into out.
-func streamLinesFromFile(ctx context.Context, path string, out chan<- string, deps RootDeps) (int, error) {
+func streamLinesFromFile(ctx context.Context, path string, out chan<- string, deps RootDeps, logInfo os.FileInfo) (int, error) {
 	openedFile, err := deps.OpenInputFile(path)
 	if err != nil {
 		return 0, err
 	}
 	file := &onceReadCloser{ReadCloser: openedFile}
+	// Check the opened files too in case a path changed since validation.
+	if logInfo != nil {
+		if inputFile, ok := openedFile.(interface{ Stat() (os.FileInfo, error) }); ok {
+			if info, err := inputFile.Stat(); err == nil && os.SameFile(info, logInfo) {
+				_ = file.Close()
+				return 0, errInputLogConflict
+			}
+		}
+	}
 	count, err := streamLines(ctx, file, out)
 	if closeErr := file.Close(); err == nil && closeErr != nil && ctx.Err() == nil {
 		err = closeErr
@@ -136,18 +172,14 @@ func streamLinesFromFile(ctx context.Context, path string, out chan<- string, de
 
 // streamLines streams non-empty trimmed lines from a reader into out.
 func streamLines(ctx context.Context, reader io.Reader, out chan<- string) (int, error) {
-	done := make(chan struct{})
-	var closedOnCancel atomic.Bool
+	select {
+	case <-ctx.Done():
+		return 0, nil
+	default:
+	}
 	if closer, ok := reader.(io.Closer); ok {
-		go func() {
-			select {
-			case <-ctx.Done():
-				closedOnCancel.Store(true)
-				_ = closer.Close()
-			case <-done:
-			}
-		}()
-		defer close(done)
+		stop := context.AfterFunc(ctx, func() { _ = closer.Close() })
+		defer stop()
 	}
 
 	scanner := bufio.NewScanner(reader)
@@ -163,11 +195,8 @@ func streamLines(ctx context.Context, reader io.Reader, out chan<- string) (int,
 		}
 		count++
 	}
-	if err := scanner.Err(); err != nil {
-		if closedOnCancel.Load() {
-			return count, nil
-		}
-		return count, err
+	if ctx.Err() == nil {
+		return count, scanner.Err()
 	}
 	return count, nil
 }

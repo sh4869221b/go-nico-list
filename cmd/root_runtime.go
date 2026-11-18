@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"math"
 	"time"
 
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
@@ -23,6 +24,9 @@ func validateFlagsFor(cfg *RootConfig) error {
 	}
 	if cfg.HTTPClientTimeout <= 0 {
 		return errors.New("timeout must be greater than 0")
+	}
+	if math.IsNaN(cfg.RateLimit) || math.IsInf(cfg.RateLimit, 0) {
+		return errors.New("rate-limit must be finite")
 	}
 	if cfg.RateLimit < 0 {
 		return errors.New("rate-limit must be at least 0")

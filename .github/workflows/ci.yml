@@ -32,6 +32,11 @@ jobs:
           go generate ./...
           git diff --exit-code
 
+      - name: Verify Windows dependency notice
+        run: |
+          bash scripts/gen-third-party-notices.sh
+          grep -F '| github.com/inconshreveable/mousetrap |' THIRD_PARTY_NOTICES.md
+
       - name: Check gofmt
         run: |
           git ls-files '*.go' | xargs gofmt -w

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -112,11 +113,14 @@ func retryAfterDelay(res *http.Response) time.Duration {
 	if value == "" {
 		return 0
 	}
-	if seconds, err := strconv.Atoi(value); err == nil {
-		if seconds <= 0 {
-			return 0
+	digits := strings.TrimPrefix(value, "+")
+	if seconds, err := strconv.ParseUint(digits, 10, 64); err == nil {
+		if seconds > uint64(math.MaxInt64/time.Second) {
+			return time.Duration(math.MaxInt64)
 		}
 		return time.Duration(seconds) * time.Second
+	} else if errors.Is(err, strconv.ErrRange) && strings.Trim(digits, "0123456789") == "" {
+		return time.Duration(math.MaxInt64)
 	}
 	if parsed, err := http.ParseTime(value); err == nil {
 		if delay := parsed.Sub(timeNow()); delay > 0 {

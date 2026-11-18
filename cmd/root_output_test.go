@@ -16,8 +16,8 @@ func TestWriteLineOutputBatchesWrites(t *testing.T) {
 		items[i] = fmt.Sprintf("sm%d", i)
 	}
 
-	if err := writeLineOutput(&out, items, true); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if result := newLineOutputWriter(&out).writeBatch(items, true); result.err != nil || result.count != len(items) {
+		t.Fatalf("unexpected output result: %+v", result)
 	}
 	if out.writes > 2 {
 		t.Fatalf("expected batched writes, got %d writes", out.writes)

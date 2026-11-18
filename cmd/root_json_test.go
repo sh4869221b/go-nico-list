@@ -62,16 +62,17 @@ func TestRunRootCmdJSONV2Encoding(t *testing.T) {
 }
 
 func TestRunRootCmdJSONRejectsInvalidUTF8WithoutPartialOutput(t *testing.T) {
-	cfg := newTestRootConfig()
+	server := newSingleVideoServer(t)
+	cfg := testFetchConfig(server.URL)
 	cfg.JSONOutput = true
-	out, errOut, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "invalid\xff")
+	out, errOut, err := executeTestRootCommand(t, cfg, newTestRootDeps(), "nicovideo.jp/user/1", "invalid\xff")
 	if err == nil {
 		t.Fatal("expected v2 encoding error for invalid UTF-8")
 	}
 	if out.Len() != 0 {
 		t.Fatalf("encoding failure wrote a partial JSON object: %q", out.Bytes())
 	}
-	if !strings.Contains(errOut.String(), "summary inputs=1 valid=0 invalid=1") {
+	if !strings.Contains(errOut.String(), "summary inputs=2 valid=1 invalid=1 fetch_ok=1 fetch_err=0 output_count=0") {
 		t.Fatalf("missing stderr summary: %q", errOut.String())
 	}
 }

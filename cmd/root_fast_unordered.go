@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"io"
 )
@@ -11,12 +12,17 @@ func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConf
 		seen = make(map[string]struct{})
 	}
 	outputCount := 0
+	var writer *bufio.Writer
 	for items := range outputCh {
 		if seen != nil {
+			// Each completed fetch transfers ownership of its items to this writer.
 			items = dedupeItems(items, seen)
 		}
 		if len(items) > 0 {
-			if err := writeLineOutput(out, items, cfg.URL); err != nil {
+			if writer == nil {
+				writer = bufio.NewWriter(out)
+			}
+			if err := writeLineBatch(writer, items, cfg.URL); err != nil {
 				cancel()
 				done <- outputWriteResult{count: outputCount, err: err}
 				return
@@ -27,8 +33,9 @@ func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConf
 	done <- outputWriteResult{count: outputCount}
 }
 
+// dedupeItems compacts items in place, preserving the order of first occurrences.
 func dedupeItems(items []string, seen map[string]struct{}) []string {
-	unique := make([]string, 0, len(items))
+	unique := items[:0]
 	for _, id := range items {
 		if _, ok := seen[id]; ok {
 			continue

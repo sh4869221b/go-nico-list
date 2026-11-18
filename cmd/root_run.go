@@ -179,7 +179,7 @@ inputLoop:
 	if streamOutput {
 		runLogger.Info("video list", "count", outputResult.count)
 	} else {
-		runLogger.Info("video list", "count", len(buffered.items))
+		runLogger.Info("video list", "count", buffered.itemCount)
 		outputResult = buffered.write(out, inputs, cfg)
 	}
 	if shouldShowProgressWithConfig(errWriter, cfg, deps) {

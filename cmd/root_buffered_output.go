@@ -10,10 +10,11 @@ import (
 
 // bufferedOutput collects results for sorted line output and JSON output.
 type bufferedOutput struct {
-	mu      sync.Mutex
-	items   []string
-	targets []targetResult
-	errors  []string
+	mu        sync.Mutex
+	itemCount int
+	items     []string
+	targets   []targetResult
+	errors    []string
 
 	// Only the input loop records invalid inputs.
 	invalidInputs []string
@@ -23,22 +24,29 @@ type bufferedOutput struct {
 func (b *bufferedOutput) addTarget(target inputTarget, order int, items []string, err error, jsonOutput bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if jsonOutput {
-		result := targetResult{Order: order, Type: target.Type, ID: target.ID, Items: items}
-		if err != nil {
-			result.Error = err.Error()
-			b.errors = append(b.errors, result.Error)
+	b.itemCount += len(items)
+	if !jsonOutput {
+		// Take ownership of a full first batch without retaining unused capacity.
+		if b.items == nil && len(items) == cap(items) {
+			b.items = items
+		} else {
+			b.items = append(b.items, items...)
 		}
-		b.targets = append(b.targets, result)
+		return
 	}
-	b.items = append(b.items, items...)
+	result := targetResult{Order: order, Type: target.Type, ID: target.ID, Items: items}
+	if err != nil {
+		result.Error = err.Error()
+		b.errors = append(b.errors, result.Error)
+	}
+	b.targets = append(b.targets, result)
 }
 
 // write formats the collected results after all target workers have finished.
 func (b *bufferedOutput) write(out io.Writer, inputs jsonInputs, cfg *RootConfig) outputWriteResult {
 	items := b.items
-	if cfg.NoSortOutput {
-		items = flattenTargetItemsByInputOrder(b.targets)
+	if cfg.JSONOutput {
+		items = flattenTargetItems(b.targets, b.itemCount, cfg.NoSortOutput)
 	}
 	if cfg.DedupeOutput && len(items) > 0 {
 		items = dedupeItems(items, make(map[string]struct{}, len(items)))

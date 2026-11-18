@@ -1,11 +1,13 @@
 package niconico
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -13,7 +15,11 @@ import (
 // bounding buffering even when Content-Length is absent or gzip is expanded.
 const maxPageBodyBytes = 8 << 20
 
+// Only retain buffers sized for ordinary pages after decoding.
+const maxPooledPageBodyBytes = 128 << 10
+
 var errPageBodyTooLarge = errors.New("response body exceeds 8 MiB limit")
+var pageBodyBuffers = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
 type parsedPage struct {
 	Items      []videoItem
@@ -22,7 +28,34 @@ type parsedPage struct {
 	NotFound   bool
 }
 
+// releaseItems consumes the page's owned item slice after callers finish using it.
+func (p *parsedPage) releaseItems() {
+	if len(p.Items) == pageSize {
+		projectedPageItemPool.put((*[pageSize]videoItem)(p.Items))
+	}
+	p.Items = nil
+}
+
+// parsePageFunc decodes a page without retaining the input bytes on success.
 type parsePageFunc func([]byte) (parsedPage, error)
+
+// readPageBody reads at most one byte past the limit, reusing scratch space for typical pages.
+func readPageBody(r io.Reader, contentLength int64, buffer *bytes.Buffer) ([]byte, error) {
+	// ReadFrom may grow its buffer to make room for an EOF read. Leave room
+	// for that read and use ReadAll for large pages to avoid doubling capacity.
+	const reusableLimit = maxPooledPageBodyBytes - bytes.MinRead
+	if contentLength >= reusableLimit {
+		return io.ReadAll(io.LimitReader(r, maxPageBodyBytes+1))
+	}
+	limited := &io.LimitedReader{R: r, N: reusableLimit}
+	n, err := buffer.ReadFrom(limited)
+	body := buffer.Bytes()
+	if err == nil && n == reusableLimit {
+		limited.N = maxPageBodyBytes + 1 - n
+		return io.ReadAll(io.MultiReader(bytes.NewReader(body), limited))
+	}
+	return body, err
+}
 
 func fetchPage(
 	ctx context.Context,
@@ -61,7 +94,8 @@ func fetchPage(
 	if metrics != nil {
 		started = time.Now()
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxPageBodyBytes+1))
+	buffer := pageBodyBuffers.Get().(*bytes.Buffer)
+	body, err := readPageBody(res.Body, res.ContentLength, buffer)
 	if len(body) > maxPageBodyBytes {
 		err = errPageBodyTooLarge
 	}
@@ -93,6 +127,10 @@ func fetchPage(
 	if err != nil {
 		logger.Error("failed to unmarshal response body", "error", err)
 		return parsedPage{}, err
+	}
+	if buffer.Cap() <= maxPooledPageBodyBytes {
+		buffer.Reset()
+		pageBodyBuffers.Put(buffer)
 	}
 	if page.Status != http.StatusOK {
 		logger.Warn("unexpected meta status", "status", page.Status)

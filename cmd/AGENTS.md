@@ -9,7 +9,7 @@
 | Public command entry | `root_flags.go` | `ExecuteContext` and package `Version`. |
 | Flags/defaults/deps | `root_config.go` | `RootConfig`, `RootDeps`, `DefaultConfig`, `DefaultDeps`, `NewRootCommand`. |
 | Runner | `root_run.go` | Validation, goroutine fan-out, fetch aggregation, summary, output, final error. |
-| Input targets | `input_target.go` | Partial-match user/mylist regexes and named submatch extraction. |
+| Input targets | `input_target.go` | Partial-match user/mylist paths and numeric ID extraction. |
 | Input streams/progress | `root_io.go` | Args/input-file/stdin merge, scanner limit, progress auto-disable. |
 | Buffered output | `root_buffered_output.go`, `root_json.go` | Concurrent result collection, sorted line output, JSON schema, and target ordering. |
 | Test harness | `root_test_helpers_test.go` | Shared `httptest`, command runner, buffers, fake readers/writers. |
@@ -40,7 +40,7 @@
 - Keep JSON tests decoding the payload rather than comparing large raw strings.
 
 ## GOTCHAS
-- Input regexes are partial matches and prefer the first matching target pattern.
+- Input matching accepts embedded paths and checks user targets before mylist targets.
 - `bufio.Scanner` input lines are capped at 1 MiB.
 - Fetch/log order and first returned fetch error are nondeterministic because targets run concurrently.
 - Cobra should not print usage for validation failures.

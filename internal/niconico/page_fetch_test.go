@@ -15,8 +15,24 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 )
+
+func TestReadPageBodyBufferBoundary(t *testing.T) {
+	boundary := maxPooledPageBodyBytes - bytes.MinRead
+	for _, size := range []int{boundary - 1, boundary, boundary + 1} {
+		want := strings.Repeat("a", size-1) + "b"
+		var buffer bytes.Buffer
+		body, err := readPageBody(iotest.DataErrReader(strings.NewReader(want)), -1, &buffer)
+		if err != nil || string(body) != want {
+			t.Fatalf("read %d bytes with error %v, want %d matching bytes", len(body), err, size)
+		}
+		if buffer.Cap() > maxPooledPageBodyBytes {
+			t.Fatalf("buffer capacity %d exceeds %d bytes", buffer.Cap(), maxPooledPageBodyBytes)
+		}
+	}
+}
 
 // Exercise the real transport, including net/http's transparent decompression.
 func TestFetchPageBodyLimitHTTP(t *testing.T) {

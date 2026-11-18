@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,6 +43,7 @@ func collectVideoList(
 		logger = slog.Default()
 	}
 
+	exclusiveBefore := beforeDate.AddDate(0, 0, 1)
 	fetch := func(page int) pageResult {
 		parsed, err := fetchPage(ctx, requestURL(page), httpClientTimeout, retries, limiter, logger, parsePage, control)
 		result := pageResult{
@@ -51,8 +53,9 @@ func collectVideoList(
 			totalCount: parsed.TotalCount,
 		}
 		if !result.terminal() {
-			result.ids = filterItems(parsed.Items, commentCount, afterDate, beforeDate)
+			result.ids = filterItems(parsed.Items, commentCount, afterDate, exclusiveBefore)
 		}
+		parsed.releaseItems()
 		return result
 	}
 
@@ -76,8 +79,8 @@ func collectVideoList(
 		return ids, nil
 	}
 	totalPages := 1 + (totalCount-1)/pageSize
-	parallelIDs, err := collectPagesParallel(ctx, 2, totalPages, pageConcurrency, fetch, control)
-	return collectionResult(append(ids, parallelIDs...), err)
+	ids, err := collectPagesParallel(ctx, ids, 2, totalPages, pageConcurrency, fetch, control)
+	return collectionResult(ids, err)
 }
 
 // collectionResult suppresses canceled fetches and preserves partial results for other errors.
@@ -91,6 +94,7 @@ func collectionResult(ids []string, err error) ([]string, error) {
 // collectPagesParallel fetches a bounded range and returns IDs preceding the earliest terminal page.
 func collectPagesParallel(
 	ctx context.Context,
+	ids []string,
 	startPage int,
 	endPage int,
 	pageConcurrency int,
@@ -150,6 +154,7 @@ func collectPagesParallel(
 
 	idsByPage := make(map[int][]string)
 	var terminal pageResult
+	collected := 0
 	for result := range results {
 		if result.terminal() {
 			if terminal.page == 0 || result.page < terminal.page {
@@ -158,11 +163,15 @@ func collectPagesParallel(
 			continue
 		}
 		idsByPage[result.page] = result.ids
+		collected += len(result.ids)
 	}
 	if terminal.err == nil && ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	var ids []string
+	// Reserve from observed results only; totalCount is an untrusted API hint.
+	if terminal.page == 0 {
+		ids = slices.Grow(ids, collected)
+	}
 	for page := startPage; page <= endPage && (terminal.page == 0 || page < terminal.page); {
 		ids = append(ids, idsByPage[page]...)
 		if page == endPage {
@@ -173,11 +182,11 @@ func collectPagesParallel(
 	return ids, terminal.err
 }
 
-// filterItems keeps videos above the comment threshold within the inclusive date range.
-func filterItems(items []videoItem, commentCount int, afterDate time.Time, beforeDate time.Time) []string {
-	ids := make([]string, 0, len(items))
-	exclusiveBefore := beforeDate.AddDate(0, 0, 1)
-	for _, item := range items {
+// filterItems keeps videos above the comment threshold in [afterDate, exclusiveBefore).
+func filterItems(items []videoItem, commentCount int, afterDate, exclusiveBefore time.Time) []string {
+	ids := []string{}
+	for i := range items {
+		item := &items[i]
 		if item.CommentCount <= commentCount {
 			continue
 		}
@@ -186,6 +195,9 @@ func filterItems(items []videoItem, commentCount int, afterDate time.Time, befor
 		}
 		if !item.RegisteredAt.Before(exclusiveBefore) {
 			continue
+		}
+		if len(ids) == 0 {
+			ids = make([]string, 0, len(items)-i)
 		}
 		ids = append(ids, item.ID)
 	}

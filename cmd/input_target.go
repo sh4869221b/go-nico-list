@@ -1,6 +1,6 @@
 package cmd
 
-import "regexp"
+import "strings"
 
 const (
 	targetTypeUser   = "user"
@@ -12,17 +12,32 @@ type inputTarget struct {
 	ID   string
 }
 
-var (
-	userInputPattern   = regexp.MustCompile(`(?:https?://)?(?:www\.)?nicovideo\.jp/user/(?P<userID>\d{1,9})(?:/video)?`)
-	mylistInputPattern = regexp.MustCompile(`(?:https?://)?(?:www\.)?nicovideo\.jp/mylist/(?P<mylistID>\d{1,12})`) // mylist IDs are numeric
-)
-
 func parseInputTarget(input string) (inputTarget, bool) {
-	if match := userInputPattern.FindStringSubmatch(input); len(match) > 0 {
-		return inputTarget{Type: targetTypeUser, ID: match[1]}, true
+	// Schemes and host prefixes are optional, so search for the bare paths.
+	if id := findTargetID(input, "nicovideo.jp/user/", 9); id != "" {
+		return inputTarget{Type: targetTypeUser, ID: id}, true
 	}
-	if match := mylistInputPattern.FindStringSubmatch(input); len(match) > 0 {
-		return inputTarget{Type: targetTypeMylist, ID: match[1]}, true
+	if id := findTargetID(input, "nicovideo.jp/mylist/", 12); id != "" {
+		return inputTarget{Type: targetTypeMylist, ID: id}, true
 	}
 	return inputTarget{}, false
+}
+
+// findTargetID searches embedded target paths and returns the first ASCII ID.
+func findTargetID(input, path string, maxDigits int) string {
+	for {
+		_, rest, found := strings.Cut(input, path)
+		if !found {
+			return ""
+		}
+		end := 0
+		limit := min(len(rest), maxDigits)
+		for end < limit && rest[end] >= '0' && rest[end] <= '9' {
+			end++
+		}
+		if end > 0 {
+			return rest[:end]
+		}
+		input = rest
+	}
 }

@@ -41,22 +41,13 @@ func buildJSONOutput(
 	errorsList []string,
 	outputIDs []string,
 ) jsonOutputPayload {
-	targets := make([]targetResult, 0, len(targetResults))
-	for _, target := range targetResults {
-		targets = append(targets, targetResult{
-			Type:  target.Type,
-			ID:    target.ID,
-			Items: append([]string{}, target.Items...),
-			Error: target.Error,
-		})
-	}
 	return jsonOutputPayload{
 		Inputs:      inputs,
-		Invalid:     append([]string{}, invalidInputsList...),
-		Targets:     targets,
-		Errors:      append([]string{}, errorsList...),
+		Invalid:     invalidInputsList,
+		Targets:     targetResults,
+		Errors:      errorsList,
 		OutputCount: len(outputIDs),
-		Items:       append([]string{}, outputIDs...),
+		Items:       outputIDs,
 	}
 }
 
@@ -82,14 +73,22 @@ func sortTargetResults(results []targetResult) {
 	})
 }
 
-func flattenTargetItemsByInputOrder(results []targetResult) []string {
-	ordered := append([]targetResult{}, results...)
-	sort.Slice(ordered, func(i, j int) bool {
-		return ordered[i].Order < ordered[j].Order
-	})
-	outputIDs := make([]string, 0)
-	for _, result := range ordered {
-		outputIDs = append(outputIDs, result.Items...)
+// flattenTargetItems collects IDs into independent storage for sorting and deduplication.
+func flattenTargetItems(results []targetResult, itemCount int, inputOrder bool) []string {
+	items := make([]string, 0, itemCount)
+	if inputOrder {
+		// Every admitted target has one result and a contiguous input position.
+		ordered := make([][]string, len(results))
+		for _, result := range results {
+			ordered[result.Order] = result.Items
+		}
+		for _, batch := range ordered {
+			items = append(items, batch...)
+		}
+		return items
 	}
-	return outputIDs
+	for _, result := range results {
+		items = append(items, result.Items...)
+	}
+	return items
 }

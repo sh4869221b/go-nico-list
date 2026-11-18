@@ -22,7 +22,7 @@ go-nico-list/
 ## WHERE TO LOOK
 | Task | Location | Notes |
 | --- | --- | --- |
-| CLI entrypoint | `main.go`, `cmd/root_flags.go` | `main` only wires version/context into `cmd.ExecuteContext`. |
+| CLI entrypoint | `main.go`, `cmd/root_flags.go` | `main` wires the version, signal context, and FIFO log opener into the root command. |
 | Flags and defaults | `cmd/root_config.go` | `RootConfig`, `RootDeps`, `NewRootCommand`, normalization. |
 | Runtime flow | `cmd/root_run.go` | validation, input stream, goroutines, summary, output, error selection. |
 | Input parsing | `cmd/input_target.go`, `cmd/root_io.go` | URL target matching, stdin/input-file scanner, progress gating. |

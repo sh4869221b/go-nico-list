@@ -19,6 +19,13 @@ import (
 
 const signalTestHelperEnv = "GO_NICO_LIST_SIGNAL_TEST_HELPER"
 
+func TestMain(m *testing.M) {
+	if runLogFIFOHelper() {
+		return
+	}
+	os.Exit(m.Run())
+}
+
 func TestCLISignalHelper(t *testing.T) {
 	if os.Getenv(signalTestHelperEnv) != "1" {
 		return

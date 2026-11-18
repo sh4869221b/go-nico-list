@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/schollz/progressbar/v3"
+	"github.com/sh4869221b/go-nico-list/internal/logfile"
 	"github.com/spf13/cobra"
 )
 
@@ -86,10 +87,8 @@ func DefaultDeps() RootDeps {
 	}
 }
 
-const logOpenFlags = os.O_APPEND | os.O_CREATE | os.O_WRONLY
-
 func defaultOpenLogFile(path string) (io.WriteCloser, error) {
-	return os.OpenFile(path, logOpenFlags, 0o644)
+	return logfile.OpenFile(path)
 }
 
 func defaultOpenInputFile(path string) (io.ReadCloser, error) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/sh4869221b/go-nico-list/internal/logfile"
 	"github.com/sh4869221b/go-nico-list/internal/niconico"
 	"github.com/spf13/cobra"
 )
@@ -40,7 +41,7 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		var logFile io.WriteCloser
 		var err error
 		if usesOSOpener(deps.OpenLogFile, defaultOpenLogFile) {
-			logFile, err = openOSLogFile(ctx, cfg.LogFilePath)
+			logFile, err = logfile.Open(ctx, cfg.LogFilePath, nil)
 		} else {
 			logFile, err = deps.OpenLogFile(cfg.LogFilePath)
 		}

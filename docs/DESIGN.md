@@ -11,12 +11,11 @@ This document summarizes the behavior required for a coding agent to reproduce t
 
 ```
 main.go
-  └─ cmd.ExecuteContext(ctx)
-        └─ NewRootCommand(cfg, deps)
-              ├─ RootConfig (flag values and defaults)
-              ├─ RootDeps (IO, logger, progress bar, file openers)
-              └─ runRootCmdWithConfig (runner)
-                    └─ internal/niconico (domain: fetch/retry/sort)
+  └─ cmd.NewRootCommand(cfg, deps).ExecuteContext(ctx)
+        ├─ RootConfig (flag values and defaults)
+        ├─ RootDeps (IO, logger, progress bar, file openers)
+        └─ runRootCmdWithConfig (runner)
+              └─ internal/niconico (domain: fetch/retry/sort)
 ```
 
 ### Refactoring guardrails
@@ -28,7 +27,7 @@ main.go
 ### Responsibilities
 - `main.go`:
   - Resolve version (build info / ldflags).
-  - Create a cancelable context and pass it to `cmd.ExecuteContext`.
+  - Execute the root command with a signal-aware context and supply the CLI's FIFO log opener.
 - `cmd/`:
   - `NewRootCommand(cfg, deps)` constructs the root command with injected `RootConfig` and `RootDeps`.
   - `RootConfig` holds all flag values and runtime defaults.
@@ -87,8 +86,8 @@ main.go
   - An input file or redirected stdin must be distinct from the log file, including when paths resolve through links. Once a conflict is detected, writes to that log file stop.
   - On interruption, the command stops taking new input and joins its cancelable input-file work before returning. A caller-supplied reader or opener can outlive the command if it blocks. Buffered output includes a valid target already read while waiting for a worker slot as an empty result. Streaming output drains completed batches while its writer is still available.
   - macOS FIFO input uses `select` to observe writer EOF. File descriptors outside its `fd_set` range use the platform's ordinary file open.
-  - Linux keeps a pending writer registered with the kernel when the FIFO can be reopened through procfs and the command has read access to wake the writer on cancellation. macOS and Linux configurations without that access retry the open and may miss a brief reader. Cancellation while waiting for the logfile reports zero counts and emits a JSON report with empty results in JSON mode.
-  - If reopening the pinned log FIFO for read fails during cancellation, the command returns and the pending open can finish when a reader connects.
+  - On Linux and macOS, the CLI waits for a log FIFO reader in a subprocess and receives the open writer over a Unix socket. The subprocess keeps a writer registered while it waits, so a brief reader can connect. Cancellation stops and reaps only that subprocess, without opening a reader on the FIFO. Cancellation while waiting for the logfile reports zero counts and emits a JSON report with empty results in JSON mode.
+  - The embedded command and CLI environments that cannot start the subprocess retry the nonblocking open. Very brief readers can be missed in this mode.
 - Validation and exit codes:
   - `--strict` returns non-zero if any invalid input is present (even if other inputs succeed).
   - If `--strict` and `--best-effort` are both set, **`--strict` takes precedence**.
@@ -193,7 +192,7 @@ main.go
 
 ## Version
 - `main.go` resolves `Version` and passes it to `cmd.Version`.
-- `ExecuteContext` sets `rootCmd.Version` before execution.
+- `NewRootCommand` sets Cobra's version before execution.
 
 ## Tests
 - CLI tests are split into focused files with shared helpers in `cmd/root_test_helpers_test.go`:

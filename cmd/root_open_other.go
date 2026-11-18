@@ -12,7 +12,3 @@ func openOSInputFile(_ context.Context, path string, detach func()) (io.ReadClos
 	detach()
 	return os.Open(path)
 }
-
-func openOSLogFile(_ context.Context, path string) (io.WriteCloser, error) {
-	return defaultOpenLogFile(path)
-}

@@ -28,18 +28,33 @@ type fifoCLI struct {
 
 func startFIFOCLI(t *testing.T, path, input string) *fifoCLI {
 	t.Helper()
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	child := newFIFOCLI(t, "", path, input)
+	child.start(t)
+	return child
+}
+
+func newFIFOCLI(t *testing.T, executable, path, input string) *fifoCLI {
+	t.Helper()
+	if executable == "" {
+		var err error
+		executable, err = os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
 	child := &fifoCLI{done: make(chan struct{})}
 	child.cmd = exec.CommandContext(ctx, executable,
 		"-test.run=^TestCLISignalHelper$", "--", "--json", "--logfile", path, input)
 	child.cmd.Env = append(os.Environ(), signalTestHelperEnv+"=1", "GORACE=atexit_sleep_ms=0")
 	child.cmd.Stdout, child.cmd.Stderr = &child.stdout, &child.stderr
+	return child
+}
+
+func (child *fifoCLI) start(t *testing.T) {
+	t.Helper()
 	if err := child.cmd.Start(); err != nil {
-		cancel()
 		t.Fatal(err)
 	}
 	go func() {
@@ -49,9 +64,7 @@ func startFIFOCLI(t *testing.T, path, input string) *fifoCLI {
 	t.Cleanup(func() {
 		_ = child.cmd.Process.Signal(syscall.SIGTERM)
 		<-child.done
-		cancel()
 	})
-	return child
 }
 
 func (child *fifoCLI) wait(t *testing.T) {
@@ -171,6 +184,93 @@ func TestLogFIFOAcceptsShortNonblockingReader(t *testing.T) {
 	child.wait(t)
 	if !strings.Contains(child.stderr.String(), "summary inputs=1 valid=0 invalid=1") {
 		t.Fatalf("CLI did not proceed after the reader disconnected: %q", child.stderr.String())
+	}
+}
+
+func TestLogFIFOAliasUsesParentStdout(t *testing.T) {
+	path := newLogFIFO(t)
+	initialReader, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := os.OpenFile(path, os.O_WRONLY|unix.O_NONBLOCK, 0)
+	_ = initialReader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = writer.Close() }()
+
+	child := newFIFOCLI(t, "", "/dev/stdout", "redirected-stdout")
+	child.cmd.Stdout = writer
+	child.start(t)
+	_ = writer.Close()
+	waitForFIFOLogWriter(t, child)
+
+	reader, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	child.wait(t)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"input":"redirected-stdout"`)) ||
+		!bytes.Contains(data, []byte(`"inputs":{"total":1,"valid":0,"invalid":1}`)) {
+		t.Fatalf("FIFO did not receive both the log and report: %q", data)
+	}
+}
+
+func TestLogFIFOHelperUsesRunningImageAfterReplacement(t *testing.T) {
+	path := newLogFIFO(t)
+	dir := t.TempDir()
+	installed := filepath.Join(dir, "go-nico-list")
+	replacement := filepath.Join(dir, "replacement")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, image, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacement, []byte("#!/bin/sh\necho replacement-executed >&2\nexit 42\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gateRead, gateWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = gateRead.Close(); _ = gateWrite.Close() }()
+
+	child := newFIFOCLI(t, installed, path, "original-image")
+	child.cmd.Env = append(child.cmd.Env, signalTestStartGateEnv+"=1")
+	child.cmd.Stdin = gateRead
+	child.start(t)
+	if err := os.Rename(replacement, installed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateWrite.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	waitForFIFOLogWriter(t, child)
+	reader, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	child.wait(t)
+	logs, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(logs, []byte(`"input":"original-image"`)) ||
+		strings.Contains(child.stderr.String(), "replacement-executed") {
+		t.Fatalf("log=%q, stderr=%q", logs, child.stderr.String())
 	}
 }
 

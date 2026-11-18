@@ -18,6 +18,7 @@ import (
 )
 
 const signalTestHelperEnv = "GO_NICO_LIST_SIGNAL_TEST_HELPER"
+const signalTestStartGateEnv = "GO_NICO_LIST_SIGNAL_TEST_START_GATE"
 
 func TestMain(m *testing.M) {
 	if runLogFIFOHelper() {
@@ -29,6 +30,12 @@ func TestMain(m *testing.M) {
 func TestCLISignalHelper(t *testing.T) {
 	if os.Getenv(signalTestHelperEnv) != "1" {
 		return
+	}
+	if os.Getenv(signalTestStartGateEnv) == "1" {
+		var ready [1]byte
+		if _, err := io.ReadFull(os.Stdin, ready[:]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	os.Args = append([]string{"go-nico-list"}, flag.Args()...)
 	main()

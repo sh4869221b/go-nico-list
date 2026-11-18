@@ -40,7 +40,6 @@ func BenchmarkUnorderedLineOutput(b *testing.B) {
 				want = (targetCount + 1) * tc.videos / 2
 			}
 			cfg := RootConfig{URL: tc.url, DedupeOutput: tc.dedupe}
-			done := make(chan outputWriteResult, 1)
 			cancel := func() {}
 			b.ReportAllocs()
 			for b.Loop() {
@@ -53,8 +52,7 @@ func BenchmarkUnorderedLineOutput(b *testing.B) {
 					output <- items
 				}
 				close(output)
-				writeUnorderedOutput(io.Discard, output, &cfg, cancel, done)
-				if result := <-done; result.err != nil || result.count != want {
+				if result := writeUnorderedOutput(io.Discard, output, &cfg, cancel); result.err != nil || result.count != want {
 					b.Fatalf("unexpected write result: %+v", result)
 				}
 			}

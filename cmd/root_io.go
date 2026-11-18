@@ -10,27 +10,72 @@ import (
 	"sync"
 
 	"github.com/schollz/progressbar/v3"
-	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
-var errInputLogConflict = errors.New("input-file and logfile must refer to different files")
+var errInputLogConflict = errors.New("input and logfile must refer to different files")
+
+func openFileInfo(value any) os.FileInfo {
+	if file, ok := value.(interface{ Stat() (os.FileInfo, error) }); ok {
+		info, _ := file.Stat()
+		return info
+	}
+	return nil
+}
+
+func sameFile(left, right os.FileInfo) bool {
+	return left != nil && right != nil && os.SameFile(left, right)
+}
 
 // validateInputLogPaths catches aliases before the log is opened, which can
 // itself block when both paths refer to a named pipe.
-func validateInputLogPaths(inputPath, logPath string) error {
-	if inputPath == "" || logPath == "" {
+func validateInputLogPaths(inputPath, logPath string, stdinInfo os.FileInfo) error {
+	if inputPath == "" && stdinInfo == nil {
 		return nil
 	}
 	if inputPath == logPath {
 		return errInputLogConflict
 	}
-	if inputInfo, err := os.Stat(inputPath); err == nil {
-		if logInfo, err := os.Stat(logPath); err == nil && os.SameFile(inputInfo, logInfo) {
+	if logInfo, err := os.Stat(logPath); err == nil {
+		if sameFile(stdinInfo, logInfo) {
 			return errInputLogConflict
+		}
+		if inputPath != "" {
+			inputInfo, _ := os.Stat(inputPath)
+			if sameFile(inputInfo, logInfo) {
+				return errInputLogConflict
+			}
 		}
 	}
 	return nil
+}
+
+// guardedLog serializes conflict detection with all logging paths, including
+// fetch workers and the final metrics log.
+type guardedLog struct {
+	writer  io.Writer
+	info    os.FileInfo
+	mu      sync.Mutex
+	discard bool
+}
+
+func (l *guardedLog) checkInput(info os.FileInfo) error {
+	if l == nil || !sameFile(l.info, info) {
+		return nil
+	}
+	l.mu.Lock()
+	l.discard = true
+	l.mu.Unlock()
+	return errInputLogConflict
+}
+
+func (l *guardedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.discard {
+		return len(p), nil
+	}
+	return l.writer.Write(p)
 }
 
 // inputStream bundles input channels and total count metadata.
@@ -78,14 +123,9 @@ func defaultIsTerminal(w io.Writer) bool {
 	return false
 }
 
-func streamInputsWithConfig(ctx context.Context, cancel context.CancelFunc, cmd *cobra.Command, args []string, cfg *RootConfig, deps RootDeps, logInfo os.FileInfo) inputStream {
+func streamInputsWithConfig(ctx context.Context, cancel context.CancelFunc, args []string, inputPath string, stdin io.Reader, deps RootDeps, log *guardedLog) inputStream {
 	out := make(chan string)
 	errCh := make(chan error, 1)
-	inputPath := cfg.InputFilePath
-	var stdin io.Reader
-	if cfg.ReadStdin {
-		stdin = cmd.InOrStdin()
-	}
 	progressTotal := int64(len(args))
 	if inputPath != "" || stdin != nil {
 		progressTotal = -1
@@ -108,7 +148,7 @@ func streamInputsWithConfig(ctx context.Context, cancel context.CancelFunc, cmd 
 		}
 
 		if inputPath != "" && ctx.Err() == nil {
-			n, err := streamLinesFromFile(ctx, inputPath, out, deps, logInfo)
+			n, err := streamLinesFromFile(ctx, inputPath, out, deps.OpenInputFile, log)
 			count += n
 			if err != nil {
 				reportError(err)
@@ -148,19 +188,23 @@ func sendInput(ctx context.Context, out chan<- string, input string) bool {
 }
 
 // streamLinesFromFile streams trimmed lines from a file into out.
-func streamLinesFromFile(ctx context.Context, path string, out chan<- string, deps RootDeps, logInfo os.FileInfo) (int, error) {
-	openedFile, err := deps.OpenInputFile(path)
+func streamLinesFromFile(ctx context.Context, path string, out chan<- string, openFile func(string) (io.ReadCloser, error), log *guardedLog) (int, error) {
+	var openedFile io.ReadCloser
+	var err error
+	if openFile == nil {
+		openedFile, err = openOSInputFile(ctx, path)
+	} else {
+		openedFile, err = openFile(path)
+	}
 	if err != nil {
 		return 0, err
 	}
 	file := &onceReadCloser{ReadCloser: openedFile}
 	// Check the opened files too in case a path changed since validation.
-	if logInfo != nil {
-		if inputFile, ok := openedFile.(interface{ Stat() (os.FileInfo, error) }); ok {
-			if info, err := inputFile.Stat(); err == nil && os.SameFile(info, logInfo) {
-				_ = file.Close()
-				return 0, errInputLogConflict
-			}
+	if log != nil {
+		if err := log.checkInput(openFileInfo(openedFile)); err != nil {
+			_ = file.Close()
+			return 0, err
 		}
 	}
 	count, err := streamLines(ctx, file, out)

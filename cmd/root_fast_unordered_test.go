@@ -32,12 +32,10 @@ func TestWriteUnorderedOutputCountsOnlyFlushedTargets(t *testing.T) {
 	output <- []string{"sm3", "sm1", "sm4"}
 	output <- []string{"sm5"}
 	close(output)
-	done := make(chan outputWriteResult, 1)
 	canceled := false
 
-	writeUnorderedOutput(out, output, &RootConfig{DedupeOutput: true}, func() { canceled = true }, done)
-
-	if result := <-done; !errors.Is(result.err, writeErr) || result.count != 2 || !canceled {
+	result := writeUnorderedOutput(out, output, &RootConfig{DedupeOutput: true}, func() { canceled = true })
+	if !errors.Is(result.err, writeErr) || result.count != 2 || !canceled {
 		t.Fatalf("expected two flushed IDs and cancellation on write failure, got %+v, canceled=%t", result, canceled)
 	}
 	if len(writes) != 2 || writes[0] != "sm1\nsm2\n" || writes[1] != "sm3\nsm4\n" {

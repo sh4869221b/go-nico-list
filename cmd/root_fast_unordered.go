@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConfig, cancel context.CancelFunc, done chan<- outputWriteResult) {
+func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConfig, cancel context.CancelFunc) outputWriteResult {
 	var seen map[string]struct{}
 	if cfg.DedupeOutput {
 		seen = make(map[string]struct{})
@@ -25,12 +25,11 @@ func writeUnorderedOutput(out io.Writer, outputCh <-chan []string, cfg *RootConf
 			outputCount += result.count
 			if result.err != nil {
 				cancel()
-				done <- outputWriteResult{count: outputCount, err: result.err}
-				return
+				return outputWriteResult{count: outputCount, err: result.err}
 			}
 		}
 	}
-	done <- outputWriteResult{count: outputCount}
+	return outputWriteResult{count: outputCount}
 }
 
 // dedupeItems compacts items in place, preserving the order of first occurrences.

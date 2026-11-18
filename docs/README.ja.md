@@ -84,7 +84,7 @@ cat users.txt | go-nico-list --stdin
 
 Notes:
 - 入力は引数、`--input-file`、`--stdin` で指定できます（改行区切り）。
-- `--input-file` と `--logfile` には別々のファイルを指定してください。割り込みを受けると、標準入力や名前付きパイプの待機中でも入力処理を終了します。
+- `--logfile` には `--input-file` や `--stdin` にリダイレクトしたファイルと異なるものを指定してください。Linux と macOS では、名前付きパイプを入力やログに指定した際の接続待ちも割り込みで終了します。
 - 各入力は `nicovideo.jp/user/<id>` または `nicovideo.jp/mylist/<id>` を含む必要があります（スキームは任意）。数字のみやドメインなしのパスだけの入力は無効としてスキップされます。
 - 結果は stdout、進捗とログは stderr に出力されます。`--logfile` でログ出力先を変更できます。
 - `--concurrency-targets`、`--concurrency-pages`、`--retries` を 1 未満にするか、`--timeout` を 0 以下にすると実行時エラーになります。

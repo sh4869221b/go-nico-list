@@ -53,8 +53,9 @@ if [[ -n "${GO_LICENSES_SAVE_PATH:-}" ]]; then
   for target in "${release_goos[@]:1}"; do
     save_dir="${report_dir}/licenses-${target}"
     go_licenses "${target}" save --save_path "${save_dir}" >/dev/null
-    # Keep the copies already saved for shared libraries, which can be read-only.
-    cp -Rn -- "${save_dir}/." "${GO_LICENSES_SAVE_PATH}/"
+    # Shared libraries export the same files on each platform. Allow replacing
+    # read-only copies already exported by another target.
+    cp -Rf -- "${save_dir}/." "${GO_LICENSES_SAVE_PATH}/"
   done
 fi
 

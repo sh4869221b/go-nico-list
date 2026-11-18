@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -22,14 +23,31 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+	var stdin io.Reader
+	if cfg.ReadStdin {
+		stdin = cmd.InOrStdin()
+	}
+
 	runLogger := deps.Logger
-	var logInfo os.FileInfo
+	var safeLog *guardedLog
 	if cfg.LogFilePath != "" {
-		if err := validateInputLogPaths(cfg.InputFilePath, cfg.LogFilePath); err != nil {
+		stdinInfo := openFileInfo(stdin)
+		if err := validateInputLogPaths(cfg.InputFilePath, cfg.LogFilePath, stdinInfo); err != nil {
 			return err
 		}
-		logFile, err := deps.OpenLogFile(cfg.LogFilePath)
+		var logFile io.WriteCloser
+		var err error
+		if deps.OpenLogFile == nil {
+			logFile, err = openOSLogFile(ctx, cfg.LogFilePath)
+		} else {
+			logFile, err = deps.OpenLogFile(cfg.LogFilePath)
+		}
 		if err != nil {
+			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+				return nil
+			}
 			return err
 		}
 		defer func() {
@@ -37,34 +55,36 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 				retErr = err
 			}
 		}()
-		if cfg.InputFilePath != "" {
-			if file, ok := logFile.(interface{ Stat() (os.FileInfo, error) }); ok {
-				logInfo, _ = file.Stat()
+		var logWriter io.Writer = logFile
+		if cfg.InputFilePath != "" || stdinInfo != nil {
+			safeLog = &guardedLog{writer: logFile, info: openFileInfo(logFile)}
+			if err := safeLog.checkInput(stdinInfo); err != nil {
+				return err
 			}
+			if cfg.InputFilePath != "" {
+				// Opening a new log can resolve a previously dangling input link.
+				info, _ := os.Stat(cfg.InputFilePath)
+				if err := safeLog.checkInput(info); err != nil {
+					return err
+				}
+			}
+			logWriter = safeLog
 		}
-		runLogger = slog.New(slog.NewJSONHandler(logFile, nil))
+		runLogger = slog.New(slog.NewJSONHandler(logWriter, nil))
 	}
 	control, targetConcurrency, pageConcurrency := resolveConcurrency(cmd, cfg)
 	if cfg.HTTPMetrics {
 		defer func() { runLogger.Info("http_metrics", "http", control.Snapshot()) }()
 	}
 
-	ctx, cancel := context.WithCancel(cmd.Context())
-	defer cancel()
 	targetGate := control.NewWorkerGate(targetConcurrency)
 	streamOutput := cfg.NoSortOutput && !cfg.JSONOutput
-	inputCtx := ctx
-	if !streamOutput {
-		// Preserve buffered-output admission: finish the target already
-		// read when an input error cancels the fetch work.
-		inputCtx = cmd.Context()
-	}
 
 	errWriter := cmd.ErrOrStderr()
 	out := cmd.OutOrStdout()
 
 	var buffered bufferedOutput
-	stream := streamInputsWithConfig(ctx, cancel, cmd, args, cfg, deps, logInfo)
+	stream := streamInputsWithConfig(ctx, cancel, args, cfg.InputFilePath, stdin, deps, safeLog)
 	limiter := niconico.NewRateLimiter(cfg.RateLimit, cfg.MinInterval)
 	var inputs jsonInputs
 
@@ -74,26 +94,29 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 	}
 
 	var outputCh chan []string
-	var streamWriteDone chan outputWriteResult
+	var streamWriteDone chan struct{}
+	var streamWriteResult outputWriteResult
 	// Queue storage stays bounded independently of the worker concurrency.
 	if streamOutput {
 		outputCh = make(chan []string, 1)
-		streamWriteDone = make(chan outputWriteResult, 1)
-		go writeUnorderedOutput(out, outputCh, cfg, cancel, streamWriteDone)
+		streamWriteDone = make(chan struct{})
+		go func() {
+			streamWriteResult = writeUnorderedOutput(out, outputCh, cfg, cancel)
+			close(streamWriteDone)
+		}()
 	}
 
 	var wg sync.WaitGroup
 	fetchErrors := make(chan error, 1)
 	fetchLogDone := logFetchErrors(runLogger, fetchErrors)
 
-	var inputErr error
-	var admittedTargets int64
+	var reportedTargets int64
 inputLoop:
 	for {
 		var input string
 		var ok bool
 		select {
-		case <-inputCtx.Done():
+		case <-ctx.Done():
 			break inputLoop
 		case input, ok = <-stream.inputs:
 		}
@@ -101,12 +124,6 @@ inputLoop:
 			break
 		}
 		inputs.Total++
-		if inputErr == nil {
-			select {
-			case inputErr = <-stream.errs:
-			default:
-			}
-		}
 		target, ok := parseInputTarget(input)
 		if !ok {
 			inputs.Invalid++
@@ -118,15 +135,18 @@ inputLoop:
 			continue
 		}
 		inputs.Valid++
-		if inputErr != nil {
-			addProgress()
-			continue
-		}
-		if err := targetGate.Acquire(inputCtx); err != nil {
+		targetOrder := int(reportedTargets)
+		if err := targetGate.Acquire(ctx); err != nil {
+			if !streamOutput {
+				// This target was already read. Account for it without
+				// starting another worker or making an HTTP request.
+				reportedTargets++
+				buffered.addTarget(target, targetOrder, nil, nil, cfg.JSONOutput)
+				addProgress()
+			}
 			break inputLoop
 		}
-		targetOrder := int(admittedTargets)
-		admittedTargets++
+		reportedTargets++
 		wg.Add(1)
 		go func(target inputTarget, targetOrder int) {
 			defer wg.Done()
@@ -143,10 +163,10 @@ inputLoop:
 			if err != nil {
 				fetchErrors <- err
 			}
-			if streamOutput && (err == nil || len(items) > 0) {
+			if streamOutput && len(items) > 0 {
 				select {
 				case outputCh <- items:
-				case <-ctx.Done():
+				case <-streamWriteDone:
 				}
 			}
 		}(target, targetOrder)
@@ -159,14 +179,14 @@ inputLoop:
 	close(fetchErrors)
 	failures := <-fetchLogDone
 	if streamOutput {
-		outputResult = <-streamWriteDone
+		<-streamWriteDone
+		outputResult = streamWriteResult
 	}
-	// Opening or reading input can stay blocked after cancellation.
-	if inputErr == nil {
-		select {
-		case inputErr = <-stream.errs:
-		default:
-		}
+	// A caller-supplied reader can stay blocked after cancellation.
+	var inputErr error
+	select {
+	case inputErr = <-stream.errs:
+	default:
 	}
 	if streamOutput {
 		runLogger.Info("video list", "count", outputResult.count)
@@ -185,7 +205,7 @@ inputLoop:
 		inputs.Total,
 		inputs.Valid,
 		inputs.Invalid,
-		admittedTargets-failures.count,
+		reportedTargets-failures.count,
 		failures.count,
 		outputResult.count,
 	); err != nil {

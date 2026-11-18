@@ -35,16 +35,25 @@ func newLineOutputWriter(out io.Writer) lineOutputWriter {
 // writeBatch counts complete records even when stdout accepts a partial write.
 func (w lineOutputWriter) writeBatch(items []string, withURL bool) outputWriteResult {
 	w.counter.written = 0
-	if err := writeLineBatch(w.buffer, items, withURL); err != nil {
-		remaining := w.counter.written
+	err := writeLineBatch(w.buffer, items, withURL)
+	written := w.counter.written
+	if out, ok := w.counter.out.(*bufio.Writer); ok {
+		// A supplied buffer may still hold the tail of this batch after a
+		// downstream write error. Only count bytes it actually passed on.
+		if flushErr := out.Flush(); err == nil {
+			err = flushErr
+		}
+		written -= int64(out.Buffered())
+	}
+	if err != nil {
 		lineOverhead := int64(1) // newline
 		if withURL {
 			lineOverhead += int64(len(nicoWatchURLPrefix))
 		}
 		count := 0
 		for _, item := range items {
-			remaining -= int64(len(item)) + lineOverhead
-			if remaining < 0 {
+			written -= int64(len(item)) + lineOverhead
+			if written < 0 {
 				break
 			}
 			count++

@@ -84,8 +84,9 @@ main.go
 ## CLI additions (v0.22.0)
 - Input sources:
   - `--input-file <path>` and/or `--stdin` read newline-separated inputs.
-  - The input file and log file must be distinct, including when their paths resolve to the same file through links.
-  - On interruption, the command stops taking new input even if opening or reading an input source is blocked. It finishes reporting results already available to the output path.
+  - An input file or redirected stdin must be distinct from the log file, including when paths resolve through links. Once a conflict is detected, writes to that log file stop.
+  - On interruption, the command stops taking new input and can cancel a named-pipe input or log wait on release Unix platforms. Buffered output includes a valid target already read while waiting for a worker slot as an empty result. Streaming output drains completed batches while its writer is still available.
+  - macOS FIFO input uses `select` to observe writer EOF. File descriptors outside its `fd_set` range use the platform's ordinary file open.
 - Validation and exit codes:
   - `--strict` returns non-zero if any invalid input is present (even if other inputs succeed).
   - If `--strict` and `--best-effort` are both set, **`--strict` takes precedence**.

@@ -37,6 +37,7 @@ func TestRunRootCmdRejectsSharedInputAndLogFile(t *testing.T) {
 				}
 			case "opened file alias":
 				// Simulate the input being replaced between validation and open.
+				cfg.HTTPMetrics = true
 				deps.OpenInputFile = func(string) (io.ReadCloser, error) { return os.Open(cfg.LogFilePath) }
 			}
 			command, _, _ := newTestRootCommand(t, cfg, deps)
@@ -50,7 +51,55 @@ func TestRunRootCmdRejectsSharedInputAndLogFile(t *testing.T) {
 			if err != nil || !bytes.Equal(got, content) {
 				t.Fatalf("input changed to %q, err=%v", got, err)
 			}
+			if alias == "opened file alias" {
+				got, err := os.ReadFile(cfg.LogFilePath)
+				if err != nil || len(got) != 0 {
+					t.Fatalf("logs written after conflict: %q, err=%v", got, err)
+				}
+			}
 		})
+	}
+}
+
+func TestRunRootCmdRejectsLogCreatedThroughDanglingInputLink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "log.jsonl")
+	link := filepath.Join(dir, "input")
+	if err := os.Symlink(path, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(),
+		"--input-file", link, "--logfile", path, "--http-metrics", "invalid")
+	if !errors.Is(err, errInputLogConflict) {
+		t.Fatalf("expected a file conflict, got %v", err)
+	}
+	got, err := os.ReadFile(link)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("logs written to the linked input: %q, err=%v", got, err)
+	}
+}
+
+func TestRunRootCmdRejectsLogAliasingRedirectedStdin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stdin")
+	content := []byte("invalid\n")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = input.Close() })
+
+	command, _, _ := newTestRootCommand(t, newTestRootConfig(), newTestRootDeps())
+	command.SetIn(input)
+	command.SetArgs([]string{"--stdin", "--logfile", path, "--http-metrics"})
+	if err := command.Execute(); !errors.Is(err, errInputLogConflict) {
+		t.Fatalf("expected a stdin/log conflict, got %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("stdin altered: %q, err=%v", got, err)
 	}
 }
 

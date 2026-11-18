@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -10,6 +11,34 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestRunRootCmdFlushesSuppliedStdoutBuffer(t *testing.T) {
+	server := newSingleVideoServer(t)
+	for _, noSort := range []bool{false, true} {
+		for _, writeErr := range []error{nil, io.ErrClosedPipe} {
+			t.Run(fmt.Sprintf("no-sort=%t/err=%v", noSort, writeErr), func(t *testing.T) {
+				cfg := testFetchConfig(server.URL)
+				cfg.NoSortOutput = noSort
+				deps := newTestRootDeps()
+				var out bytes.Buffer
+				var underlying io.Writer = &out
+				wantCount, wantOutput := 1, "sm1\n"
+				if writeErr != nil {
+					underlying = errorWriter{err: writeErr}
+					wantCount, wantOutput = 0, ""
+				}
+				deps.Stdout = bufio.NewWriter(underlying)
+				_, stderr, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1")
+				if !errors.Is(err, writeErr) || out.String() != wantOutput {
+					t.Fatalf("got stdout=%q, err=%v, want stdout=%q, err=%v", out.String(), err, wantOutput, writeErr)
+				}
+				if want := fmt.Sprintf("output_count=%d\n", wantCount); !strings.Contains(stderr.String(), want) {
+					t.Fatalf("expected %q in %q", want, stderr.String())
+				}
+			})
+		}
+	}
+}
 
 func TestRunRootCmdReturnsOutputWriteError(t *testing.T) {
 	server := newSingleVideoServer(t)

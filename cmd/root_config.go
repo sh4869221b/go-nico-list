@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -40,6 +41,7 @@ type RootConfig struct {
 }
 
 // RootDeps contains external dependencies used by the root command.
+// Leave the file openers nil to open files with the command context.
 type RootDeps struct {
 	Stdout         io.Writer
 	Stderr         io.Writer
@@ -71,7 +73,7 @@ func DefaultDeps() RootDeps {
 		Stderr: os.Stderr,
 		Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		OpenLogFile: func(path string) (io.WriteCloser, error) {
-			return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			return openOSLogFile(context.Background(), path)
 		},
 		ProgressBarNew: func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
 			return progressbar.NewOptions64(
@@ -80,8 +82,10 @@ func DefaultDeps() RootDeps {
 				progressbar.OptionSetVisibility(visible),
 			)
 		},
-		OpenInputFile: func(path string) (io.ReadCloser, error) { return os.Open(path) },
-		IsTerminal:    defaultIsTerminal,
+		OpenInputFile: func(path string) (io.ReadCloser, error) {
+			return openOSInputFile(context.Background(), path)
+		},
+		IsTerminal: defaultIsTerminal,
 	}
 }
 
@@ -169,14 +173,8 @@ func normalizeRootDeps(deps RootDeps) RootDeps {
 	if deps.Logger == nil {
 		deps.Logger = defaults.Logger
 	}
-	if deps.OpenLogFile == nil {
-		deps.OpenLogFile = defaults.OpenLogFile
-	}
 	if deps.ProgressBarNew == nil {
 		deps.ProgressBarNew = defaults.ProgressBarNew
-	}
-	if deps.OpenInputFile == nil {
-		deps.OpenInputFile = defaults.OpenInputFile
 	}
 	if deps.IsTerminal == nil {
 		deps.IsTerminal = defaults.IsTerminal

@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/schollz/progressbar/v3"
+	"github.com/sh4869221b/go-nico-list/internal/logfile"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +43,7 @@ type RootConfig struct {
 }
 
 // RootDeps contains external dependencies used by the root command.
+// Default file openers use the command context when passed to NewRootCommand.
 type RootDeps struct {
 	Stdout         io.Writer
 	Stderr         io.Writer
@@ -67,12 +71,10 @@ func DefaultConfig() RootConfig {
 // DefaultDeps returns the root command's default OS-backed dependencies.
 func DefaultDeps() RootDeps {
 	return RootDeps{
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
-		OpenLogFile: func(path string) (io.WriteCloser, error) {
-			return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		},
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		Logger:      slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+		OpenLogFile: defaultOpenLogFile,
 		ProgressBarNew: func(max int64, writer io.Writer, visible bool) *progressbar.ProgressBar {
 			return progressbar.NewOptions64(
 				max,
@@ -80,9 +82,23 @@ func DefaultDeps() RootDeps {
 				progressbar.OptionSetVisibility(visible),
 			)
 		},
-		OpenInputFile: func(path string) (io.ReadCloser, error) { return os.Open(path) },
+		OpenInputFile: defaultOpenInputFile,
 		IsTerminal:    defaultIsTerminal,
 	}
+}
+
+func defaultOpenLogFile(path string) (io.WriteCloser, error) {
+	return logfile.OpenFile(path)
+}
+
+func defaultOpenInputFile(path string) (io.ReadCloser, error) {
+	return openOSInputFile(context.Background(), path, func() {})
+}
+
+// Recognize the named defaults while preserving the legacy callback signatures
+// and any overrides supplied by callers of DefaultDeps.
+func usesOSOpener[T any](opener, defaultOpener func(string) (T, error)) bool {
+	return opener == nil || reflect.ValueOf(opener).Pointer() == reflect.ValueOf(defaultOpener).Pointer()
 }
 
 // NewRootCommand creates a fresh root command with flags bound to local config.
@@ -169,14 +185,8 @@ func normalizeRootDeps(deps RootDeps) RootDeps {
 	if deps.Logger == nil {
 		deps.Logger = defaults.Logger
 	}
-	if deps.OpenLogFile == nil {
-		deps.OpenLogFile = defaults.OpenLogFile
-	}
 	if deps.ProgressBarNew == nil {
 		deps.ProgressBarNew = defaults.ProgressBarNew
-	}
-	if deps.OpenInputFile == nil {
-		deps.OpenInputFile = defaults.OpenInputFile
 	}
 	if deps.IsTerminal == nil {
 		deps.IsTerminal = defaults.IsTerminal

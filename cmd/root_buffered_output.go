@@ -72,19 +72,26 @@ func (b *bufferedOutput) write(out io.Writer, inputs jsonInputs, cfg *RootConfig
 	if len(items) > 0 && !cfg.NoSortOutput {
 		niconico.NiconicoSort(items)
 	}
-	result := outputWriteResult{count: len(items)}
 	if cfg.JSONOutput {
 		sortTargetResults(b.targets)
 		payload := buildJSONOutput(inputs, b.invalidInputs, b.targets, b.errors, items)
 		// Encode before writing so invalid strings cannot leave a partial JSON object.
 		encoded, err := json.Marshal(payload)
 		if err != nil {
-			result.err = err
-			return result
+			return outputWriteResult{err: err}
 		}
-		_, result.err = out.Write(append(encoded, '\n'))
+		n, err := out.Write(append(encoded, '\n'))
+		if n < len(encoded)+1 && err == nil {
+			err = io.ErrShortWrite
+		}
+		written, err := flushOutput(out, int64(n), err)
+		result := outputWriteResult{err: err}
+		if written >= int64(len(encoded)) {
+			result.count = len(items)
+		}
+		return result
 	} else if len(items) > 0 {
-		result.err = writeLineOutput(out, items, cfg.URL)
+		return newLineOutputWriter(out).writeBatch(items, cfg.URL)
 	}
-	return result
+	return outputWriteResult{}
 }

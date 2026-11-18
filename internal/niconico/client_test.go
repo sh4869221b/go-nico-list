@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -329,6 +330,29 @@ func TestRetryAfterDelay(t *testing.T) {
 			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
 			header: "120",
 			want:   120 * time.Second,
+		},
+		{
+			name:   "largest representable seconds",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "9223372036",
+			want:   9223372036 * time.Second,
+		},
+		{
+			name:   "seconds overflow duration",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "9223372037",
+			want:   time.Duration(math.MaxInt64),
+		},
+		{
+			name:   "seconds overflow uint64",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "184467440737095516160",
+			want:   time.Duration(math.MaxInt64),
+		},
+		{
+			name:   "malformed overflowing seconds",
+			res:    &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)},
+			header: "184467440737095516160s",
 		},
 		{
 			name:   "http date header",

@@ -11,9 +11,60 @@ type outputWriteResult struct {
 	err   error
 }
 
-// writeLineOutput writes line output directly without building a joined string.
-func writeLineOutput(out io.Writer, items []string, withURL bool) error {
-	return writeLineBatch(bufio.NewWriter(out), items, withURL)
+type outputByteCounter struct {
+	out     io.Writer
+	written int64
+}
+
+func (w *outputByteCounter) Write(p []byte) (int, error) {
+	n, err := w.out.Write(p)
+	w.written += int64(n)
+	return n, err
+}
+
+type lineOutputWriter struct {
+	buffer  *bufio.Writer
+	counter *outputByteCounter
+}
+
+func newLineOutputWriter(out io.Writer) lineOutputWriter {
+	counter := &outputByteCounter{out: out}
+	return lineOutputWriter{buffer: bufio.NewWriter(counter), counter: counter}
+}
+
+// writeBatch counts complete records even when stdout accepts a partial write.
+func (w lineOutputWriter) writeBatch(items []string, withURL bool) outputWriteResult {
+	w.counter.written = 0
+	err := writeLineBatch(w.buffer, items, withURL)
+	written, err := flushOutput(w.counter.out, w.counter.written, err)
+	if err != nil {
+		lineOverhead := int64(1) // newline
+		if withURL {
+			lineOverhead += int64(len(nicoWatchURLPrefix))
+		}
+		count := 0
+		for _, item := range items {
+			written -= int64(len(item)) + lineOverhead
+			if written < 0 {
+				break
+			}
+			count++
+		}
+		return outputWriteResult{count: count, err: err}
+	}
+	return outputWriteResult{count: len(items)}
+}
+
+func flushOutput(out io.Writer, written int64, err error) (int64, error) {
+	if buf, ok := out.(*bufio.Writer); ok {
+		if flushErr := buf.Flush(); err == nil {
+			err = flushErr
+		}
+		// A failed flush can leave a suffix buffered. Bytes already in
+		// the buffer before this write precede the current output.
+		written -= int64(buf.Buffered())
+	}
+	return written, err
 }
 
 // writeLineBatch flushes the completed batch while retaining the buffer for reuse.

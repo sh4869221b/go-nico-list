@@ -11,12 +11,11 @@ This document summarizes the behavior required for a coding agent to reproduce t
 
 ```
 main.go
-  └─ cmd.ExecuteContext(ctx)
-        └─ NewRootCommand(cfg, deps)
-              ├─ RootConfig (flag values and defaults)
-              ├─ RootDeps (IO, logger, progress bar, file openers)
-              └─ runRootCmdWithConfig (runner)
-                    └─ internal/niconico (domain: fetch/retry/sort)
+  └─ cmd.NewRootCommand(cfg, deps).ExecuteContext(ctx)
+        ├─ RootConfig (flag values and defaults)
+        ├─ RootDeps (IO, logger, progress bar, file openers)
+        └─ runRootCmdWithConfig (runner)
+              └─ internal/niconico (domain: fetch/retry/sort)
 ```
 
 ### Refactoring guardrails
@@ -28,7 +27,7 @@ main.go
 ### Responsibilities
 - `main.go`:
   - Resolve version (build info / ldflags).
-  - Create a cancelable context and pass it to `cmd.ExecuteContext`.
+  - Execute the root command with a signal-aware context and supply the CLI's FIFO log opener.
 - `cmd/`:
   - `NewRootCommand(cfg, deps)` constructs the root command with injected `RootConfig` and `RootDeps`.
   - `RootConfig` holds all flag values and runtime defaults.
@@ -66,7 +65,7 @@ main.go
   - `-P, --concurrency-pages` (default `1`): concurrent page requests per target. In fixed mode without an HTTP cap, total in-flight requests are roughly `--concurrency-targets * --concurrency-pages`.
   - `-H, --concurrency-http` (default `0`): command-wide HTTP cap; zero means no additional cap.
   - `-A, --concurrency-adaptive` (default `false`): automatically adjust unspecified target/page/HTTP concurrency.
-  - `--rate-limit` (default `0`): maximum requests per second (float; `0` disables).
+  - `--rate-limit` (default `0`): maximum requests per second (finite non-negative float; `0` disables).
   - `--min-interval` (default `0s`): minimum interval between requests (`0` disables).
   - `--timeout` (default `10s`): HTTP client timeout.
   - `--retries` (default `10`): retry count.
@@ -84,6 +83,11 @@ main.go
 ## CLI additions (v0.22.0)
 - Input sources:
   - `--input-file <path>` and/or `--stdin` read newline-separated inputs.
+  - An input file or redirected stdin must be distinct from the log file, including when paths resolve through links. Once a conflict is detected, writes to that log file stop.
+  - On interruption, the command stops taking new input and joins its cancelable input-file work before returning. A caller-supplied reader or opener can outlive the command if it blocks. Buffered output includes a valid target already read while waiting for a worker slot as an empty result. Streaming output drains completed batches while its writer is still available.
+  - macOS FIFO input uses `select` to observe writer EOF. File descriptors outside its `fd_set` range use the platform's ordinary file open.
+  - On Linux, the CLI starts the FIFO subprocess from the running image via `/proc/self/exe`. It resolves the log path in the parent and passes an `O_PATH` descriptor for the FIFO, including when the path refers to a parent descriptor such as `/dev/stdout`. The subprocess keeps a writer registered while it waits and returns the open writer over a Unix socket. Cancellation stops and reaps that subprocess without opening a reader on the FIFO. Cancellation while waiting for the logfile reports zero counts and emits a JSON report with empty results in JSON mode.
+  - macOS, the embedded command, and Linux environments without the required procfs access or subprocess support retry the nonblocking open. Very brief readers can be missed in this mode.
 - Validation and exit codes:
   - `--strict` returns non-zero if any invalid input is present (even if other inputs succeed).
   - If `--strict` and `--best-effort` are both set, **`--strict` takes precedence**.
@@ -96,7 +100,7 @@ main.go
   - Uncapped collection preserves the filtering, ordering, JSON, summary, error, partial-result, retry/rate-limit, and cancellation contracts described below.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
-    - `output_count` uses the actual emitted count.
+    - `output_count` counts IDs whose complete lines reached stdout. For JSON it counts the IDs in the complete object, or zero if the object could not be fully written. Both paths flush a supplied `*bufio.Writer` and propagate its errors.
   - JSON processing uses `encoding/json/v2` defaults without v1 compatibility options (Go 1.27 or newer).
     - API field names match JSON tags exactly; unmatched fields are ignored. Duplicate object names, invalid UTF-8 and invalid timestamps are decode errors. JSON null resets the corresponding Go value; missing/null/empty item lists yield an empty page.
     - JSON output retains its schema, non-null empty arrays and trailing newline. HTML-sensitive characters and U+2028/U+2029 are emitted without extra escaping. Encoding errors (including invalid UTF-8 in input/error strings) return a non-zero result and write no JSON payload; stderr still receives the run summary. Decode-error text follows v2 and can appear in partial-result error fields.
@@ -162,7 +166,7 @@ main.go
 - Apply global rate limiting before each request (including retries).
 - Rate intervals beyond the `time.Duration` range saturate at its maximum; a small positive rate must never disable pacing.
 - When both `--rate-limit` and `--min-interval` are set, use the stricter limit (max of `min-interval` and `1/rate-limit`).
-- On HTTP 429 with `Retry-After`, wait for the longer of `Retry-After` and the computed backoff/interval delay.
+- On HTTP 429 with `Retry-After`, wait for the longer of `Retry-After` and the computed backoff/interval delay. Values beyond the maximum representable duration saturate at that duration and the wait remains cancelable.
 
 ### Sort (`internal/niconico.NiconicoSort`)
 - Sort raw `sm*` IDs by numeric part in ascending order.
@@ -188,7 +192,7 @@ main.go
 
 ## Version
 - `main.go` resolves `Version` and passes it to `cmd.Version`.
-- `ExecuteContext` sets `rootCmd.Version` before execution.
+- `NewRootCommand` sets Cobra's version before execution.
 
 ## Tests
 - CLI tests are split into focused files with shared helpers in `cmd/root_test_helpers_test.go`:
@@ -214,7 +218,7 @@ main.go
 - The release workflow verifies generated files (`go mod tidy`, `go generate ./...`).
 - The release workflow runs quality gates (gofmt, go vet, golangci-lint, go test, go test -race).
 - `THIRD_PARTY_NOTICES.md` is generated by `scripts/gen-third-party-notices.sh` during release packaging.
-  - The script uses `go-licenses report` and excludes test-only dependencies by default.
+  - The script uses `go-licenses report` across the release operating systems and excludes test-only dependencies by default.
   - `GO_LICENSES_SAVE_PATH` can be set to export license texts with `go-licenses save`.
 - Workflow actions are pinned to commit SHAs to reduce supply-chain risk from mutable action tags.
 - GoReleaser builds and publishes artifacts for supported OSes.

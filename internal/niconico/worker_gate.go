@@ -17,7 +17,7 @@ func (c *HTTPControl) NewWorkerGate(limit int) *WorkerGate {
 	if c == nil {
 		c = &HTTPControl{}
 	}
-	return &WorkerGate{control: c, limit: max(0, limit), changed: make(chan struct{})}
+	return &WorkerGate{control: c, limit: max(0, limit)}
 }
 
 func (g *WorkerGate) limitLocked() int {
@@ -49,7 +49,18 @@ func (g *WorkerGate) Acquire(ctx context.Context) error {
 			c.workerPending++
 			waiting = true
 		}
-		changed, resized := g.changed, c.workerChanged
+		// Allocate notification channels only when a scheduler has to wait.
+		if g.changed == nil {
+			g.changed = make(chan struct{})
+		}
+		var resized <-chan struct{}
+		if g.limit == 0 && c.adaptive != nil {
+			if c.workerChanged == nil {
+				c.workerChanged = make(chan struct{})
+			}
+			resized = c.workerChanged
+		}
+		changed := g.changed
 		c.mu.Unlock()
 		select {
 		case <-ctx.Done():
@@ -78,7 +89,9 @@ func (g *WorkerGate) Release() {
 	c := g.control
 	c.mu.Lock()
 	g.active--
-	close(g.changed)
-	g.changed = make(chan struct{})
+	if g.changed != nil {
+		close(g.changed)
+		g.changed = nil
+	}
 	c.mu.Unlock()
 }

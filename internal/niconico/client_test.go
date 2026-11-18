@@ -478,10 +478,15 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
 		switch page {
 		case "1":
-			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}]}}`)
+		case "2":
+			// A populated page with no qualifying videos does not end pagination.
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":0}}}]}}`)
+		case "3":
+			_, _ = io.WriteString(w, `{"data":{"items":[{"essential":{"id":"sm3","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":1}}}]}}`)
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, "invalid")
@@ -497,7 +502,7 @@ func TestGetVideoListPartialOnError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	if !slices.Equal(got, []string{"sm1"}) {
+	if !slices.Equal(got, []string{"sm1", "sm3"}) {
 		t.Errorf("expected partial result, got %v", got)
 	}
 }

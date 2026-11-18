@@ -7,10 +7,33 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 )
+
+func TestBufferedJSONDedupeInInputOrder(t *testing.T) {
+	var output bufferedOutput
+	output.addTarget(inputTarget{Type: targetTypeUser, ID: "1"}, 2, []string{"sm2", "sm1"}, nil, true)
+	output.addTarget(inputTarget{Type: targetTypeUser, ID: "2"}, 1, nil, nil, true)
+	output.addTarget(inputTarget{Type: targetTypeUser, ID: "3"}, 0, []string{"sm3", "sm2", "sm3"}, nil, true)
+	var out bytes.Buffer
+	cfg := RootConfig{JSONOutput: true, NoSortOutput: true, DedupeOutput: true}
+	if result := output.write(&out, jsonInputs{Total: 3, Valid: 3}, &cfg); result.err != nil || result.count != 3 {
+		t.Fatalf("unexpected output result: %+v", result)
+	}
+	var payload jsonOutputPayload
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(payload.Items, []string{"sm3", "sm2", "sm1"}) {
+		t.Fatalf("flattened IDs: %v", payload.Items)
+	}
+	if len(payload.Targets) != 3 || !slices.Equal(payload.Targets[2].Items, []string{"sm3", "sm2", "sm3"}) {
+		t.Fatalf("unexpected per-target results: %+v", payload.Targets)
+	}
+}
 
 func TestRunRootCmdJSONV2Encoding(t *testing.T) {
 	const invalid = "invalid <>&\u2028\u2029"

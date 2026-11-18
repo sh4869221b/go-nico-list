@@ -2,8 +2,8 @@ package niconico
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 )
 
@@ -24,12 +24,8 @@ func GetVideoList(
 	logger *slog.Logger,
 	control *HTTPControl,
 ) ([]string, error) {
-	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger,
-		func(page int) string {
-			return fmt.Sprintf("%s/users/%s/videos?pageSize=%d&page=%d", baseURL, userID, pageSize, page)
-		},
-		parseUserVideoPage, control,
-	)
+	pageURLPrefix := baseURL + "/users/" + userID + "/videos?pageSize=" + strconv.Itoa(pageSize) + "&page="
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger, pageURLPrefix, parseUserVideoPage, control)
 }
 
 // GetMylistVideoList retrieves video IDs for a mylist.
@@ -47,10 +43,6 @@ func GetMylistVideoList(
 	logger *slog.Logger,
 	control *HTTPControl,
 ) ([]string, error) {
-	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger,
-		func(page int) string {
-			return fmt.Sprintf("%s/mylists/%s?pageSize=%d&page=%d", baseURL, mylistID, pageSize, page)
-		},
-		parseMylistPage, control,
-	)
+	pageURLPrefix := baseURL + "/mylists/" + mylistID + "?pageSize=" + strconv.Itoa(pageSize) + "&page="
+	return collectVideoList(ctx, commentCount, afterDate, beforeDate, retries, httpClientTimeout, limiter, pageConcurrency, logger, pageURLPrefix, parseMylistPage, control)
 }

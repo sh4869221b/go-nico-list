@@ -52,10 +52,8 @@ main.go
 
 ### Input
 - Arguments: `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` URL (scheme optional).
-  - User regex: `(?:https?://)?(?:www\.)?nicovideo\.jp/user/(?P<userID>\d{1,9})(?:/video)?`
-  - Mylist regex: `(?:https?://)?(?:www\.)?nicovideo\.jp/mylist/(?P<mylistID>\d{1,12})`
-  - Regex is **partial match** (valid if the input contains a match).
-  - If multiple matches exist, use the first matching target pattern in the input string.
+  - An input may contain an embedded target. Match the first `nicovideo.jp/user/` followed by 1 to 9 ASCII digits, or otherwise the first `nicovideo.jp/mylist/` followed by 1 to 12 ASCII digits.
+  - Keep leading zeros and take only the first 9 or 12 digits of longer IDs.
   - Domain-less paths and plain digits are treated as invalid inputs.
   - Input lines read from `--input-file` or `--stdin` are limited to 1 MiB per line (`bufio.Scanner` limit); longer lines return an input read error.
 - Flags:
@@ -117,7 +115,7 @@ main.go
   - `--no-progress` always disables progress output and takes precedence when both flags are set.
 
 ## Flow
-1. `cmd/root_*.go` extracts user or mylist targets using regex matching.
+1. `cmd/input_target.go` extracts the target type and ID from each input.
 2. For each target, a goroutine calls `internal/niconico.GetVideoList` (user) or `internal/niconico.GetMylistVideoList` (mylist).
 3. For normal output, aggregate raw IDs, optionally dedupe and sort them, apply optional URL formatting, then print to stdout.
 4. For `--no-sort && !--json`, stream fetched batches through a single stdout writer and apply `--dedupe` there.

@@ -7,10 +7,39 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestGetVideoListFullPagesKeepFilteredIDs(t *testing.T) {
+	const firstItem = `{"essential":{"id":"sm1","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}`
+	const laterItem = `{"essential":{"id":"sm2","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":10}}}`
+	const rejectedItem = `{"essential":{"id":"sm3","registeredAt":"2024-01-10T00:00:00Z","count":{"comment":1}}}`
+	const prefix = `{"meta":{"status":200},"data":{"totalCount":200,"items":[`
+	const suffix = `]}}`
+	rejected := strings.Repeat(","+rejectedItem, pageSize-1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = io.WriteString(w, prefix+firstItem+rejected+suffix)
+		case "2":
+			_, _ = io.WriteString(w, prefix+laterItem+rejected+suffix)
+		default:
+			t.Errorf("unexpected page request: %s", r.URL.Query().Get("page"))
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2024, 4, 30, 0, 0, 0, 0, time.UTC)
+	ids, err := GetVideoList(context.Background(), "12345", 1, after, before, server.URL, 1, time.Second, nil, 2, slog.New(slog.DiscardHandler), nil)
+	if err != nil || !slices.Equal(ids, []string{"sm1", "sm2"}) {
+		t.Fatalf("filtered IDs after later page fetch: %v, %v", ids, err)
+	}
+}
 
 func TestGetVideoListSequentialStopsPagination(t *testing.T) {
 	for _, tt := range []struct {

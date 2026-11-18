@@ -10,10 +10,12 @@ import (
 
 // bufferedOutput collects results for sorted line output and JSON output.
 type bufferedOutput struct {
-	mu      sync.Mutex
-	items   []string
-	targets []targetResult
-	errors  []string
+	mu        sync.Mutex
+	itemCount int
+	items     []string
+	batches   [][]string
+	targets   []targetResult
+	errors    []string
 
 	// Only the input loop records invalid inputs.
 	invalidInputs []string
@@ -23,22 +25,46 @@ type bufferedOutput struct {
 func (b *bufferedOutput) addTarget(target inputTarget, order int, items []string, err error, jsonOutput bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if jsonOutput {
-		result := targetResult{Order: order, Type: target.Type, ID: target.ID, Items: items}
-		if err != nil {
-			result.Error = err.Error()
-			b.errors = append(b.errors, result.Error)
+	b.itemCount += len(items)
+	if !jsonOutput {
+		if len(items) == 0 {
+			return
 		}
-		b.targets = append(b.targets, result)
+		dense := len(items) >= cap(items)-len(items)
+		switch {
+		case dense && b.items == nil:
+			b.items = items
+		case dense && len(items) > cap(b.items)-len(b.items):
+			// Save dense batches for one final copy. Sparse batches would retain
+			// too much of their backing arrays, so copy them into items now.
+			b.batches = append(b.batches, items)
+		default:
+			b.items = append(b.items, items...)
+		}
+		return
 	}
-	b.items = append(b.items, items...)
+	result := targetResult{Order: order, Type: target.Type, ID: target.ID, Items: items}
+	if err != nil {
+		result.Error = err.Error()
+		b.errors = append(b.errors, result.Error)
+	}
+	b.targets = append(b.targets, result)
 }
 
 // write formats the collected results after all target workers have finished.
 func (b *bufferedOutput) write(out io.Writer, inputs jsonInputs, cfg *RootConfig) outputWriteResult {
 	items := b.items
-	if cfg.NoSortOutput {
-		items = flattenTargetItemsByInputOrder(b.targets)
+	if cfg.JSONOutput {
+		items = flattenTargetItems(b.targets, b.itemCount, cfg.NoSortOutput)
+	} else if len(b.batches) > 0 {
+		// Buffered line output is always sorted, so sparse and dense
+		// batches can be accumulated separately.
+		items = append(make([]string, 0, b.itemCount), items...)
+		for _, batch := range b.batches {
+			items = append(items, batch...)
+		}
+		b.items = items
+		b.batches = nil
 	}
 	if cfg.DedupeOutput && len(items) > 0 {
 		items = dedupeItems(items, make(map[string]struct{}, len(items)))

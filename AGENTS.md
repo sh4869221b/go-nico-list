@@ -25,7 +25,7 @@ go-nico-list/
 | CLI entrypoint | `main.go`, `cmd/root_flags.go` | `main` only wires version/context into `cmd.ExecuteContext`. |
 | Flags and defaults | `cmd/root_config.go` | `RootConfig`, `RootDeps`, `NewRootCommand`, normalization. |
 | Runtime flow | `cmd/root_run.go` | validation, input stream, goroutines, summary, output, error selection. |
-| Input parsing | `cmd/input_target.go`, `cmd/root_io.go` | URL regexes, stdin/input-file scanner, progress gating. |
+| Input parsing | `cmd/input_target.go`, `cmd/root_io.go` | URL target matching, stdin/input-file scanner, progress gating. |
 | Buffered output | `cmd/root_buffered_output.go`, `cmd/root_json.go` | Sorted lines, JSON assembly, target ordering, and flattened items. |
 | API entry points and pagination | `internal/niconico/client.go`, `internal/niconico/collection.go` | User/mylist endpoints, page scheduling, filtering, and partial results. |
 | API schema | `internal/niconico/nico_data.go` | `NicoData` decode target for fixtures and live API responses. |

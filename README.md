@@ -88,6 +88,7 @@ Notes:
 - Inputs can be provided via arguments, `--input-file`, and `--stdin` (newline-separated).
 - Input lines from `--input-file` and `--stdin` are limited to 1 MiB per line; longer lines fail with an input read error.
 - The logfile must be distinct from `--input-file` and any redirected `--stdin`. On Linux and macOS, an interrupt also ends the wait for a named-pipe input or logfile to connect.
+- An interrupt while waiting for the logfile produces a zero-count summary and an empty report in `--json` mode.
 - Each input must contain `nicovideo.jp/user/<id>` or `nicovideo.jp/mylist/<id>` (scheme optional). Plain digits or paths without the domain are treated as invalid inputs and skipped.
 - Results are written to stdout; progress and logs are written to stderr. Use `--logfile` to redirect logs to a file.
 - Setting `--concurrency-targets`, `--concurrency-pages`, or `--retries` to a value less than 1, or `--timeout` to a value less than or equal to 0, will cause a runtime error.

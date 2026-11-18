@@ -131,7 +131,8 @@ func TestRunRootCmdLogFile(t *testing.T) {
 func TestRunRootCmdLogFileCloseError(t *testing.T) {
 	closeErr := errors.New("close failed")
 	cfg := RootConfig{LogFilePath: "dummy.log", NoProgress: true}
-	deps := newTestRootDeps()
+	deps := DefaultDeps()
+	deps.Stdout, deps.Stderr = nil, nil
 	deps.OpenLogFile = func(string) (io.WriteCloser, error) {
 		return failingCloseWriter{closeErr: closeErr}, nil
 	}

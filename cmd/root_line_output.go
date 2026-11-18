@@ -36,15 +36,7 @@ func newLineOutputWriter(out io.Writer) lineOutputWriter {
 func (w lineOutputWriter) writeBatch(items []string, withURL bool) outputWriteResult {
 	w.counter.written = 0
 	err := writeLineBatch(w.buffer, items, withURL)
-	written := w.counter.written
-	if out, ok := w.counter.out.(*bufio.Writer); ok {
-		// A supplied buffer may still hold the tail of this batch after a
-		// downstream write error. Only count bytes it actually passed on.
-		if flushErr := out.Flush(); err == nil {
-			err = flushErr
-		}
-		written -= int64(out.Buffered())
-	}
+	written, err := flushOutput(w.counter.out, w.counter.written, err)
 	if err != nil {
 		lineOverhead := int64(1) // newline
 		if withURL {
@@ -61,6 +53,18 @@ func (w lineOutputWriter) writeBatch(items []string, withURL bool) outputWriteRe
 		return outputWriteResult{count: count, err: err}
 	}
 	return outputWriteResult{count: len(items)}
+}
+
+func flushOutput(out io.Writer, written int64, err error) (int64, error) {
+	if buf, ok := out.(*bufio.Writer); ok {
+		if flushErr := buf.Flush(); err == nil {
+			err = flushErr
+		}
+		// A failed flush can leave a suffix buffered. Bytes already in
+		// the buffer before this write precede the current output.
+		written -= int64(buf.Buffered())
+	}
+	return written, err
 }
 
 // writeLineBatch flushes the completed batch while retaining the buffer for reuse.

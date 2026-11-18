@@ -85,8 +85,10 @@ main.go
 - Input sources:
   - `--input-file <path>` and/or `--stdin` read newline-separated inputs.
   - An input file or redirected stdin must be distinct from the log file, including when paths resolve through links. Once a conflict is detected, writes to that log file stop.
-  - On interruption, the command stops taking new input and can cancel a named-pipe input or log wait on release Unix platforms. Buffered output includes a valid target already read while waiting for a worker slot as an empty result. Streaming output drains completed batches while its writer is still available.
+  - On interruption, the command stops taking new input and joins its cancelable input-file work before returning. A caller-supplied reader or opener can outlive the command if it blocks. Buffered output includes a valid target already read while waiting for a worker slot as an empty result. Streaming output drains completed batches while its writer is still available.
   - macOS FIFO input uses `select` to observe writer EOF. File descriptors outside its `fd_set` range use the platform's ordinary file open.
+  - Linux keeps a pending writer registered with the kernel when the FIFO can be reopened through procfs and the command has read access to wake the writer on cancellation. macOS and Linux configurations without that access retry the open and may miss a brief reader. Cancellation while waiting for the logfile reports zero counts and emits a JSON report with empty results in JSON mode.
+  - If reopening the pinned log FIFO for read fails during cancellation, the command returns and the pending open can finish when a reader connects.
 - Validation and exit codes:
   - `--strict` returns non-zero if any invalid input is present (even if other inputs succeed).
   - If `--strict` and `--best-effort` are both set, **`--strict` takes precedence**.
@@ -99,7 +101,7 @@ main.go
   - Uncapped collection preserves the filtering, ordering, JSON, summary, error, partial-result, retry/rate-limit, and cancellation contracts described below.
   - Run summary is emitted to stderr after processing (even on non-zero exit codes).
     - Format: `summary inputs=<n> valid=<n> invalid=<n> fetch_ok=<n> fetch_err=<n> output_count=<n>`.
-    - `output_count` counts IDs whose complete lines reached stdout. For JSON it counts the IDs in the complete object, or zero if the object could not be fully written.
+    - `output_count` counts IDs whose complete lines reached stdout. For JSON it counts the IDs in the complete object, or zero if the object could not be fully written. Both paths flush a supplied `*bufio.Writer` and propagate its errors.
   - JSON processing uses `encoding/json/v2` defaults without v1 compatibility options (Go 1.27 or newer).
     - API field names match JSON tags exactly; unmatched fields are ignored. Duplicate object names, invalid UTF-8 and invalid timestamps are decode errors. JSON null resets the corresponding Go value; missing/null/empty item lists yield an empty page.
     - JSON output retains its schema, non-null empty arrays and trailing newline. HTML-sensitive characters and U+2028/U+2029 are emitted without extra escaping. Encoding errors (including invalid UTF-8 in input/error strings) return a non-zero result and write no JSON payload; stderr still receives the run summary. Decode-error text follows v2 and can appear in partial-result error fields.

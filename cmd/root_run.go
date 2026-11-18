@@ -39,14 +39,19 @@ func runRootCmdWithConfig(cmd *cobra.Command, args []string, cfg *RootConfig, de
 		}
 		var logFile io.WriteCloser
 		var err error
-		if deps.OpenLogFile == nil {
+		if usesOSOpener(deps.OpenLogFile, defaultOpenLogFile) {
 			logFile, err = openOSLogFile(ctx, cfg.LogFilePath)
 		} else {
 			logFile, err = deps.OpenLogFile(cfg.LogFilePath)
 		}
 		if err != nil {
 			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-				return nil
+				var empty bufferedOutput
+				result := empty.write(cmd.OutOrStdout(), jsonInputs{}, cfg)
+				if err := writeRunSummary(cmd.ErrOrStderr(), jsonInputs{}, 0, 0, result.count); err != nil {
+					return err
+				}
+				return result.err
 			}
 			return err
 		}
@@ -172,6 +177,9 @@ inputLoop:
 		}(target, targetOrder)
 	}
 	wg.Wait()
+	// Join the command-owned input phase. Caller-supplied readers and openers
+	// can stay blocked after cancellation.
+	<-stream.ownedDone
 	var outputResult outputWriteResult
 	if streamOutput {
 		close(outputCh)
@@ -182,7 +190,6 @@ inputLoop:
 		<-streamWriteDone
 		outputResult = streamWriteResult
 	}
-	// A caller-supplied reader can stay blocked after cancellation.
 	var inputErr error
 	select {
 	case inputErr = <-stream.errs:
@@ -199,16 +206,7 @@ inputLoop:
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(
-		errWriter,
-		"summary inputs=%d valid=%d invalid=%d fetch_ok=%d fetch_err=%d output_count=%d\n",
-		inputs.Total,
-		inputs.Valid,
-		inputs.Invalid,
-		reportedTargets-failures.count,
-		failures.count,
-		outputResult.count,
-	); err != nil {
+	if err := writeRunSummary(errWriter, inputs, reportedTargets-failures.count, failures.count, outputResult.count); err != nil {
 		return err
 	}
 	if outputResult.err != nil {
@@ -224,6 +222,12 @@ inputLoop:
 		return nil
 	}
 	return failures.first
+}
+
+func writeRunSummary(out io.Writer, inputs jsonInputs, fetchOK, fetchErr int64, outputCount int) error {
+	_, err := fmt.Fprintf(out, "summary inputs=%d valid=%d invalid=%d fetch_ok=%d fetch_err=%d output_count=%d\n",
+		inputs.Total, inputs.Valid, inputs.Invalid, fetchOK, fetchErr, outputCount)
+	return err
 }
 
 // fetchFailures records the number of failed targets and the first error reported.

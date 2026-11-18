@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,11 +15,15 @@ import (
 
 func TestRunRootCmdFlushesSuppliedStdoutBuffer(t *testing.T) {
 	server := newSingleVideoServer(t)
-	for _, noSort := range []bool{false, true} {
+	for _, mode := range []httpCommandOutputMode{
+		{name: "sorted"},
+		{name: "no-sort", noSort: true},
+		{name: "json", json: true},
+	} {
 		for _, writeErr := range []error{nil, io.ErrClosedPipe} {
-			t.Run(fmt.Sprintf("no-sort=%t/err=%v", noSort, writeErr), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/err=%v", mode.name, writeErr), func(t *testing.T) {
 				cfg := testFetchConfig(server.URL)
-				cfg.NoSortOutput = noSort
+				cfg.JSONOutput, cfg.NoSortOutput = mode.json, mode.noSort
 				deps := newTestRootDeps()
 				var out bytes.Buffer
 				var underlying io.Writer = &out
@@ -29,7 +34,15 @@ func TestRunRootCmdFlushesSuppliedStdoutBuffer(t *testing.T) {
 				}
 				deps.Stdout = bufio.NewWriter(underlying)
 				_, stderr, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1")
-				if !errors.Is(err, writeErr) || out.String() != wantOutput {
+				if !errors.Is(err, writeErr) {
+					t.Fatalf("got err=%v, want %v", err, writeErr)
+				}
+				if mode.json && writeErr == nil {
+					var payload jsonOutputPayload
+					if err := json.Unmarshal(out.Bytes(), &payload); err != nil || len(payload.Items) != 1 || payload.Items[0] != "sm1" {
+						t.Fatalf("unexpected JSON %q, err=%v", out.String(), err)
+					}
+				} else if out.String() != wantOutput {
 					t.Fatalf("got stdout=%q, err=%v, want stdout=%q, err=%v", out.String(), err, wantOutput, writeErr)
 				}
 				if want := fmt.Sprintf("output_count=%d\n", wantCount); !strings.Contains(stderr.String(), want) {
@@ -77,21 +90,27 @@ func TestRunRootCmdCountsOnlyCompleteOutputOnShortWrite(t *testing.T) {
 	t.Cleanup(server.Close)
 	line := nicoWatchURLPrefix + "sm1\n"
 	for _, tt := range []struct {
-		name    string
-		mode    httpCommandOutputMode
-		written func([]byte) int
-		count   int
+		name     string
+		mode     httpCommandOutputMode
+		written  func([]byte) int
+		count    int
+		buffered bool
 	}{
 		{name: "sorted", written: func([]byte) int { return len(line) + 2 }, count: 1},
 		{name: "no-sort", mode: httpCommandOutputMode{noSort: true}, written: func([]byte) int { return len(line) + 2 }, count: 1},
 		{name: "partial JSON", mode: httpCommandOutputMode{json: true}, written: func(p []byte) int { return len(p) - 2 }},
 		{name: "JSON without newline", mode: httpCommandOutputMode{json: true}, written: func(p []byte) int { return len(p) - 1 }, count: 2},
+		{name: "buffered partial JSON", mode: httpCommandOutputMode{json: true}, written: func(p []byte) int { return len(p) - 2 }, buffered: true},
+		{name: "buffered JSON without newline", mode: httpCommandOutputMode{json: true}, written: func(p []byte) int { return len(p) - 1 }, count: 2, buffered: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testFetchConfig(server.URL)
 			cfg.JSONOutput, cfg.NoSortOutput, cfg.URL = tt.mode.json, tt.mode.noSort, true
 			deps := newTestRootDeps()
 			deps.Stdout = writerFunc(func(p []byte) (int, error) { return tt.written(p), nil })
+			if tt.buffered {
+				deps.Stdout = bufio.NewWriter(deps.Stdout)
+			}
 			_, stderr, err := executeTestRootCommand(t, cfg, deps, "nicovideo.jp/user/1")
 			if !errors.Is(err, io.ErrShortWrite) {
 				t.Fatalf("got %v, want %v", err, io.ErrShortWrite)

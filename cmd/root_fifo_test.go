@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"os"
@@ -55,7 +56,9 @@ func TestCanceledFIFOInputReleasesItsDescriptor(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	command, _, _ := newTestRootCommand(t, newTestRootConfig(), newTestRootDeps())
+	deps := DefaultDeps()
+	deps.Stdout, deps.Stderr = nil, nil
+	command, _, _ := newTestRootCommand(t, newTestRootConfig(), deps)
 	command.SetArgs([]string{"--input-file", path, "--json"})
 	done := make(chan error, 1)
 	go func() { done <- command.ExecuteContext(ctx) }()
@@ -69,7 +72,15 @@ func TestCanceledFIFOInputReleasesItsDescriptor(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("canceled command is still waiting for FIFO input")
 	}
-	waitForOpenState(false)
+	if isOpen() {
+		t.Fatal("input descriptor still open after ExecuteContext returned")
+	}
+	if peer, err := os.OpenFile(path, os.O_WRONLY|unix.O_NONBLOCK, 0); !errors.Is(err, unix.ENXIO) {
+		if peer != nil {
+			_ = peer.Close()
+		}
+		t.Fatalf("writer could still connect after ExecuteContext returned: %v", err)
+	}
 }
 
 func TestFIFOInputWaitsForWriterAndRecognizesEOF(t *testing.T) {
@@ -78,7 +89,7 @@ func TestFIFOInputWaitsForWriterAndRecognizesEOF(t *testing.T) {
 			path := newTestFIFO(t)
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			reader, err := openOSInputFile(ctx, path)
+			reader, err := openOSInputFile(ctx, path, func() { t.Error("FIFO should support cancelable reading") })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,6 +122,37 @@ func TestFIFOInputWaitsForWriterAndRecognizesEOF(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestDefaultDepsLogFIFOCancellationReportsEmptyJSON(t *testing.T) {
+	path := newTestFIFO(t)
+	deps := DefaultDeps()
+	deps.Stdout, deps.Stderr = nil, nil
+	command, stdout, stderr := newTestRootCommand(t, newTestRootConfig(), deps)
+	command.SetArgs([]string{"--json", "--logfile", path, "nicovideo.jp/user/1"})
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- command.ExecuteContext(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("DefaultDeps logfile open ignored the command deadline")
+	}
+	var payload jsonOutputPayload
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode stdout %q: %v", stdout.String(), err)
+	}
+	if payload.Inputs != (jsonInputs{}) || len(payload.Targets) != 0 || len(payload.Items) != 0 {
+		t.Fatalf("expected an empty report: %+v", payload)
+	}
+	const summary = "summary inputs=0 valid=0 invalid=0 fetch_ok=0 fetch_err=0 output_count=0\n"
+	if stderr.String() != summary {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), summary)
 	}
 }
 

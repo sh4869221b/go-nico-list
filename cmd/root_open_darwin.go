@@ -1,6 +1,10 @@
 package cmd
 
-import "golang.org/x/sys/unix"
+import (
+	"os"
+
+	"golang.org/x/sys/unix"
+)
 
 // Darwin's poll is backed by kqueue, which can miss the last writer closing
 // a FIFO. select observes EOF, within the descriptor range its fd_set supports.
@@ -13,3 +17,6 @@ func waitForFIFO(fd uintptr) (bool, error) {
 	count, err := unix.Select(int(fd)+1, &readable, nil, nil, &timeout)
 	return count > 0, err
 }
+
+// Darwin's /dev/fd duplicates a descriptor rather than reopening its inode.
+func pinLogFIFO(string, os.FileInfo) (*os.File, string) { return nil, "" }

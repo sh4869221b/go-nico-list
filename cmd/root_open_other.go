@@ -8,10 +8,11 @@ import (
 	"os"
 )
 
-func openOSInputFile(_ context.Context, path string) (io.ReadCloser, error) {
+func openOSInputFile(_ context.Context, path string, detach func()) (io.ReadCloser, error) {
+	detach()
 	return os.Open(path)
 }
 
 func openOSLogFile(_ context.Context, path string) (io.WriteCloser, error) {
-	return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	return defaultOpenLogFile(path)
 }

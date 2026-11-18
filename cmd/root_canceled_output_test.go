@@ -12,6 +12,31 @@ import (
 	"testing/synctest"
 )
 
+func TestCancellationDoesNotWaitForCallerStdin(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		release := make(chan struct{})
+		defer close(release)
+		command, _, _ := newTestRootCommand(t, newTestRootConfig(), newTestRootDeps())
+		command.SetArgs([]string{"--stdin", "--json"})
+		command.SetIn(blockingErrorReader{wait: release, err: io.EOF})
+		done := make(chan error, 1)
+		go func() { done <- command.ExecuteContext(ctx) }()
+		synctest.Wait()
+		cancel()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatal("command waited for the caller's stdin reader")
+		}
+	})
+}
+
 func TestNoSortDrainsCompletedBatchesAfterInputError(t *testing.T) {
 	inputErr := errors.New("input read failed")
 	outputErr := errors.New("output write failed")

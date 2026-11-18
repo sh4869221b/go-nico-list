@@ -84,8 +84,9 @@ func (b *bufferedOutput) write(out io.Writer, inputs jsonInputs, cfg *RootConfig
 		if n < len(encoded)+1 && err == nil {
 			err = io.ErrShortWrite
 		}
+		written, err := flushOutput(out, int64(n), err)
 		result := outputWriteResult{err: err}
-		if n >= len(encoded) {
+		if written >= int64(len(encoded)) {
 			result.count = len(items)
 		}
 		return result

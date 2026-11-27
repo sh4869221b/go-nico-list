@@ -140,7 +140,7 @@ main.go
 ### Fetch (`internal/niconico.GetVideoList`, `internal/niconico.GetMylistVideoList`)
 - Endpoints:
   - User: `https://nvapi.nicovideo.jp/v3/users/<userID>/videos?pageSize=100&page=<n>`
-  - Mylist: `https://nvapi.nicovideo.jp/v3/mylists/<mylistID>?pageSize=100&page=<n>`
+  - Mylist: `https://nvapi.nicovideo.jp/v2/mylists/<mylistID>?pageSize=100&page=<n>`
 - Request headers:
   - `X-Frontend-Id: 6`
   - `Accept: */*`

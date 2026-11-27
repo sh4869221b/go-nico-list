@@ -160,6 +160,7 @@ main.go
 
 ### Retry (`internal/niconico.retriesRequest`)
 - Retry on anything other than HTTP 200/404.
+- For an HTTP 200 page, retry the same URL if the body read reports unexpected EOF or the JSON decoder reaches the end of input before a complete value. These attempts share the existing `--retries` budget and backoff with transport and HTTP status failures. Return the final error when the budget is exhausted. Other decode errors and oversized bodies remain terminal.
 - When retries are exhausted and the final status is not 200/404, return an error and do not return a closed body.
 - Exponential backoff starting at `100ms`, max `30s`, including arbitrarily large retry counts.
 - Skip backoff sleep after the final attempt; backoff sleep is canceled by `ctx.Done()`.

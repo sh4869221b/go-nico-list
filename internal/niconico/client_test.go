@@ -34,7 +34,7 @@ func TestRetriesRequest(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil, nil)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRetriesRequestExhaustedReturnsError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil, nil)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, retries, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -86,7 +86,7 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		res, err := retriesRequest(ctx, server.URL, time.Second, retries, nil, nil)
+		res, err := retriesRequest(ctx, server.URL, time.Second, retries, nil, nil, nil)
 		if res != nil {
 			_ = res.Body.Close()
 		}
@@ -117,7 +117,7 @@ func TestRetriesRequestBackoffCanceled(t *testing.T) {
 func TestRetriesRequestContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	res, err := retriesRequest(ctx, "http://example.com", time.Second, 3, nil, nil)
+	res, err := retriesRequest(ctx, "http://example.com", time.Second, 3, nil, nil, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -136,7 +136,7 @@ func TestRetriesRequestTimeout(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	timeout := 50 * time.Millisecond
-	res, err := retriesRequest(context.Background(), server.URL, timeout, 3, nil, nil)
+	res, err := retriesRequest(context.Background(), server.URL, timeout, 3, nil, nil, nil)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline exceeded, got %v", err)

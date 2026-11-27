@@ -40,7 +40,7 @@ func TestRetryAfterOverflowKeepsRequestPacing(t *testing.T) {
 			if mode == "adaptive" {
 				control = NewAdaptiveConcurrencyControl(0, false, false)
 			}
-			res, err := retriesRequest(t.Context(), server.URL, time.Second, 2, nil, control)
+			res, err := retriesRequest(t.Context(), server.URL, time.Second, 2, nil, control, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

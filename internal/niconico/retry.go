@@ -30,8 +30,9 @@ func nextRetryDelay(retryAfter time.Duration, attempt int) time.Duration {
 	return max(retryAfter, wait)
 }
 
-// retriesRequest issues a GET request with retries and rate limiting.
-func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter, control *HTTPControl) (*http.Response, error) {
+// retriesRequest issues a GET request with retries and rate limiting. If provided,
+// readOK owns each HTTP 200 body and can request another attempt.
+func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Duration, retries int, limiter *RateLimiter, control *HTTPControl, readOK func(res *http.Response, lastAttempt bool) (retry bool, err error)) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -68,12 +69,23 @@ func retriesRequest(ctx context.Context, url string, httpClientTimeout time.Dura
 			if body, ok := res.Body.(*controlledBody); ok && body.adaptive != nil {
 				adaptiveRetryAt = body.adaptive.retryAt
 			}
-			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
+			switch res.StatusCode {
+			case http.StatusOK:
+				if readOK == nil {
+					return res, nil
+				}
+				retry, err := readOK(res, attempt == retries)
+				if !retry {
+					return nil, err
+				}
+				lastErr = err
+			case http.StatusNotFound:
 				return res, nil
+			default:
+				delay = retryAfterDelay(res)
+				_ = res.Body.Close()
+				lastErr = fmt.Errorf("unexpected status: %d", res.StatusCode)
 			}
-			delay = retryAfterDelay(res)
-			_ = res.Body.Close()
-			lastErr = fmt.Errorf("unexpected status: %d", res.StatusCode)
 		}
 
 		if attempt == retries {

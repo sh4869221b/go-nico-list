@@ -116,17 +116,33 @@ func fetchPage(
 			metrics.addCounter("page_success", 1)
 		}
 	}()
-	res, err := retriesRequest(ctx, url, httpClientTimeout, retries, limiter, control)
+	var page parsedPage
+	res, err := retriesRequest(ctx, url, httpClientTimeout, retries, limiter, control, func(res *http.Response, lastAttempt bool) (bool, error) {
+		parsed, message, err := readPageResponse(res, parsePage, metrics)
+		if err == nil {
+			page = parsed
+			if page.Status != http.StatusOK {
+				logger.Warn("unexpected meta status", "status", page.Status)
+			}
+			return false, nil
+		}
+		if !lastAttempt && errors.Is(err, io.ErrUnexpectedEOF) {
+			return true, err
+		}
+		logger.Error(message, "error", err)
+		return false, err
+	})
 	if err != nil {
 		return parsedPage{}, err
 	}
-	if res == nil {
-		return parsedPage{}, nil
-	}
-	if res.StatusCode == http.StatusNotFound {
+	if res != nil {
 		_ = res.Body.Close()
 		return parsedPage{NotFound: true}, nil
 	}
+	return page, nil
+}
+
+func readPageResponse(res *http.Response, parsePage parsePageFunc, metrics *HTTPMetrics) (parsedPage, string, error) {
 	var started time.Time
 	if metrics != nil {
 		started = time.Now()
@@ -146,8 +162,7 @@ func fetchPage(
 	_ = res.Body.Close()
 	if err != nil {
 		putPageBodyBuffer(buffer)
-		logger.Error("failed to read response body", "error", err)
-		return parsedPage{}, err
+		return parsedPage{}, "failed to read response body", err
 	}
 	if metrics != nil {
 		started = time.Now()
@@ -160,12 +175,8 @@ func fetchPage(
 		}
 	}
 	if err != nil {
-		logger.Error("failed to unmarshal response body", "error", err)
-		return parsedPage{}, err
+		return parsedPage{}, "failed to unmarshal response body", err
 	}
 	putPageBodyBuffer(buffer)
-	if page.Status != http.StatusOK {
-		logger.Warn("unexpected meta status", "status", page.Status)
-	}
-	return page, nil
+	return page, "", nil
 }

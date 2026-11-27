@@ -150,7 +150,7 @@ func TestAdaptiveRetryCombinesSharedDeadline(t *testing.T) {
 		return &http.Response{StatusCode: status, Header: http.Header{"Retry-After": []string{"2"}}, Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
 	})
 	c := NewAdaptiveConcurrencyControl(8, false, true)
-	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c)
+	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestAdaptiveRetryAfterDeadlineStartsAtHeaders(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
 	})
 	c := NewAdaptiveConcurrencyControl(8, false, false)
-	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c)
+	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -198,7 +198,7 @@ func TestHTTPControlRetryReleasesBeforeBackoff(t *testing.T) {
 		}
 		return ctx.Err()
 	}
-	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c)
+	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 2, nil, c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestHTTPControlTransportFailureAndCanceledBackoff(t *testing.T) {
 	http.DefaultTransport = controlRoundTripper(func(*http.Request) (*http.Response, error) { return nil, errors.New("transport failed") })
 	c := NewHTTPControl(1, true)
 	sleepFn = func(context.Context, time.Duration) error { return context.Canceled }
-	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 3, nil, c)
+	res, err := retriesRequest(context.Background(), "http://fixture.invalid", time.Second, 3, nil, c, nil)
 	if res != nil {
 		_ = res.Body.Close()
 	}
@@ -356,7 +356,7 @@ func TestHTTPControlRedirectErrorPreservesStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/again", http.StatusFound) }))
 	defer server.Close()
 	c := NewHTTPControl(1, true)
-	res, err := retriesRequest(context.Background(), server.URL, time.Second, 1, nil, c)
+	res, err := retriesRequest(context.Background(), server.URL, time.Second, 1, nil, c, nil)
 	if res != nil {
 		_ = res.Body.Close()
 	}

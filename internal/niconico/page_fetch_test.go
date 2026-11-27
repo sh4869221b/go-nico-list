@@ -94,6 +94,90 @@ func TestFetchPageCountsPartialLargeBody(t *testing.T) {
 	}
 }
 
+func TestFetchPageRetriesIncompleteResponse(t *testing.T) {
+	const complete = `{"meta":{"status":200},"data":{"items":[]}}`
+	type response struct {
+		status int
+		body   string
+		length string
+	}
+	for _, tc := range []struct {
+		name         string
+		responses    []response
+		adaptive     bool
+		retries      int
+		wantAttempts int32
+		wantLog      string
+	}{
+		{
+			name: "empty JSON", responses: []response{{status: 200}, {status: 200, body: complete}},
+			retries: 2, wantAttempts: 2,
+		},
+		{
+			name: "truncated JSON with adaptive concurrency", responses: []response{{status: 200, body: `{"data":`}, {status: 200, body: complete}},
+			adaptive: true, retries: 2, wantAttempts: 2,
+		},
+		{
+			name: "short HTTP body", responses: []response{{status: 200, body: `{"data":`, length: "100"}, {status: 200, body: complete}},
+			adaptive: true, retries: 2, wantAttempts: 2,
+		},
+		{
+			name: "shared retry budget", responses: []response{{status: 503}, {status: 200, body: `{"data":`}, {status: 200, body: complete}},
+			retries: 2, wantAttempts: 2, wantLog: "failed to unmarshal response body",
+		},
+		{
+			name: "malformed JSON", responses: []response{{status: 200, body: "invalid"}, {status: 200, body: complete}},
+			retries: 2, wantAttempts: 1, wantLog: "failed to unmarshal response body",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useAdaptiveTestClock(t)
+			const path = "/users/1/videos?pageSize=100&page=2"
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.RequestURI() != path {
+					t.Errorf("request = %s, want %s", r.URL.RequestURI(), path)
+				}
+				i := int(attempts.Add(1)) - 1
+				if i >= len(tc.responses) {
+					t.Error("unexpected extra request")
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				res := tc.responses[i]
+				if res.length != "" {
+					w.Header().Set("Content-Length", res.length)
+				}
+				w.WriteHeader(res.status)
+				_, _ = io.WriteString(w, res.body)
+			}))
+			t.Cleanup(server.Close)
+
+			control := NewHTTPControl(1, true)
+			if tc.adaptive {
+				control = NewAdaptiveConcurrencyControl(1, false, true)
+			}
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
+			page, err := fetchPage(t.Context(), server.URL+path, time.Second, tc.retries, nil, logger, parseUserVideoPage, control)
+			if tc.wantLog == "" {
+				if err != nil || page.Status != http.StatusOK || logs.Len() != 0 {
+					t.Fatalf("page=%+v error=%v logs=%s", page, err, &logs)
+				}
+			} else if err == nil || !strings.Contains(logs.String(), tc.wantLog) {
+				t.Fatalf("error=%v logs=%s, want %q", err, &logs, tc.wantLog)
+			}
+			if attempts.Load() != tc.wantAttempts {
+				t.Fatalf("attempts=%d, want %d", attempts.Load(), tc.wantAttempts)
+			}
+			got := control.Snapshot()
+			if got.Admission.Reserved != 0 || got.Metrics.Counters["pages"] != 1 || got.Metrics.Counters["retries"] != int64(tc.wantAttempts-1) {
+				t.Fatalf("unexpected observations: %+v", got)
+			}
+		})
+	}
+}
+
 // Exercise the real transport, including net/http's transparent decompression.
 func TestFetchPageBodyLimitHTTP(t *testing.T) {
 	for _, endpoint := range []struct {

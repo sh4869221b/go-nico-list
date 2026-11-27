@@ -26,7 +26,7 @@ Examples:
 ```bash
 go-nico-list nicovideo.jp/user/12345
 go-nico-list https://www.nicovideo.jp/user/12345/video --url
-go-nico-list nicovideo.jp/user/1 nicovideo.jp/mylist/847130 --concurrency-targets 10
+go-nico-list nicovideo.jp/user/1 nicovideo.jp/mylist/12484677 --concurrency-targets 10
 go-nico-list --input-file users.txt
 cat users.txt | go-nico-list --stdin
 ```

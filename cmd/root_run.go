@@ -159,10 +159,14 @@ inputLoop:
 			defer targetGate.Release()
 			defer addProgress()
 			fetch := niconico.GetVideoList
+			baseURL := cfg.BaseURL
 			if target.Type == targetTypeMylist {
 				fetch = niconico.GetMylistVideoList
+				if baseURL == defaultUserBaseURL {
+					baseURL = defaultMylistBaseURL
+				}
 			}
-			items, err := fetch(ctx, target.ID, cfg.Comment, afterDate, beforeDate, cfg.BaseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
+			items, err := fetch(ctx, target.ID, cfg.Comment, afterDate, beforeDate, baseURL, cfg.Retries, cfg.HTTPClientTimeout, limiter, pageConcurrency, runLogger, control)
 			if !streamOutput {
 				buffered.addTarget(target, targetOrder, items, err, cfg.JSONOutput)
 			}

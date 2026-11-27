@@ -13,6 +13,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	defaultUserBaseURL   = "https://nvapi.nicovideo.jp/v3"
+	defaultMylistBaseURL = "https://nvapi.nicovideo.jp/v2"
+)
+
 // RootConfig contains all root command flag values and runtime defaults.
 type RootConfig struct {
 	Comment             int
@@ -63,7 +68,7 @@ func DefaultConfig() RootConfig {
 		PageConcurrency:   1,
 		Retries:           10,
 		HTTPClientTimeout: 10 * time.Second,
-		BaseURL:           "https://nvapi.nicovideo.jp/v3",
+		BaseURL:           defaultUserBaseURL,
 		Version:           Version,
 	}
 }

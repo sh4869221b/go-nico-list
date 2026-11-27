@@ -22,6 +22,32 @@ import (
 	"time"
 )
 
+func TestDefaultAPIEndpoints(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = adaptiveInputErrorTransport(func(r *http.Request) (*http.Response, error) {
+		status := http.StatusOK
+		var payload string
+		switch r.URL.String() {
+		case "https://nvapi.nicovideo.jp/v3/users/1/videos?pageSize=100&page=1":
+			payload = httpCommandPagePayload(false, 1, []string{"sm1"})
+		case "https://nvapi.nicovideo.jp/v2/mylists/2?pageSize=100&page=1":
+			payload = httpCommandPagePayload(true, 1, []string{"sm2"})
+		default:
+			status = http.StatusNotFound
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(payload)), Request: r}, nil
+	})
+
+	out, _, err := executeTestRootCommand(t, newTestRootConfig(), newTestRootDeps(), "nicovideo.jp/user/1", "nicovideo.jp/mylist/2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "sm1\nsm2\n" {
+		t.Fatalf("output = %q, want both videos", got)
+	}
+}
+
 type httpCommandOutputMode struct {
 	name     string
 	json     bool
